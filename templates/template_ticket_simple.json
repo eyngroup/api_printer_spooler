@@ -1,0 +1,40 @@
+{
+  "header": {
+    "title": "ALMACEN DE DESPACHO",
+    "subtitle": "RIF: J-12345678-9",
+    "company": "NOMBRE DE LA EMPRESA, C.A.",
+    "address": "Av. Principal, Local 1",
+    "phone": "Telf: (0212) 555-5555",
+    "type": "NOTA DE DESPACHO",
+    "name": "NUMERO"
+  },
+  "footer": {
+    "message": "¡Gracias por su Compra!",
+    "legal": "Este Documento No Tiene Validez Fiscal"
+  },
+  "format": {
+    "width": 48,
+    "separator": "-",
+    "show_customer_address": false,
+    "show_customer_phone": false,
+    "show_document_name": false,
+    "show_document_number": false,
+    "show_items_header": false,
+    "combine_item_ref": false,
+    "width_item_description": 15,
+    "qr": {
+      "size": 6,
+      "error_level": "M",
+      "model": 1
+    }
+  },
+  "counter": {
+    "document_date": "2025-01-01",
+    "document_invoice": "00000000",
+    "document_credit": "00000000",
+    "document_debit": "00000000",
+    "document_note": "00000000",
+    "machine_report": "0000",
+    "machine_serial": "Z1B1234567"
+  }
+}

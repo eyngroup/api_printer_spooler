@@ -1,0 +1,15 @@
+# Directorios
+.venv/
+.idea/
+.vs/
+.vscode/
+.ruff_cache/
+dist/
+build/
+__pycache__/
+
+
+# Archivos
+.env
+*.log
+

@@ -1,0 +1,476 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Proyecto desarrollado por Desarrollos PnP, C.A. (digiua)
+https://github.com/digiua/TestPnP
+"""
+
+from functools import reduce
+import serial
+import operator
+import time
+import datetime
+from tokenize import Double
+
+
+class port:
+    portName = "COM96"  # Changed by p
+    baudRate = 9600
+    dataBits = serial.EIGHTBITS
+    stopBits = serial.STOPBITS_ONE
+    parity = serial.PARITY_NONE
+    readBufferSize = 256
+    writeBufferSize = 256
+    readTimeOut = 2
+    writeTimeOut = 5
+
+
+class tf_ve_ifpython:
+    bandera = False
+    mdepura = False
+    status = ""
+    envio = ""
+    error = ""
+    ##
+    Port = port()
+
+    # Funcion ABRIR
+    def OpenPnP(self, p):
+        if not self.bandera:
+            try:
+                self.ser = serial.Serial(
+                    port=p,
+                    baudrate=self.Port.baudRate,
+                    bytesize=self.Port.dataBits,
+                    parity=self.Port.parity,
+                    stopbits=self.Port.stopBits,
+                    timeout=self.Port.readTimeOut,
+                    writeTimeout=self.Port.writeTimeOut,
+                    xonxoff=0,
+                    rtscts=0,
+                )  ##Find out what are xonxoff, and rtscts for
+                # print "baudrate", self.Port.baudRate
+                self.bandera = True
+                return True
+            except (serial.PortNotOpenError, serial.SerialTimeoutException):
+                self.bandera = False
+                self.envio = "Impresora no conectada o error accediendo al puerto" + str(p)
+                return False
+
+    # Funcion CERRAR
+    def ClosePnP(self):
+        if self.bandera:
+            self.ser.close()
+            self.bandera = False
+            return self.bandera
+
+    # Funcion MANIPULA
+    def _HandleCTSRTS(self):
+        try:
+            self.ser.setRTS(True)
+            lpri = 1
+            while not self.ser.getCTS():
+                time.sleep(lpri / 10)
+                lpri = lpri + 1
+                if lpri > 20:
+                    self.ser.setRTS(False)
+                    return False
+            return True
+        except serial.SerialException:
+            return False
+
+    def SendCmd(self, cmd):
+        #   print("Enviando sendcmd: ",cmd)
+        try:
+            self.ser.flushInput()
+            self.ser.flushOutput()
+            # if self._HandleCTSRTS():
+            msj = self._AssembleQueryToSend(cmd)
+            # saco el unicode
+            self._write(msj.encode().replace(b"\xc2", b""))
+            i = 0
+            rt = b""
+            while i < 10:
+                sal = self._read(100)
+                rt += sal
+                # print("RT ",rt)
+                i += 1
+                if b"\x03" in rt:
+                    i = 20
+            rt = rt.replace(b"\x1c", b"\x7c").replace(b"\x02", b"\x7c").replace(b"\x03", b"\x7c")
+            # else:
+            #   self._GetStatusError(0, 128)
+            #   self.envio = "Error... CTS in False"
+            #   rt=False
+            # self.ser.setRTS(False)
+        except serial.SerialException:
+            rt = False
+        return rt
+
+    def _write(self, msj):
+        if self.mdepura:
+            print + self._Debug(msj)
+        self.ser.write(msj)
+
+    def _read(self, bytes):
+        msj = self.ser.read(bytes)
+        if self.mdepura:
+            print + self._Debug(msj)
+        return msj
+
+    def _AssembleQueryToSend(self, linea):
+        # mal calculado pero ignorado
+        previo = chr(0x02) + chr(0x30) + linea.replace("|", chr(0x1C)) + chr(0x03)
+        lrc = self._Lrc(linea + chr(0x03))
+        previo = previo + "AAAA"  # chr(lrc)
+        return previo
+
+    def _Lrc(self, linea):
+        return reduce(operator.xor, map(ord, str(linea)))
+
+    def _GetStatusError(self, st, er):
+        st_aux = st
+        error = ""
+        status = ""
+        return status + "   " + error + "   " + self.error
+
+
+class PnP(tf_ve_ifpython):
+    def GetSVPrinterData(self):
+        self.trama = self._States("SV")
+        # print self.trama
+        self.SVPrinterData = SVPrinterData(self.trama)
+        # print self.S1PrinterData
+        return self.SVPrinterData
+
+
+class ReportData(object):
+    _numberOfLastZReport = 0
+    _zReportDate = ""
+    _zReportTime = ""
+    _numberOfLastInvoice = 0
+    _lastInvoiceDate = ""
+    _lastInvoiceTime = ""
+    _numberOfLastDebitNote = 0
+    _numberOfLastCreditNote = 0
+    _numberOfLastNonFiscal = 0
+
+    _freeSalesTax = 0  # ventas
+    _generalRate1Sale = 0
+    _generalRate1Tax = 0
+    _reducedRate2Sale = 0
+    _reducedRate2Tax = 0
+    _additionalRate3Sal = 0
+    _additionalRate3Tax = 0
+    _igtfRateSales = 0
+    _igtfRateTaxSales = 0
+    _persivSales = 0
+
+    _freeTaxDebit = 0  # Notas de Debito
+    _generalRateDebit = 0
+    _generalRateTaxDebit = 0
+    _reducedRateDebit = 0
+    _reducedRateTaxDebit = 0
+    _additionalRateDebit = 0
+    _additionalRateTaxDebit = 0
+    _igtfRateDebit = 0
+    _igtfRateTaxDebit = 0
+    _persivDebit = 0
+
+    _freeTaxDevolution = 0  # Notas de Credito
+    _generalRateDevolution = 0
+    _generalRateTaxDevolution = 0
+    _reducedRateDevolution = 0
+    _reducedRateTaxDevolution = 0
+    _additionalRateDevolution = 0
+    _additionalRateTaxDevolution = 0
+    _igtfRateDevolution = 0
+    _igtfRateTaxDevolution = 0
+    _persivDevolution = 0
+
+    def __init__(self, trama):
+        print("Reporte trama: " + str(trama))
+        print("longitud 2: " + str(len(trama)))
+        if trama != None:
+            # print("longitud 2: "+ str(len(trama[0])))
+
+            if len(trama[0]) == 638 or len(trama[0]) == 524:  # FLAG 63:19 - 63:17 - 63:03(SIN IGTF)
+                # print("longitud de la trama que accedo: "+ str(len(trama[0])))
+                try:
+                    _arrayParameter = str(trama).split(chr(0x0A))
+                    print("Reporte actual: " + str(_arrayParameter))
+                    print("longitud 2: " + str(len(_arrayParameter)))
+                    if len(_arrayParameter) > 0:
+                        print("Reporte actual 2: " + str(_arrayParameter))
+                        self._numberOfLastZReport = int(_arrayParameter[0][7:11])
+                        _hr = _arrayParameter[0][21:23]
+                        _mn = _arrayParameter[0][23:25]
+                        _dd = _arrayParameter[0][17:19]
+                        _mm = _arrayParameter[0][15:17]
+                        _aa = int(_arrayParameter[0][13:15]) + 2000
+                        _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                        _Time = str(_hr) + ":" + str(_mn)
+                        self._zReportDate = _Date
+                        self._zReportTime = _Time
+
+                        self._numberOfLastInvoice = int(_arrayParameter[0][27:35])
+                        _hr = _arrayParameter[0][45:47]
+                        _mn = _arrayParameter[0][47:49]
+
+                        _dd = _arrayParameter[0][41:43]
+                        _mm = _arrayParameter[0][39:41]
+                        _aa = int(_arrayParameter[0][37:39]) + 2000
+                        _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                        _Time = str(_hr) + ":" + str(_mn)
+                        self._lastInvoiceDate = _Date
+                        self._lastInvoiceTime = _Time
+
+                        self._numberOfLastCreditNote = int(_arrayParameter[0][61:69])
+                        self._numberOfLastDebitNote = int(_arrayParameter[0][51:59])
+                        self._numberOfLastNonFiscal = int(_arrayParameter[0][71:79])
+                        self._freeSalesTax = Util().DoValueDouble(_arrayParameter[0][81:99])
+                        self._generalRate1Sale = Util().DoValueDouble(_arrayParameter[0][101:119])
+                        self._generalRate1Tax = Util().DoValueDouble(_arrayParameter[0][121:139])
+                        self._reducedRate2Sale = Util().DoValueDouble(_arrayParameter[0][141:159])
+                        self._reducedRate2Tax = Util().DoValueDouble(_arrayParameter[0][161:179])
+                        self._additionalRate3Sal = Util().DoValueDouble(_arrayParameter[0][181:199])
+                        self._additionalRate3Tax = Util().DoValueDouble(_arrayParameter[0][201:219])
+                        self._freeTaxDebit = Util().DoValueDouble(_arrayParameter[0][221:239])
+                        self._generalRateDebit = Util().DoValueDouble(_arrayParameter[0][241:259])
+                        self._generalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][261:279])
+                        self._reducedRateDebit = Util().DoValueDouble(_arrayParameter[0][281:299])
+                        self._reducedRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][301:319])
+                        self._additionalRateDebit = Util().DoValueDouble(_arrayParameter[0][321:339])
+                        self._additionalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][341:359])
+                        self._freeTaxDevolution = Util().DoValueDouble(_arrayParameter[0][361:379])
+                        self._generalRateDevolution = Util().DoValueDouble(_arrayParameter[0][381:399])
+                        self._generalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][401:419])
+                        self._reducedRateDevolution = Util().DoValueDouble(_arrayParameter[0][421:439])
+                        self._reducedRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][441:459])
+                        self._additionalRateDevolution = Util().DoValueDouble(_arrayParameter[0][461:479])
+                        self._additionalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][481:499])
+
+                        self._persivSales = Util().DoValueDouble(_arrayParameter[0][501:519])
+                        self._persivDebit = Util().DoValueDouble(_arrayParameter[0][521:539])
+                        self._persivDevolution = Util().DoValueDouble(_arrayParameter[0][541:559])
+
+                        self._igtfRateSales = Util().DoValueDouble(_arrayParameter[0][561:579])
+                        self._igtfRateTaxSales = Util().DoValueDouble(_arrayParameter[0][581:599])
+                        self._igtfRateDebit = Util().DoValueDouble(_arrayParameter[0][601:619])
+                        self._igtfRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][621:639])
+                        self._igtfRateDevolution = Util().DoValueDouble(_arrayParameter[0][641:659])
+                        self._igtfRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][661:679])
+                except ValueError:
+                    return
+
+            if len(trama[0]) == 362:  # (FLAG 63:00)
+                try:
+                    _arrayParameter = str(trama).split(chr(0x0A))
+                    print("Reporte actual: " + str(_arrayParameter))
+                    print("longitud de la trama que accedo: " + str(len(trama[0])))
+                    print("Reporte actual: " + str(_arrayParameter))
+                    print("longitud 2: " + str(len(_arrayParameter)))
+                    if len(_arrayParameter) > 0:
+                        print("Reporte actual 2: " + str(_arrayParameter))
+                        self._numberOfLastZReport = int(_arrayParameter[0][7:11])
+                        _hr = _arrayParameter[0][21:23]
+                        _mn = _arrayParameter[0][23:25]
+                        _dd = _arrayParameter[0][17:19]
+                        _mm = _arrayParameter[0][15:17]
+                        _aa = int(_arrayParameter[0][13:15]) + 2000
+                        _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                        _Time = str(_hr) + ":" + str(_mn)
+                        self._zReportDate = _Date
+                        self._zReportTime = _Time
+
+                        self._numberOfLastInvoice = int(_arrayParameter[0][27:35])
+                        _hr = _arrayParameter[0][45:47]
+                        _mn = _arrayParameter[0][47:49]
+
+                        _dd = _arrayParameter[0][41:43]
+                        _mm = _arrayParameter[0][39:41]
+                        _aa = int(_arrayParameter[0][37:39]) + 2000
+                        _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                        _Time = str(_hr) + ":" + str(_mn)
+                        self._lastInvoiceDate = _Date
+                        self._lastInvoiceTime = _Time
+
+                        self._numberOfLastCreditNote = int(_arrayParameter[0][61:69])
+                        self._numberOfLastDebitNote = int(_arrayParameter[0][51:59])
+                        self._numberOfLastNonFiscal = int(_arrayParameter[0][71:79])
+                        self._freeSalesTax = Util().DoValueDouble(_arrayParameter[0][81:94])
+                        self._generalRate1Sale = Util().DoValueDouble(_arrayParameter[0][96:108])
+                        self._generalRate1Tax = Util().DoValueDouble(_arrayParameter[0][111:124])
+                        self._reducedRate2Sale = Util().DoValueDouble(_arrayParameter[0][126:139])
+                        self._reducedRate2Tax = Util().DoValueDouble(_arrayParameter[0][141:154])
+                        self._additionalRate3Sal = Util().DoValueDouble(_arrayParameter[0][156:169])
+                        self._additionalRate3Tax = Util().DoValueDouble(_arrayParameter[0][171:184])
+                        self._freeTaxDebit = Util().DoValueDouble(_arrayParameter[0][186:199])
+                        self._generalRateDebit = Util().DoValueDouble(_arrayParameter[0][201:214])
+                        self._generalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][216:229])
+                        self._reducedRateDebit = Util().DoValueDouble(_arrayParameter[0][231:244])
+                        self._reducedRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][246:259])
+                        self._additionalRateDebit = Util().DoValueDouble(_arrayParameter[0][261:274])
+                        self._additionalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][276:289])
+                        self._freeTaxDevolution = Util().DoValueDouble(_arrayParameter[0][291:304])
+                        self._generalRateDevolution = Util().DoValueDouble(_arrayParameter[0][306:319])
+                        self._generalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][321:334])
+                        self._reducedRateDevolution = Util().DoValueDouble(_arrayParameter[0][336:349])
+                        self._reducedRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][351:364])
+                        self._additionalRateDevolution = Util().DoValueDouble(_arrayParameter[0][366:379])
+                        self._additionalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][381:394])
+
+                        # self._persivSales = Util().DoValueDouble(_arrayParameter[0][501:519])
+                        # self._persivDebit = Util().DoValueDouble(_arrayParameter[0][521:539])
+                        # self._persivDevolution = Util().DoValueDouble(_arrayParameter[0][541:559])
+
+                        # self._igtfRateSales = Util().DoValueDouble(_arrayParameter[0][561:579])
+                        # self._igtfRateTaxSales = Util().DoValueDouble(_arrayParameter[0][581:599])
+                        # self._igtfRateDebit = Util().DoValueDouble(_arrayParameter[0][601:619])
+                        # self._igtfRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][621:639])
+                        # self._igtfRateDevolution = Util().DoValueDouble(_arrayParameter[0][641:659])
+                        # self._igtfRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][661:679])
+                except ValueError:
+                    return
+
+        if len(trama[0]) == 467:  # (FLAG 63:01)
+            try:
+                _arrayParameter = str(trama).split(chr(0x0A))
+                print("Reporte actual: " + str(_arrayParameter))
+                print("longitud de la trama que accedo: " + str(len(trama[0])))
+                print("Reporte actual: " + str(_arrayParameter))
+                print("longitud 2: " + str(len(_arrayParameter)))
+                if len(_arrayParameter) > 0:
+                    print("Reporte actual 2: " + str(_arrayParameter))
+                    self._numberOfLastZReport = int(_arrayParameter[0][7:11])
+                    _hr = _arrayParameter[0][21:23]
+                    _mn = _arrayParameter[0][23:25]
+                    _dd = _arrayParameter[0][17:19]
+                    _mm = _arrayParameter[0][15:17]
+                    _aa = int(_arrayParameter[0][13:15]) + 2000
+                    _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                    _Time = str(_hr) + ":" + str(_mn)
+                    self._zReportDate = _Date
+                    self._zReportTime = _Time
+
+                    self._numberOfLastInvoice = int(_arrayParameter[0][27:35])
+                    _hr = _arrayParameter[0][45:47]
+                    _mn = _arrayParameter[0][47:49]
+
+                    _dd = _arrayParameter[0][41:43]
+                    _mm = _arrayParameter[0][39:41]
+                    _aa = int(_arrayParameter[0][37:39]) + 2000
+                    _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                    _Time = str(_hr) + ":" + str(_mn)
+                    self._lastInvoiceDate = _Date
+                    self._lastInvoiceTime = _Time
+
+                    self._numberOfLastCreditNote = int(_arrayParameter[0][61:69])
+                    self._numberOfLastDebitNote = int(_arrayParameter[0][51:59])
+                    self._numberOfLastNonFiscal = int(_arrayParameter[0][71:79])
+                    self._freeSalesTax = Util().DoValueDouble(_arrayParameter[0][81:99])
+                    self._generalRate1Sale = Util().DoValueDouble(_arrayParameter[0][101:119])
+                    self._generalRate1Tax = Util().DoValueDouble(_arrayParameter[0][121:139])
+                    self._reducedRate2Sale = Util().DoValueDouble(_arrayParameter[0][141:159])
+                    self._reducedRate2Tax = Util().DoValueDouble(_arrayParameter[0][161:179])
+                    self._additionalRate3Sal = Util().DoValueDouble(_arrayParameter[0][181:199])
+                    self._additionalRate3Tax = Util().DoValueDouble(_arrayParameter[0][201:219])
+                    self._freeTaxDebit = Util().DoValueDouble(_arrayParameter[0][221:239])
+                    self._generalRateDebit = Util().DoValueDouble(_arrayParameter[0][241:259])
+                    self._generalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][261:279])
+                    self._reducedRateDebit = Util().DoValueDouble(_arrayParameter[0][281:299])
+                    self._reducedRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][301:319])
+                    self._additionalRateDebit = Util().DoValueDouble(_arrayParameter[0][321:339])
+                    self._additionalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][341:359])
+                    self._freeTaxDevolution = Util().DoValueDouble(_arrayParameter[0][361:379])
+                    self._generalRateDevolution = Util().DoValueDouble(_arrayParameter[0][381:399])
+                    self._generalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][401:419])
+                    self._reducedRateDevolution = Util().DoValueDouble(_arrayParameter[0][421:439])
+                    self._reducedRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][441:459])
+                    self._additionalRateDevolution = Util().DoValueDouble(_arrayParameter[0][461:479])
+                    self._additionalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][481:499])
+
+                    # self._persivSales = Util().DoValueDouble(_arrayParameter[0][501:519])
+                    # self._persivDebit = Util().DoValueDouble(_arrayParameter[0][521:539])
+                    # self._persivDevolution = Util().DoValueDouble(_arrayParameter[0][541:559])
+
+                    # self._igtfRateSales = Util().DoValueDouble(_arrayParameter[0][561:579])
+                    # self._igtfRateTaxSales = Util().DoValueDouble(_arrayParameter[0][581:599])
+                    # self._igtfRateDebit = Util().DoValueDouble(_arrayParameter[0][601:619])
+                    # self._igtfRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][621:639])
+                    # self._igtfRateDevolution = Util().DoValueDouble(_arrayParameter[0][641:659])
+                    # self._igtfRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][661:679])
+            except ValueError:
+                return
+
+        if len(trama[0]) == 419 or len(trama[0]) == 533:  # (FLAG 63:02 - 63:16 - 63:18)
+            try:
+                _arrayParameter = str(trama).split(chr(0x0A))
+                print("Reporte actual: " + str(_arrayParameter))
+                print("longitud de la trama que accedo: " + str(len(trama[0])))
+                print("Reporte actual: " + str(_arrayParameter))
+                print("longitud 2: " + str(len(_arrayParameter)))
+                if len(_arrayParameter) > 0:
+                    print("Reporte actual 2: " + str(_arrayParameter))
+                    self._numberOfLastZReport = int(_arrayParameter[0][7:11])
+                    _hr = _arrayParameter[0][21:23]
+                    _mn = _arrayParameter[0][23:25]
+                    _dd = _arrayParameter[0][17:19]
+                    _mm = _arrayParameter[0][15:17]
+                    _aa = int(_arrayParameter[0][13:15]) + 2000
+                    _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                    _Time = str(_hr) + ":" + str(_mn)
+                    self._zReportDate = _Date
+                    self._zReportTime = _Time
+
+                    self._numberOfLastInvoice = int(_arrayParameter[0][27:35])
+                    _hr = _arrayParameter[0][45:47]
+                    _mn = _arrayParameter[0][47:49]
+
+                    _dd = _arrayParameter[0][41:43]
+                    _mm = _arrayParameter[0][39:41]
+                    _aa = int(_arrayParameter[0][37:39]) + 2000
+                    _Date = str(_dd) + "-" + str(_mm) + "-" + str(_aa)
+                    _Time = str(_hr) + ":" + str(_mn)
+                    self._lastInvoiceDate = _Date
+                    self._lastInvoiceTime = _Time
+
+                    self._numberOfLastCreditNote = int(_arrayParameter[0][61:69])
+                    self._numberOfLastDebitNote = int(_arrayParameter[0][51:59])
+                    self._numberOfLastNonFiscal = int(_arrayParameter[0][71:79])
+                    self._freeSalesTax = Util().DoValueDouble(_arrayParameter[0][81:94])
+                    self._generalRate1Sale = Util().DoValueDouble(_arrayParameter[0][96:108])
+                    self._generalRate1Tax = Util().DoValueDouble(_arrayParameter[0][111:124])
+                    self._reducedRate2Sale = Util().DoValueDouble(_arrayParameter[0][126:139])
+                    self._reducedRate2Tax = Util().DoValueDouble(_arrayParameter[0][141:154])
+                    self._additionalRate3Sal = Util().DoValueDouble(_arrayParameter[0][156:169])
+                    self._additionalRate3Tax = Util().DoValueDouble(_arrayParameter[0][171:184])
+                    self._freeTaxDebit = Util().DoValueDouble(_arrayParameter[0][186:199])
+                    self._generalRateDebit = Util().DoValueDouble(_arrayParameter[0][201:214])
+                    self._generalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][216:229])
+                    self._reducedRateDebit = Util().DoValueDouble(_arrayParameter[0][231:244])
+                    self._reducedRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][246:259])
+                    self._additionalRateDebit = Util().DoValueDouble(_arrayParameter[0][261:274])
+                    self._additionalRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][276:289])
+                    self._freeTaxDevolution = Util().DoValueDouble(_arrayParameter[0][291:304])
+                    self._generalRateDevolution = Util().DoValueDouble(_arrayParameter[0][306:319])
+                    self._generalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][321:334])
+                    self._reducedRateDevolution = Util().DoValueDouble(_arrayParameter[0][336:349])
+                    self._reducedRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][351:364])
+                    self._additionalRateDevolution = Util().DoValueDouble(_arrayParameter[0][366:379])
+                    self._additionalRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][381:394])
+
+                    self._persivSales = Util().DoValueDouble(_arrayParameter[0][396:414])
+                    self._persivDebit = Util().DoValueDouble(_arrayParameter[0][416:434])
+                    self._persivDevolution = Util().DoValueDouble(_arrayParameter[0][436:454])
+
+                    # FLAG 63:16
+                    self._igtfRateSales = Util().DoValueDouble(_arrayParameter[0][456:474])
+                    self._igtfRateTaxSales = Util().DoValueDouble(_arrayParameter[0][476:494])
+                    self._igtfRateDebit = Util().DoValueDouble(_arrayParameter[0][496:514])
+                    self._igtfRateTaxDebit = Util().DoValueDouble(_arrayParameter[0][516:534])
+                    self._igtfRateDevolution = Util().DoValueDouble(_arrayParameter[0][536:554])
+                    self._igtfRateTaxDevolution = Util().DoValueDouble(_arrayParameter[0][556:574])
+
+            except ValueError:
+                return

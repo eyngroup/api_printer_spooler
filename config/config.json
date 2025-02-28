@@ -1,0 +1,57 @@
+{
+    "server": {
+        "auto_browser": false,
+        "server_debug": false,
+        "server_host": "localhost",
+        "server_mode": "SPOOLER",
+        "server_port": 5050
+    },
+    "proxy": {
+        "proxy_enabled": false,
+        "proxy_target": "http://localhost:5050/api/printers"
+    },
+    "printers": {
+        "fiscal": {
+            "fiscal_baudrate": 9600,
+            "fiscal_enabled": false,
+            "fiscal_name": "TFHKA",
+            "fiscal_port": "COM9",
+            "fiscal_timeout": 3
+        },
+        "matrix": {
+            "matrix_direct": true,
+            "matrix_enabled": false,
+            "matrix_file": "docs/print_output.txt",
+            "matrix_name": "LX-350",
+            "matrix_paper": "MEDIA_CARTA",
+            "matrix_port": "EPSON LX-350",
+            "matrix_template": "template_matriz_carta.json",
+            "matrix_use_escp": true
+        },
+        "ticket": {
+            "barcode_enabled": true,
+            "barcode_type": "BARCODE",
+            "logo_enabled": true,
+            "logo_height": 160,
+            "logo_width": 480,
+            "ticket_direct": true,
+            "ticket_enabled": true,
+            "ticket_file": "docs/ticket_output.txt",
+            "ticket_name": "ROCCIO",
+            "ticket_paper": "80mm",
+            "ticket_port": "POS-80C",
+            "ticket_template": "template_ticket_simple.json",
+            "ticket_use_escpos": true
+        }
+    },
+    "logging": {
+        "log_days": 1,
+        "log_file": "printer_service",
+        "log_format": "\"%(asctime)s | %(levelname)s | %(message)s\"",
+        "log_level": "INFO",
+        "log_output": true
+    },
+    "security": {
+        "security_code": "1234"
+    }
+}

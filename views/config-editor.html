@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Editor de Configuración - API Printer Server</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="static/css/styles.css" rel="stylesheet">
+    <link href="static/css/config-editor.css" rel="stylesheet">
+</head>
+
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-dark">
+    <div class="container">
+        <span class="navbar-brand mb-0 h1">Editor de Configuración</span>
+        <div>
+            <a class="btn btn-outline-light" href="/">Volver al Dashboard</a>
+        </div>
+    </div>
+</nav>
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-3">
+            <!-- Menú de secciones -->
+            <div class="list-group config-sections">
+                <a class="list-group-item list-group-item-action active" href="#server-section">Servidor</a>
+                <a class="list-group-item list-group-item-action" href="#proxy-section">Proxy</a>
+                <a class="list-group-item list-group-item-action" href="#printers-section">Impresoras</a>
+                <a class="list-group-item list-group-item-action" href="#logging-section">Logging</a>
+                <a class="list-group-item list-group-item-action" href="#security-section">Seguridad</a>
+            </div>
+        </div>
+        <div class="col-md-9">
+            <!-- Formulario de configuración -->
+            <div class="card">
+                <div class="card-body">
+                    <form id="configForm">
+                        <!-- Sección Servidor -->
+                        <div class="config-section" id="server-section">
+                            <h3>Configuración del Servidor</h3>
+                            <div class="mb-3">
+                                <label class="form-label" for="serverHost">Host</label>
+                                <input class="form-control" id="serverHost" name="server.server_host" type="text">
+                                <div class="form-text">Dirección IP del servidor (0.0.0.0 para todas las interfaces)
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="serverPort">Puerto</label>
+                                <input class="form-control" id="serverPort" name="server.server_port" type="number">
+                                <div class="form-text">Puerto en el que escuchará el servidor</div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" id="serverDebug" name="server.server_debug"
+                                           type="checkbox">
+                                    <label class="form-check-label" for="serverDebug">Modo Debug</label>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="serverMode">Modo</label>
+                                <select class="form-select" id="serverMode" name="server.server_mode">
+                                    <option value="SPOOLER">SPOOLER</option>
+                                    <option value="PROXY">PROXY</option>
+                                </select>
+                                <div class="form-text">Modo de operación del servidor</div>
+                            </div>
+                        </div>
+                        <!-- Sección Proxy -->
+                        <div class="config-section" id="proxy-section" style="display: none;">
+                            <h3>Configuración del Proxy</h3>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" id="proxyEnabled" name="proxy.proxy_enabled"
+                                           type="checkbox">
+                                    <label class="form-check-label" for="proxyEnabled">Habilitar Proxy</label>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="proxyTargetUrl">URL Destino</label>
+                                <input class="form-control" id="proxyTargetUrl" name="proxy.proxy_target" type="text">
+                                <div class="form-text">URL del servidor de impresión destino</div>
+                            </div>
+                        </div>
+                        <!-- Sección Impresoras -->
+                        <div class="config-section" id="printers-section" style="display: none;">
+                            <h3>Configuración de Impresoras</h3>
+                            <!-- Impresora de Tickets -->
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h4 class="mb-0">Impresora de Tickets</h4>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="ticketEnabled"
+                                                   name="printers.ticket.ticket_enabled"
+                                                   type="checkbox">
+                                            <label class="form-check-label" for="ticketEnabled">Habilitada</label>
+                                        </div>
+                                        <div class="form-text">Habilitar/deshabilitar impresora de tickets</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="ticketName">Nombre</label>
+                                        <input class="form-control" id="ticketName" name="printers.ticket.ticket_name"
+                                               type="text">
+                                        <div class="form-text">Nombre o modelo de la impresora</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="ticketPrinterName">Nombre de Impresora</label>
+                                        <input class="form-control" id="ticketPrinterName"
+                                               name="printers.ticket.ticket_port"
+                                               type="text">
+                                        <div class="form-text">Puerto o nombre de la impresora en el sistema</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="ticketPaperSize">Tamaño de Papel</label>
+                                        <select class="form-select" id="ticketPaperSize" name="printers.ticket.ticket_paper">
+                                            <option value="58mm">58mm</option>
+                                            <option value="80mm">80mm</option>
+                                        </select>
+                                        <div class="form-text">Ancho del papel para la impresora de tickets</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="ticketDirect" name="printers.ticket.ticket_direct" type="checkbox">
+                                            <label class="form-check-label" for="ticketDirect">Impresión Directa</label>
+                                        </div>
+                                        <div class="form-text">Habilitar impresión directa al puerto</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="ticketFile">Archivo de Salida</label>
+                                        <input class="form-control" id="ticketFile" name="printers.ticket.ticket_file" type="text" value="docs/ticket_output.txt">
+                                        <div class="form-text">Archivo de salida si no es impresión directa</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="ticketTemplate">Plantilla</label>
+                                        <input class="form-control" id="ticketTemplate"
+                                               name="printers.ticket.ticket_template"
+                                               type="text">
+                                        <div class="form-text">Plantilla JSON a usar para el formato del ticket</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="ticketUseEscpos" name="printers.ticket.ticket_use_escpos" type="checkbox">
+                                            <label class="form-check-label" for="ticketUseEscpos">Usar ESC/POS</label>
+                                        </div>
+                                        <div class="form-text">Usar comandos ESC/POS para la impresión</div>
+                                    </div>
+                                    <h5 class="mt-4">Características</h5>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="ticketBarcodeEnabled"
+                                                   name="printers.ticket.barcode_enabled"
+                                                   type="checkbox">
+                                            <label class="form-check-label" for="ticketBarcodeEnabled">Código de Barras</label>
+                                        </div>
+                                        <div class="form-text">Habilitar la impresión de códigos de barras</div>
+                                        <select class="form-select mt-2" id="ticketBarcodeType"
+                                                name="printers.ticket.barcode_type">
+                                            <option value="QR">QR</option>
+                                            <option value="BARCODE">BARCODE</option>
+                                            <option value="CODE128">CODE128</option>
+                                        </select>
+                                        <div class="form-text">Tipo de código de barras a utilizar</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="ticketLogoEnabled"
+                                                   name="printers.ticket.logo_enabled"
+                                                   type="checkbox">
+                                            <label class="form-check-label" for="ticketLogoEnabled">Logo</label>
+                                        </div>
+                                        <div class="row mt-2">
+                                            <div class="col">
+                                                <input class="form-control" id="ticketLogoWidth"
+                                                       name="printers.ticket.logo_width"
+                                                       placeholder="Ancho" type="number">
+                                            </div>
+                                            <div class="col">
+                                                <input class="form-control" id="ticketLogoHeight"
+                                                       name="printers.ticket.logo_height"
+                                                       placeholder="Alto" type="number">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Impresora Matricial -->
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h4 class="mb-0">Impresora Matricial</h4>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="matrixEnabled"
+                                                   name="printers.matrix.matrix_enabled"
+                                                   type="checkbox">
+                                            <label class="form-check-label" for="matrixEnabled">Habilitada</label>
+                                        </div>
+                                        <div class="form-text">Habilitar/deshabilitar impresora matricial</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="matrixName">Nombre</label>
+                                        <input class="form-control" id="matrixName" name="printers.matrix.matrix_name"
+                                               type="text">
+                                        <div class="form-text">Nombre o modelo de la impresora</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="matrixPrinterName">Nombre de Impresora</label>
+                                        <input class="form-control" id="matrixPrinterName"
+                                               name="printers.matrix.matrix_port"
+                                               type="text">
+                                        <div class="form-text">Puerto o nombre de la impresora en el sistema</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="matrixPaperSize">Tamaño de Papel</label>
+                                        <select class="form-select" id="matrixPaperSize" name="printers.matrix.matrix_paper">
+                                            <option value="CARTA">CARTA</option>
+                                            <option value="MEDIA_CARTA">MEDIA CARTA</option>
+                                        </select>
+                                        <div class="form-text">Tipo de papel para la impresión</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="matrixDirectPrint"
+                                                   name="printers.matrix.matrix_direct"
+                                                   type="checkbox">
+                                            <label class="form-check-label" for="matrixDirectPrint">Impresión Directa</label>
+                                        </div>
+                                        <div class="form-text">Habilitar impresión directa al puerto</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="matrixOutputFile">Archivo de Salida</label>
+                                        <input class="form-control" id="matrixOutputFile"
+                                               name="printers.matrix.matrix_file"
+                                               type="text" value="docs/print_output.txt">
+                                        <div class="form-text">Archivo de salida si no es impresión directa</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="matrixTemplate">Plantilla</label>
+                                        <input class="form-control" id="matrixTemplate"
+                                               name="printers.matrix.matrix_template"
+                                               type="text">
+                                        <div class="form-text">Plantilla JSON a usar para el formato de impresión</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="matrixUseEscp"
+                                                   name="printers.matrix.matrix_use_escp"
+                                                   type="checkbox">
+                                            <label class="form-check-label" for="matrixUseEscp">Usar ESC/P</label>
+                                        </div>
+                                        <div class="form-text">Usar comandos ESC/P para la impresión</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Impresora Fiscal -->
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h4 class="mb-0">Impresora Fiscal</h4>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="fiscalEnabled"
+                                                   name="printers.fiscal.fiscal_enabled"
+                                                   type="checkbox">
+                                            <label class="form-check-label" for="fiscalEnabled">Habilitada</label>
+                                        </div>
+                                        <div class="form-text">Habilitar/deshabilitar impresora fiscal</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="fiscalName">Nombre</label>
+                                        <select class="form-select" id="fiscalName" name="printers.fiscal.fiscal_name">
+                                            <option value="TFHKA">TFHKA</option>
+                                            <option value="PNP">PNP</option>
+                                            <option value="RIGAZSA" disabled>RIGAZSA (En desarrollo)</option>
+                                            <option value="BEMATECH" disabled>BEMATECH (En desarrollo)</option>
+                                        </select>
+                                        <div class="form-text">Modelo de impresora fiscal</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="fiscalPort">Puerto</label>
+                                        <input class="form-control" id="fiscalPort"
+                                               name="printers.fiscal.fiscal_port"
+                                               type="text">
+                                        <div class="form-text">Puerto serial de la impresora (ej: COM9)</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="fiscalBaudrate">Velocidad</label>
+                                        <input class="form-control" id="fiscalBaudrate"
+                                               name="printers.fiscal.fiscal_baudrate"
+                                               type="number">
+                                        <div class="form-text">Velocidad de comunicación serial (baudrate)</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="fiscalTimeout">Timeout</label>
+                                        <input class="form-control" id="fiscalTimeout"
+                                               name="printers.fiscal.fiscal_timeout"
+                                               type="number">
+                                        <div class="form-text">Tiempo de espera en segundos</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Sección Logging -->
+                        <div class="config-section" id="logging-section" style="display: none;">
+                            <h3>Configuración de Logging</h3>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" id="logOutput" name="logging.log_output"
+                                           type="checkbox">
+                                    <label class="form-check-label" for="logOutput">Salida a Consola</label>
+                                </div>
+                                <div class="form-text">Habilitar la salida de logs en la consola</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="logFile">Archivo de Log</label>
+                                <input class="form-control" id="logFile" name="logging.log_file" type="text">
+                                <div class="form-text">Nombre del archivo donde se guardarán los logs</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="logLevel">Nivel de Log</label>
+                                <select class="form-select" id="logLevel" name="logging.log_level">
+                                    <option value="DEBUG">DEBUG</option>
+                                    <option value="INFO">INFO</option>
+                                    <option value="WARNING">WARNING</option>
+                                    <option value="ERROR">ERROR</option>
+                                    <option value="CRITICAL">CRITICAL</option>
+                                </select>
+                                <div class="form-text">Nivel de detalle para los logs. En producción se recomienda INFO o superior</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="logFormat">Formato de Log</label>
+                                <input class="form-control" id="logFormat" name="logging.log_format" type="text">
+                                <div class="form-text">Formato para las entradas del log (ej: %(asctime)s - %(levelname)s - %(message)s)</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="logDays">Días de Retención</label>
+                                <input class="form-control" id="logDays" min="1" name="logging.log_days" type="number">
+                                <div class="form-text">Número de días que se mantienen los logs (mínimo 1)</div>
+                            </div>
+                        </div>
+                        <!-- Sección Seguridad -->
+                        <div class="config-section" id="security-section" style="display: none;">
+                            <h3>Configuración de Seguridad</h3>
+                            <div class="mb-3">
+                                <label class="form-label" for="securityCode">Código de Seguridad</label>
+                                <input class="form-control" id="securityCode" name="security.security_code" type="password">
+                                <div class="form-text">Código de seguridad para operaciones protegidas. Se recomienda cambiar el valor predeterminado</div>
+                            </div>
+                            <div class="alert alert-info">
+                                <h5>Recomendaciones de Seguridad:</h5>
+                                <ul class="mb-0">
+                                    <li>Cambiar el código de seguridad predeterminado</li>
+                                    <li>En producción, deshabilitar modo debug</li>
+                                    <li>Usar HTTPS en modo proxy</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <!-- Botones de acción -->
+                        <div class="mt-4 d-flex justify-content-between">
+                            <button class="btn btn-secondary" id="btnRestore" type="button">Restaurar
+                                Valores
+                            </button>
+                            <div>
+                                <button class="btn btn-primary me-2" id="btnPreview" type="button">Vista Previa
+                                    JSON
+                                </button>
+                                <button class="btn btn-success" id="btnSave" type="button">Guardar Cambios</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Modal para vista previa JSON -->
+<div class="modal fade" id="jsonPreviewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Vista Previa de Configuración</h5>
+                <button class="btn-close" data-bs-dismiss="modal" type="button"></button>
+            </div>
+            <div class="modal-body">
+                <pre class="json-preview" id="jsonPreview"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="static/js/config-editor.js"></script>
+</body>
+
+</html>

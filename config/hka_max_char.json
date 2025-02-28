@@ -1,0 +1,66 @@
+{
+  "DT_230": {
+    "header": 40,
+    "footer": 40,
+    "vat": 40,
+    "partner": 40,
+    "comment": 40,
+    "product": 127
+  },
+  "HKA_80": {
+    "header": 40,
+    "footer": 40,
+    "vat": 40,
+    "partner": 40,
+    "comment": 40,
+    "product": 127
+  },
+  "P3100DL": {
+    "header": 38,
+    "footer": 38,
+    "vat": 24,
+    "partner": 20,
+    "comment": 27,
+    "product": 127
+  },
+  "PP9": {
+    "header": 40,
+    "footer": 40,
+    "vat": 38,
+    "partner": 34,
+    "comment": 40,
+    "product": 120
+  },
+  "SRP_280": {
+    "header": 40,
+    "footer": 40,
+    "vat": 33,
+    "partner": 40,
+    "comment": 40,
+    "product": 120
+  },
+  "SRP_350": {
+    "header": 40,
+    "footer": 40,
+    "vat": 47,
+    "partner": 43,
+    "comment": 40,
+    "product": 37
+  },
+  "SRP_812": {
+    "header": 40,
+    "footer": 40,
+    "vat": 40,
+    "partner": 40,
+    "comment": 40,
+    "product": 127
+  },
+  "TD1140": {
+    "header": 40,
+    "footer": 40,
+    "vat": 40,
+    "partner": 40,
+    "comment": 40,
+    "product": 140
+  }
+}

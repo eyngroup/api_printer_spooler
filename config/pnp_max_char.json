@@ -1,0 +1,20 @@
+{
+  "PF-220": {
+    "product": 20,
+    "comment": 40,
+    "line": 40,
+    "header": 40,
+    "footer": 40,
+    "partner": 40,
+    "vat": 15
+  },
+  "PF-300": {
+    "product": 40,
+    "comment": 80,
+    "line": 80,
+    "header": 80,
+    "footer": 80,
+    "partner": 40,
+    "vat": 15
+  }
+}

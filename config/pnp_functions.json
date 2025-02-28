@@ -1,0 +1,38 @@
+{
+  "fiscal_doc_functions": {
+    "PFabrefiscal": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_DOUBLE_ARG"},
+    "PFtotal": {"restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS"},
+    "PFrenglon": {"restype": "PRINTER_CHAR_P","argtypes": ["PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P"]},
+    "PFTfiscal": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"},
+    "PFparcial": {"restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS"},
+    "PFDevolucion": {"restype": "PRINTER_CHAR_P","argtypes": ["PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P"]},
+    "PFBarra": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"},
+    "PFultimo": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFrepz": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFrepx": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFtoteconomico": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_NO_ARGS"}
+},
+  "non_fiscal_doc_functions": {
+    "PFAbreNF": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFLineaNF": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"},
+    "PFCierraNF": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_NO_ARGS"},
+    "PFDisplay950": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"}
+  },
+  "status_control_functions": {
+    "PFestatus": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"},
+    "PFSerial": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFreset": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFComando": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"},
+    "PFCancelaDoc": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_DOUBLE_ARG"},
+    "PFendoso": {"restype": "PRINTER_CHAR_P","argtypes": ["PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P","PRINTER_CHAR_P"]},
+    "PFSlipON": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFSLIPOFF": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" }
+  },
+  "port_hardware_functions": {
+    "PFabrepuerto": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"},
+    "PFcierrapuerto": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_NO_ARGS"},
+    "PFGaveta": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFCortar": { "restype": "PRINTER_CHAR_P", "argtypes": "PRINTER_NO_ARGS" },
+    "PFTipoImp": {"restype": "PRINTER_CHAR_P","argtypes": "PRINTER_SINGLE_ARG"}
+  }
+}
