@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Script para probar impresión directa al puerto USB."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Script para probar impresión directa al puerto USB.
+"""
 
 import logging
 import time

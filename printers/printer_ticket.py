@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clase para una impresora de tickets."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clase para una impresora de tickets.
+"""
 
 import json
 import logging

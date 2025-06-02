@@ -45,13 +45,13 @@
         }
     },
     "logging": {
-        "log_days": 1,
-        "log_file": "printer_service",
+        "log_days": 5,
+        "log_file": "printer_spooler",
         "log_format": "\"%(asctime)s | %(levelname)s | %(message)s\"",
         "log_level": "INFO",
         "log_output": true
     },
     "security": {
-        "security_code": "1234"
+        "security_code": "0205"
     }
 }

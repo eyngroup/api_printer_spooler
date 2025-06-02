@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Define el esquema JSON para la validación de documentos."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Define el esquema JSON para la validación de documentos.
+"""
 
 from typing import Dict, Any
 

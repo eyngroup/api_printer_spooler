@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clase para gestionar el contador fiscal usando un archivo JSON."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clase para gestionar el contador fiscal usando un archivo JSON.
+"""
 
 import datetime
 import json

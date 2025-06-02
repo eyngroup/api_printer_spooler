@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clase para el manejo de la impresora fiscal PNP"""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clase para el manejo de la impresora fiscal PNP
+"""
 
 import ctypes
 import datetime

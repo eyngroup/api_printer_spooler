@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clase base abstracta para todas las impresoras"""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clase base abstracta para todas las impresoras
+"""
 
 import logging
 from abc import ABC, abstractmethod

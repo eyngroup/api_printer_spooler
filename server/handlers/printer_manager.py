@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clase Singleton para manejar las instancias de impresoras."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clase Singleton para manejar las instancias de impresoras.
+"""
 
 import logging
 from typing import Dict, Any, Optional

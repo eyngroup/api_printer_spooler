@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clase que contiene los comandos ESC/P, ESC/POS, TFHKA"""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clase que contiene los comandos ESC/P, ESC/POS, TFHKA
+"""
 
 import ctypes
 from typing import Dict, Any

@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Punto de entrada principal del servidor."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Punto de entrada principal del servidor.
+"""
 
 import logging
 from datetime import datetime

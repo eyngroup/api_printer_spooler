@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clase que maneja las solicitudes HTTP y las reenvía al servidor SPOOLER."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clase que maneja las solicitudes HTTP y las reenvía al servidor SPOOLER.
+"""
 
 import logging
 from typing import Dict, Any, Tuple

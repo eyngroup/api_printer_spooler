@@ -1,5 +1,7 @@
 # Proyecto API y Spooler de Impresión
-Copyright © 2024, Iron Graterol.
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
 
 ## Introducción
 

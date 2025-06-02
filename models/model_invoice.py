@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Clases que manejar el modelo de facturas. Contiene reglas de negocio."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Clases que manejar el modelo de facturas. Contiene reglas de negocio.
+"""
 
 from datetime import datetime
 from typing import Dict, Optional

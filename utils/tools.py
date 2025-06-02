@@ -1,6 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Utilidades para el manejo de rutas, textos, numeros y fechas"""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Utilidades para el manejo de rutas, textos, numeros y fechas
+"""
+
 
 import re
 from datetime import datetime

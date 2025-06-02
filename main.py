@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-API Printer Server
-Copyright © 2024, Iron Graterol.
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
 Creado en memoria de mi amado hijo Ian
 """
 

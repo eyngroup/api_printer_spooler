@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Document Handler Module, responsable de la gestión de las operaciones relacionadas con los documentos."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Document Handler Module, responsable de la gestión de las operaciones relacionadas con los documentos.
+"""
 
 import logging
 from typing import Dict, Any, Optional, Tuple

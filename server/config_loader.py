@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Carga y valida  el archivo de configuración del sistema."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Carga y valida  el archivo de configuración del sistema.
+"""
 
 import json
 import logging
