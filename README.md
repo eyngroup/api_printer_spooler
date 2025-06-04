@@ -26,9 +26,9 @@
 
 ## Guía Rápida
 
-### Requisitos
+### Requisitos minimos
 
-- Python 3.10 (32-bit)
+- Python 3.10 (64-bit)
 - Entorno virtual recomendado
 
 ### Instalación
@@ -36,7 +36,7 @@
 <details>
 <summary>🖥️ Windows</summary>
 
-1. Instalar [Python 3.10 32-bit](https://www.python.org/ftp/python/3.10.0/python-3.10.0.exe)
+1. Instalar [Python 3.10 64-bit](https://www.python.org/ftp/python/3.10.0/python-3.10.0.exe)
 ```bash
 git clone https://github.com/eyngroup/api_printer_server.git
 cd api_printer_server
@@ -70,22 +70,19 @@ python setup.py build
 
 1. Revisar [issues abiertos](https://github.com/eyngroup/repo/issues)
 2. Crear nuevo issue para propuestas
-3. Desarrollar en rama feature/fix
-4. Ejecutar pruebas: 
-```bash
-pytest tests/
-```
-5. Actualizar documentación relacionada
+3. Actualizar documentación relacionada
 </details>
 
 ## Apoyo
 
 [![Un Café con PayPal](https://img.shields.io/badge/Cafe-PayPal-blue)](https://paypal.me/irongraterol)
 
-<summary>❤️ Si te ha sido útil este código, considera invitarme a un café ☕ o un almuerzo 🍽 para apoyar el proyecto. ¡Gracias! 😊 </summary>
+<summary>❤️ Si te ha sido útil este código, considera invitarme un café ☕ para apoyar el proyecto. ¡Gracias! 😊 </summary>
 
-## 
-Bajo los términos de la [Licencia Pública Mozilla v2.0](http://mozilla.org/MPL/2.0/).
 
-## 
-Copyright © 2024, Iron Graterol.
+##
+Copyright © 2024, Iron Graterol
+
+##
+Todo el codigo está bajo los términos de la [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html).
+Consulta el documento LICENSE incluido en este proyecto para más detalles.
