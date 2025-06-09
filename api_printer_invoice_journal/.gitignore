@@ -1,0 +1,9 @@
+# Directorios
+.idea/
+.vs/
+.vscode/
+.ruff_cache/
+__pycache__/
+
+
+

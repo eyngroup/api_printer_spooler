@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_res_config_settings_inherit" model="ir.ui.view">
+        <field name="name">res.config.settings.inherit</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//block[@id='invoicing_settings']" position="after">
+                <block title="Api Printer Server" name="api_printer_server">
+                    <setting id="set_api_printer_server">
+                        <div class="content-group">
+                            <h3 class="text-start fw-bold">Server Configuration</h3>
+                            <div>
+                                <label string="URL:"
+                                    for="aps_ip" class="col-lg-2 o_light_label fw-bold" />
+                                <field name="aps_ip"
+                                    title="URL, remember to add http:// or https://" />
+                            </div>
+                            <div>
+                                <label string="Port:"
+                                    for="aps_port" class="col-lg-2 o_light_label fw-bold" />
+                                <field name="aps_port"
+                                    title="Connection Port, between the port 1024 and 65535" />
+                            </div>
+                            <h3 class="mt-4 text-start fw-bold">Default Payment Method</h3>
+                            <div>
+                                <label string="Code:"
+                                    for="aps_default_payment_code"
+                                    class="col-lg-2 o_light_label fw-bold" />
+                                <field name="aps_default_payment_code"
+                                    title="Two digits code for fiscal printer default (00-25)" />
+                            </div>
+                            <div>
+                                <label string="Name:"
+                                    for="aps_default_payment_name"
+                                    class="col-lg-2 o_light_label fw-bold" />
+                                <field name="aps_default_payment_name"
+                                    title="Payment name for fiscal printer default" />
+                            </div>
+                        </div>
+                    </setting>
+                </block>
+            </xpath>
+        </field>
+    </record>
+</odoo>

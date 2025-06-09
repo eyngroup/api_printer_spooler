@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_fiscal_report_wizard_form" model="ir.ui.view">
+        <field name="name">fiscal.report.wizard.form</field>
+        <field name="model">fiscal.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Print Fiscal Report">
+                <group>
+                    <field name="journal_id"/>
+                    <field name="report_type" invisible="1"/>
+                </group>
+                <footer>
+                    <button string="Print" name="print_report" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

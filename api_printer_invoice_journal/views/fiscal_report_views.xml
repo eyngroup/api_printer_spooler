@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Acciones para los reportes -->
+    <record id="action_fiscal_report_x" model="ir.actions.act_window">
+        <field name="name">Report X</field>
+        <field name="res_model">fiscal.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_report_type': 'x'}</field>
+        <field name="binding_model_id" ref="account.model_account_move"/>
+    </record>
+
+    <record id="action_fiscal_report_z" model="ir.actions.act_window">
+        <field name="name">Report Z</field>
+        <field name="res_model">fiscal.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_report_type': 'z'}</field>
+        <field name="binding_model_id" ref="account.model_account_move"/>
+    </record>
+
+    <!-- Menú para reportes fiscales -->
+    <menuitem id="menu_fiscal_reports"
+        name="Tax Printer"
+        parent="account.menu_finance_reports"
+        sequence="100" />
+
+    <menuitem id="menu_fiscal_report_x"
+        name="Reports X"
+        action="action_fiscal_report_x"
+        parent="menu_fiscal_reports"
+        sequence="10" />
+
+    <menuitem id="menu_fiscal_report_z"
+        name="Reports Z"
+        action="action_fiscal_report_z"
+        parent="menu_fiscal_reports"
+        sequence="20" />
+</odoo>

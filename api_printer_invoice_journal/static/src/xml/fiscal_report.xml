@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="api_printer_invoice.PrinterResponseDialog">
+        <Dialog title="props.title" size="props.size">
+            <main class="o_printer_response_dialog">
+                <p class="mb-3" t-esc="props.message"/>
+            </main>
+            <t t-set-slot="footer">
+                <button class="btn btn-primary" t-on-click="close">Aceptar</button>
+            </t>
+        </Dialog>
+    </t>
+
+    <t t-name="api_printer_invoice.FiscalReportAction">
+        <div class="o_fiscal_report_action"/>
+    </t>
+</templates>

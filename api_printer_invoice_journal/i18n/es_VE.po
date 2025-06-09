@@ -1,0 +1,225 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* api_printer_invoice
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-03-18 04:39+0000\n"
+"PO-Revision-Date: 2025-03-18 00:59-0400\n"
+"Last-Translator: Iron Graterol <ironxp@gmail.com>\n"
+"Language-Team: \n"
+"Language: es_VE\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 3.5\n"
+
+#. module: api_printer_invoice
+#: model_terms:ir.ui.view,arch_db:api_printer_invoice.view_account_journal_form_inherit
+msgid "API Connection"
+msgstr "Conexión API"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_journal__aps_port
+msgid "ApiPrinterServer Port"
+msgstr "Puerto del Servidor"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_journal__aps_ip
+msgid "ApiPrinterServer URL"
+msgstr "URL del Servidor"
+
+#. module: api_printer_invoice
+#: model_terms:ir.ui.view,arch_db:api_printer_invoice.view_fiscal_report_wizard_form
+msgid "Cancel"
+msgstr "Cancelar"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,help:api_printer_invoice.field_account_journal__aps_port
+msgid "Connection Port, between the port 1024 and 65535"
+msgstr "Utilizar un número de conexión entre el puerto 1024 y el 65535"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__create_uid
+msgid "Created by"
+msgstr "Creado por"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__create_date
+msgid "Created on"
+msgstr "Creado el"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_journal__aps_default_payment_code
+msgid "Default Payment Method Code"
+msgstr "Código de Pago por Defecto"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_journal__aps_default_payment_name
+msgid "Default Payment Method Name"
+msgstr "Método de Pago por Defecto"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__display_name
+msgid "Display Name"
+msgstr "Nombre"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_bank_statement_line__aps_date
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_move__aps_date
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_payment__aps_date
+msgid "Document Date"
+msgstr "Fecha Fiscal"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_bank_statement_line__aps_number
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_move__aps_number
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_payment__aps_number
+msgid "Document Number"
+msgstr "Número Fiscal"
+
+#. module: api_printer_invoice
+#: model_terms:ir.ui.view,arch_db:api_printer_invoice.view_account_journal_form_inherit
+msgid "Fiscal Printer API"
+msgstr "Impresora Fiscal"
+
+#. module: api_printer_invoice
+#: model:ir.model,name:api_printer_invoice.model_fiscal_report_wizard
+msgid "Fiscal Report Wizard"
+msgstr "Asistente para Informes Fiscales"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__id
+msgid "ID"
+msgstr "ID"
+
+#. module: api_printer_invoice
+#: model:ir.model,name:api_printer_invoice.model_account_journal
+msgid "Journal"
+msgstr "Diario"
+
+#. module: api_printer_invoice
+#: model:ir.model,name:api_printer_invoice.model_account_move
+msgid "Journal Entry"
+msgstr "Asiento Contable"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__write_uid
+msgid "Last Updated by"
+msgstr "Última Actualización por"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__write_date
+msgid "Last Updated on"
+msgstr "Última Actualización en"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_bank_statement_line__aps_report
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_move__aps_report
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_payment__aps_report
+msgid "Machine Report"
+msgstr "Reporte de Cierre"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_bank_statement_line__aps_serial
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_move__aps_serial
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_payment__aps_serial
+msgid "Machine Serial"
+msgstr "Serial del Equipo"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_journal__aps_payment_code
+msgid "Payment Code"
+msgstr "Código de Pago"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_journal__aps_payment_name
+msgid "Payment Name"
+msgstr "Nombre de Pago"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,help:api_printer_invoice.field_account_journal__aps_default_payment_name
+msgid "Payment name for fiscal printer default"
+msgstr "Nombre de pago por defecto de la impresora fiscal"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,help:api_printer_invoice.field_account_journal__aps_payment_name
+msgid "Payment name for fiscal printer, use capital letters"
+msgstr "Nombre de pago para la impresora fiscal, utilice mayúsculas"
+
+#. module: api_printer_invoice
+#: model_terms:ir.ui.view,arch_db:api_printer_invoice.view_fiscal_report_wizard_form
+msgid "Print"
+msgstr "Imprimir"
+
+#. module: api_printer_invoice
+#: model_terms:ir.ui.view,arch_db:api_printer_invoice.view_fiscal_report_wizard_form
+msgid "Print Fiscal Report"
+msgstr "Imprimir Informe Fiscal"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_bank_statement_line__aps_printed
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_move__aps_printed
+#: model:ir.model.fields,field_description:api_printer_invoice.field_account_payment__aps_printed
+msgid "Printed"
+msgstr "Impreso"
+
+#. module: api_printer_invoice
+#: model_terms:ir.ui.view,arch_db:api_printer_invoice.view_move_form_inherit
+msgid "Printer Fiscal"
+msgstr "Impresora Fiscal"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__report_type
+msgid "Report Type"
+msgstr "Tipo de Informe"
+
+#. module: api_printer_invoice
+#: model:ir.actions.act_window,name:api_printer_invoice.action_fiscal_report_x
+#: model:ir.model.fields.selection,name:api_printer_invoice.selection__fiscal_report_wizard__report_type__x
+msgid "Report X"
+msgstr "Reporte X"
+
+#. module: api_printer_invoice
+#: model:ir.actions.act_window,name:api_printer_invoice.action_fiscal_report_z
+#: model:ir.model.fields.selection,name:api_printer_invoice.selection__fiscal_report_wizard__report_type__z
+msgid "Report Z"
+msgstr "Reporte Z"
+
+#. module: api_printer_invoice
+#: model:ir.ui.menu,name:api_printer_invoice.menu_fiscal_report_x
+msgid "Reports X"
+msgstr "Informes X"
+
+#. module: api_printer_invoice
+#: model:ir.ui.menu,name:api_printer_invoice.menu_fiscal_report_z
+msgid "Reports Z"
+msgstr "Informes Z"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,field_description:api_printer_invoice.field_fiscal_report_wizard__journal_id
+msgid "Sales Journal"
+msgstr "Diario de ventas"
+
+#. module: api_printer_invoice
+#: model:ir.ui.menu,name:api_printer_invoice.menu_fiscal_reports
+msgid "Tax Printer"
+msgstr "Impresora Fiscal"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,help:api_printer_invoice.field_account_journal__aps_payment_code
+msgid "Two digits code for fiscal printer (00-25)"
+msgstr "Código de dos dígitos para la impresora fiscal (00-25)"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,help:api_printer_invoice.field_account_journal__aps_default_payment_code
+msgid "Two digits code for fiscal printer default (00-25)"
+msgstr "Código de dos dígitos para la impresora fiscal por defecto (00-25)"
+
+#. module: api_printer_invoice
+#: model:ir.model.fields,help:api_printer_invoice.field_account_journal__aps_ip
+msgid "URL, remember to add http:// or https://"
+msgstr "URL, recuerde añadir http:// o https://"
