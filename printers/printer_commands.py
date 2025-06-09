@@ -192,7 +192,7 @@ class HKAcmd:  # pylint: disable=R0903
     DNF_CLOSE = "810{}"  # Cerrar documento NO FISCAL
 
 
-class PNPcmd: # pylint: disable=R0903
+class PNPcmd:  # pylint: disable=R0903
     """Clase que contiene las constantes para los tipos de datos de la impresora fiscal PNP"""
 
     # Tipos de datos básicos
@@ -203,6 +203,8 @@ class PNPcmd: # pylint: disable=R0903
 
     # Comandos fiscales
     CANCEL = "C|0"
+    DAILY_REPORT = "9|X"
+    DAILY_CLOSE = "9|Z"
 
     # Comandos para documentos fiscales
     OPEN_CREDIT = "@|{}|{}|{}|{}|{}|{}|D"  # cliente, rif, documento, serial, fecha, hora
@@ -219,8 +221,6 @@ class PNPcmd: # pylint: disable=R0903
     DOCUMENT_NAME = "DOC:{}"  # Nombre del documento origen "A|DOC:{}"
     DOCUMENT_CASHIER = "CAJ:{}"  # Nombre del Cajero o Vendedor "A|CAJ:{}"
 
-    INTER_LINE = "-" * 40
-
     # Comandos para items fiscales
     ITEM_LINE = "B|{}|{}|{}|{}|M"  # Agregar ítem fiscal
     ITEM_LINE_DEL = "B|{}|{}|{}|{}|m"  # Anular ítem fiscal
@@ -234,13 +234,15 @@ class PNPcmd: # pylint: disable=R0903
 
     # Comandos para líneas adicionales
     COMMENTS = "A|{}"  # comentarios en cuerpo del documento
+    INTER_LINE = "-" * 40
 
     # Comandos para código de barra de pie de ticket
+    BARCODE = "T|{}"
 
     # Comandos para documentos NO fiscales
-    DNF_OPEN = "H|{}"  # Abrir documento no fiscal
+    DNF_OPEN = "H|"  # Abrir documento no fiscal
     DNF_TEXT = "I|{}"  # Imprimir línea en documento no fiscal
-    DNF_CLOSE = "J|{}"  # Cerrar documento no fiscal
+    DNF_CLOSE = "J|"  # Cerrar documento no fiscal
 
     # Estados de la impresora (Campo 4 del comando "V")
     PRINTER_STATES = {

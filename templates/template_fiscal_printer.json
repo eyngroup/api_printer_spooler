@@ -1,7 +1,7 @@
 {
   "fiscal": {
-    "model": "PF-300",
-    "serial": "EOO9000001",
+    "model": "SRP-350",
+    "serial": "Z1B1234567",
     "name_note": "Nota de Despacho"
   },
   "format": {
@@ -16,6 +16,6 @@
     "include_item_comment": false,
     "include_payment_subtotal": false,
     "include_delivery_comments": false,
-    "include_delivery_barcode": false
+    "include_delivery_barcode": true
   }
 }

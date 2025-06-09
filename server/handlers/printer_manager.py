@@ -40,13 +40,13 @@ class PrinterManager:
             }
 
             if printer_type not in printer_types:
-                raise ValueError(f"Tipo de impresora no válido: {printer_type}")
+                raise ValueError(f"Tipo de impresora no válido: {(printer_type).upper()}")
 
             if printer_type in cls._instances:
-                logger.debug("Retornando instancia existente de impresora %s", printer_type)
+                logger.debug("Retornando instancia existente de impresora %s", printer_type.upper())
                 return cls._instances[printer_type]
 
-            logger.info("Creando nueva instancia: Impresora %s", printer_type)
+            logger.info("Creando nueva instancia: Impresora %s", printer_type.upper())
 
             module_path = printer_types[printer_type].split(".")  # Importar dinámicamente la clase de impresora
             module = __import__(".".join(module_path[:-1]), fromlist=[module_path[-1]])
@@ -59,9 +59,9 @@ class PrinterManager:
 
                 is_error = False
                 if printer_type == "tfhka":
-                    is_error = status["error_code"] != 0 or status["status_code"] != 4
+                    is_error = status["error_code"] != 64 or status["status_code"] != 96
                 elif printer_type == "pnp":
-                    is_error = status["error_code"] != "0080" or status["status_code"] != "0600"
+                    is_error = status["status_code"] != "0080" or status["error_code"] != "0600"
 
                 if is_error:
                     msg_status = f"Impresora NO operativa - Estado: {status['status_description']}, "

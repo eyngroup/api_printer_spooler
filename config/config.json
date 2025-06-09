@@ -4,11 +4,11 @@
         "server_debug": false,
         "server_host": "localhost",
         "server_mode": "SPOOLER",
-        "server_port": 5050
+        "server_port": 5000
     },
     "proxy": {
         "proxy_enabled": false,
-        "proxy_target": "http://localhost:5050/api/printers"
+        "proxy_target": "http://localhost:6000/api/printers"
     },
     "printers": {
         "fiscal": {
@@ -16,7 +16,7 @@
             "fiscal_enabled": false,
             "fiscal_name": "TFHKA",
             "fiscal_port": "COM9",
-            "fiscal_timeout": 3
+            "fiscal_timeout": 2
         },
         "matrix": {
             "matrix_direct": true,

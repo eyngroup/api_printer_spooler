@@ -24,8 +24,15 @@ class InvoiceItem:
         self.discount_type = data.get("item_discount_type", "")
         self.comment = data.get("item_comment", "")
 
+    # Valores permitidos de impuesto (flexible para agregar si hay cambios)
+    ALLOWED_TAX_VALUES = [0, 8, 16, 31, 12]
+
     def validate(self) -> Optional[str]:
         """Validar reglas de negocio del item"""
+
+        if self.tax not in self.ALLOWED_TAX_VALUES:  # Validación de impuesto
+            return f"Error de asignación de impuesto: valor recibido '{self.tax}' no permitido. Valores permitidos: {self.ALLOWED_TAX_VALUES}"
+
         if self.discount > 0:  # Validar que el precio con descuento no sea negativo
             if self.discount_type in ["discount_percentage", "surcharge_percentage"]:
                 if self.discount > 99.99:
@@ -35,7 +42,7 @@ class InvoiceItem:
                 else:  # surcharge_percentage
                     precio_final = self.price * (1 + self.discount / 100)
             else:  # discount_amount o surcharge_amount
-                if self.discount_type == "discount_amount":
+                if self.discount_type == "discount_amount" and self.price > 0:
                     precio_final = self.price - self.discount
                     if precio_final < 1:
                         return "Descuento no puede ser mayor o igual al precio"
@@ -126,9 +133,11 @@ class Invoice:
             if error := item.validate():  # Validar items
                 return f"Error en item {idx}: {error}"
 
-        total_pagos = sum(payment.amount for payment in self.payments)  # Validar total de pagos
-        if abs(total_pagos - self.total_with_tax) > 0.01:  # Permitir diferencia por redondeo
-            return f"Total de pagos ({total_pagos}) no coincide con el total del documento ({self.total_with_tax})"
+        total_pagos = sum(payment.amount for payment in self.payments)  # Total de pagos
+        diferencia = self.total_with_tax - total_pagos  # Diferencia
+
+        if diferencia > 0.05:  # Hasta 0.05 de diferencia por redondeo
+            return f"Total de pagos ({total_pagos}) es menor al total del documento ({self.total_with_tax})"
 
         return None
 

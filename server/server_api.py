@@ -8,15 +8,17 @@ Punto de entrada principal del servidor.
 """
 
 import logging
+import json
 from datetime import datetime
 import time
 import threading
 import os
+import re
 
 from flask import Flask, request, jsonify, Blueprint, current_app, render_template, make_response, send_file
 from flask_cors import CORS
 
-from utils.tools import get_base_path
+from handy.tools import get_base_path
 from server.config_loader import ConfigManager
 from .handlers.document_handler import handle_documents, handle_reports
 from .handlers.proxy_handler import ProxyHandler
@@ -70,9 +72,24 @@ def create_app(config):
     """Crea y configura la aplicación Flask"""
     template_folder = os.path.join(get_base_path(), "views")
     static_folder = os.path.join(get_base_path(), "views", "static")
-    app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
+    app = Flask(__name__, template_folder=template_folder, static_folder=static_folder, instance_relative_config=True)
 
-    CORS(app)
+    allowed_origins = [
+        # Localhost con cualquier puerto (IPv4)
+        re.compile(r"^http://localhost(:\d+)?$"),
+        re.compile(r"^http://127\.0\.0\.1(:\d+)?$"),
+        # Localhost con cualquier puerto (IPv6)
+        re.compile(r"^http://\[::1\](:\d+)?$"),
+        # Rango 192.168.x.x con cualquier puerto
+        re.compile(r"^http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$"),
+        # Rango 10.x.x.x con cualquier puerto
+        re.compile(r"^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$"),
+        # Subdominios de odoo.com (solo https)
+        re.compile(r"^https://.*\.odoo\.com$"),
+    ]
+
+    CORS(app, origins=allowed_origins, supports_credentials=True)
+
     app.config.update(config)
     app.register_blueprint(api, url_prefix="/api")
 
@@ -133,9 +150,17 @@ def get_uptime():
 
 @api.route("/ping", methods=["GET"])
 def ping():
-    """Ruta para verificar que el servidor está funcionando"""
-    logger.info("Recibida solicitud PING")
-    return jsonify({"status": "success", "message": "pong"})
+    """Ruta para verificar que el servidor está funcionando y retorna el serial fiscal"""
+    logger.info("Recibida solicitud de conexión")
+    try:
+        template_path = os.path.join(get_base_path(), "templates", "template_fiscal_printer.json")
+        with open(template_path, "r", encoding="utf-8") as f:
+            template_data = json.load(f)
+        serial = template_data.get("fiscal", {}).get("serial", "unknown")
+        return jsonify({"status": "success", "message": serial})
+    except Exception as e:
+        logger.error("Error al leer serial fiscal: %s", str(e))
+        return jsonify({"status": "success", "message": "unknown"})
 
 
 @api.route("/status", methods=["GET"])

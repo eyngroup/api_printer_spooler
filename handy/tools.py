@@ -1,12 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-Copyright © 2024, Iron Graterol
-Licensed under the GNU Affero General Public License, version 3 or later.
-
-Utilidades para el manejo de rutas, textos, numeros y fechas
-"""
-
+"""Utilidades para el manejo de rutas, textos, numeros y fechas"""
 
 import re
 from datetime import datetime
@@ -19,7 +13,7 @@ import unicodedata
 
 
 def get_base_path():
-    """ Retornar os path"""
+    """Retornar os path"""
     if getattr(sys, "frozen", False):
         # Si está congelado, usar el directorio del ejecutable
         return os.path.dirname(sys.executable)

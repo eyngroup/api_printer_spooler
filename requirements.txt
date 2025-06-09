@@ -1,15 +1,13 @@
 # python -c "import struct; print(struct.calcsize('P') * 8)"
 # python --version
-pylint
 flask
 flask_cors
 requests
 pywin32
 pyserial
-pythonnet
 textwrap3
 Pillow
 jsonschema
 watchdog
 cx_Freeze
-faker
+pystray

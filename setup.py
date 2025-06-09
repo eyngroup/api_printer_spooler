@@ -10,12 +10,13 @@ setup cxFreeze
 import sys
 import os
 from cx_Freeze import setup, Executable
+from handy.version import __version__
 
 # Obtener la ruta base del proyecto
 base_path = os.path.abspath(os.path.dirname(__file__))
 
 # Directorios que necesitan ser incluidos
-include_dirs = ["config", "docs", "library", "templates", "views"]
+include_dirs = ["config", "docs", "templates", "views", "resources"]
 
 # Construir la lista de archivos a incluir
 include_files = [
@@ -23,6 +24,7 @@ include_files = [
     ("README.md", "README.md"),
     ("resources/block.svg", "resources/block.svg"),
     ("resources/logo.bmp", "resources/logo.bmp"),
+    ("resources/printer_fiscal.ico", "resources/printer_fiscal.ico"),
 ]
 
 for dir_name in include_dirs:
@@ -36,17 +38,16 @@ for dir_name in include_dirs:
 
 # Configuración del ejecutable
 build_options = {
+    "build_exe": os.path.join("build", "ApiPrinterSpooler"),
     "packages": [
         "flask",
         "flask_cors",
         "werkzeug",
         "jinja2",
         "win32print",
-        "clr",
         "logging",
         "json",
         "serial",
-        "pythonnet",
         "jsonschema",
         "watchdog",
         "http",
@@ -64,21 +65,22 @@ build_options = {
         "time",
         "threading",
         "re",
-        "ctypes",
         "PIL",
         "printers",
         "printers.printer_pnp",
         "printers.printer_hka",
+        "pystray",
+        "tkinter",
     ],
     "include_files": include_files,
     "include_msvcr": True,
-    "excludes": ["tkinter", "unittest", "email", "xml", "pydoc"],
+    "excludes": ["email", "xml", "pydoc", "unittest"],
     "optimize": 2,
 }
 
 base = None
 if sys.platform == "win32":
-    base = "Console"  # Cambiado de "Win32GUI" a "Console" para mostrar la consola
+    base = "Win32GUI"  # Cambiado de "Console" a "Win32GUI" para ocultar la consola
 
 
 executables_exe = [
@@ -93,7 +95,7 @@ executables_exe = [
 
 setup(
     name="ApiPrinterServer",
-    version="1.1.0",
+    version=__version__,
     description="API y Spooler de Impresión",
     options={"build_exe": build_options},
     executables=executables_exe,

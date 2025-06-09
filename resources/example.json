@@ -6,7 +6,7 @@
     "affected_serial": "Z0A9000001"
   },
   "customer": {
-    "customer_vat": "J1234567890",
+    "customer_vat": "J123456789",
     "customer_name": "NOMBRE DEL CLIENTE",
     "customer_address": "DIRECCION DEL CLIENTE CIUDAD DEL CLIENTE PAIS DEL CLIENTE",
     "customer_phone": "02916419691",

@@ -7,7 +7,6 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Clase para el manejo de la impresora fiscal PNP
 """
 
-import ctypes
 import datetime
 import time
 import json
@@ -16,9 +15,10 @@ import os
 from decimal import Decimal, ROUND_HALF_UP, getcontext
 from typing import Any, Dict, Union
 
+from controllers.pfpnp import FiscalPrinterPnp
 from printers.printer_base import BasePrinter
 from printers.printer_commands import PNPcmd
-from utils.tools import get_base_path, normalize_text, normalize_date, normalize_number, format_date, format_time
+from handy.tools import get_base_path, normalize_text, normalize_date, normalize_number, format_time
 
 # Configuración del logging
 logger = logging.getLogger(__name__)
@@ -26,10 +26,6 @@ logger = logging.getLogger(__name__)
 
 class PnpPrinter(BasePrinter):
     """Clase para manejar la impresión en impresoras fiscales PNP"""
-
-    # Constantes de error
-    ERROR_CONNECTION = "Error: {}"
-    ERROR_STATUS = "Código Impresora: {} || Código Fiscal: {}"
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -43,29 +39,28 @@ class PnpPrinter(BasePrinter):
         self.enabled = config.get("fiscal_enabled", False)
         self.printer = config.get("fiscal_name", "pnp")
         self.port = config.get("fiscal_port")
-        self.timeout = config.get("fiscal_timeout", 3)
-        self.dll_path = os.path.join(get_base_path(), "library", "pnpdll.dll")
+        self.timeout = config.get("fiscal_timeout", 2)
         self._printer = None
         self._model = self.template_config.get("fiscal", {}).get("model", "PF-220")  # Modelo de la impresora
         self._serial = None  # Serial de la impresora
+        self._type_doc = None
         self._last_document = "0000000000"
-        self._error = None
 
         self._initialize_printer()
         if not self.connect():
-            raise ConnectionError(self.ERROR_CONNECTION.format(self._error))
+            raise ConnectionError(f"Error al conectar con la impresora: {self.printer}")
 
-    def _load_config(self, filename: str, directory: str) -> Dict[str, Any]:
+    def _load_config(self, file_name: str, local_path: str) -> Dict[str, Any]:
         """
         Carga un archivo de configuración JSON desde el directorio especificado.
         Args:
-            filename (str): Nombre del archivo de configuración
-            directory (str): Directorio donde se encuentra el archivo
+            file_name (str): Nombre del archivo de configuración
+            local_path (str): Directorio donde se encuentra el archivo
         Returns:
             Dict[str, Any]: Configuración cargada del archivo JSON
         """
         try:
-            config_path = os.path.join(get_base_path(), directory, filename)
+            config_path = os.path.join(get_base_path(), local_path, file_name)
             if not os.path.exists(config_path):
                 logger.error("Archivo de configuración no encontrado: %s", config_path)
                 return {}
@@ -73,87 +68,19 @@ class PnpPrinter(BasePrinter):
             with open(config_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            logger.error("Error al cargar configuración %s: %s", filename, str(e))
+            logger.warning("Error cargando configuración %s: %s", file_name, str(e))
             return {}
 
     def _initialize_printer(self) -> None:
-        """Inicializa la conexión con el DLL y crea la instancia de la impresora"""
+        """Crea la instancia del controlador de la impresora PNP"""
         try:
-            self._printer = ctypes.CDLL(self.dll_path)  # Cargar la DLL
-            function_config = self._load_config("pnp_functions.json", "config")
-            if not function_config:
-                raise RuntimeError("No se pudo cargar la configuración de funciones PNP")
-
-            type_mapping = {
-                "PRINTER_CHAR_P": ctypes.c_char_p,
-                "PRINTER_NO_ARGS": [],
-                "PRINTER_SINGLE_ARG": [ctypes.c_char_p],
-                "PRINTER_DOUBLE_ARG": [ctypes.c_char_p, ctypes.c_char_p],
-            }  # Mapeo de nombres de tipos a constantes reales
-
-            for group in function_config.values():  # Configurar todas las funciones desde el JSON
-                for func_name, func_config in group.items():
-                    if not hasattr(self._printer, func_name):
-                        logger.warning("Función %s no encontrada en el DLL", func_name)
-                        continue
-
-                    func = getattr(self._printer, func_name)
-                    restype = func_config.get("restype")  # Establecer tipo de retorno
-                    if restype in type_mapping:
-                        func.restype = type_mapping[restype]
-
-                    argtypes = func_config.get("argtypes")  # Establecer tipos de argumentos
-                    if isinstance(argtypes, list):  # Si es una lista, mapear cada tipo
-                        func.argtypes = [type_mapping["PRINTER_CHAR_P"] for _ in argtypes]
-                    elif argtypes in type_mapping:  # Si es un string, usar el mapeo directamente
-                        func.argtypes = type_mapping[argtypes]
-                    elif argtypes == "PRINTER_NO_ARGS":  # Si no tiene argumentos, no establecer argtypes
-                        func.argtypes = None
-
-            logger.info("Inicialización de funciones PNP completada")
+            self._printer = FiscalPrinterPnp(self.port, self.baudrate, self.timeout)
+            logger.info("Impresora PNP inicializada")
         except Exception as e:
             logger.error("Error al inicializar la impresora PNP: %s", str(e))
-            raise RuntimeError(f"Error al inicializar la impresora PNP: {str(e)}") from e
+            raise
 
-    def connect(self) -> bool:
-        """
-        Establece la conexión con la impresora
-        Returns:
-            bool: True si la conexión fue exitosa
-        """
-        try:
-            port_number = self.port.replace("COM", "") if self.port.startswith("COM") else self.port
-            open_port = self._printer.PFabrepuerto(str(port_number).encode())
-
-            if open_port.decode("utf-8") == "OK":
-                logger.debug("Conexion con el puerto OK")
-
-                # Tipo o Modelo de Impresora
-                if self._model == "PF-300":
-                    if self._printer.PFTipoImp(b"300").decode("utf-8") != "OK":
-                        raise RuntimeError("Error al establecer tipo de impresora Matriz")
-                else:
-                    if self._printer.PFTipoImp(b"220").decode("utf-8") != "OK":
-                        raise RuntimeError("Error al establecer tipo de impresora Ticket")
-
-                # Serial de la impresora
-                if self._printer.PFSerial().decode("utf-8") != "OK":
-                    raise RuntimeError("Error al obtener serial de la impresora")
-
-                printer_data = self._printer.PFultimo().decode("utf-8").split(",")
-                self._serial = printer_data[2]
-
-                logger.info("Conexión establecida con la impresora Modelo: %s, Serial: %s", self._model, self._serial)
-                return True
-
-            self._error = f"Conexion al puerto: {self.port}"
-            logger.error("Error: %s", self._error)
-            return False
-        except Exception as e:
-            logger.error("Error al conectar: %s", str(e))
-            return False
-
-    def format_number(self, value: Union[float, int, str], field_type: str) -> str:
+    def _format_number(self, value: Union[float, int, str], field_type: str) -> str:
         """
         Formatea un número como string según el tipo de campo para la impresora PNP.
         Los números se formatean con punto decimal y el número de decimales depende del tipo.
@@ -164,24 +91,21 @@ class PnpPrinter(BasePrinter):
             str: Valor formateado como string con punto decimal
         """
         try:
-            getcontext().rounding = ROUND_HALF_UP  # Configurar contexto para redondeo bancario (half-up)
+            decimals = 2
+            getcontext().rounding = ROUND_HALF_UP
             decimal_value = Decimal(str(value))
-
-            if field_type == "quantity":  # Configurar decimales según el tipo de campo
+            if field_type == "quantity":
                 decimals = 3
-            else:
-                decimals = 2
 
             format_str = f"{{:.{decimals}f}}"
             formatted = format_str.format(float(decimal_value))
-            formatted = formatted.replace(",", ".")
+            formatted = formatted.replace(".", "")
             return formatted
-
         except Exception as e:
             logger.error("Error al formatear número (%s): %s", field_type, str(e))
             raise
 
-    def format_text(self, text: str, field_type: str) -> str:
+    def _format_text(self, text: str, field_type: str) -> str:
         """
         Formatea texto según los límites del modelo de impresora PNP.
         Normaliza el texto y lo trunca según el tipo de campo y modelo.
@@ -202,50 +126,47 @@ class PnpPrinter(BasePrinter):
 
             normalized = normalize_text(text)
             return normalized[:max_chars]
-
         except Exception as e:
             logger.error("Error al formatear texto (%s): %s", field_type, str(e))
-            # Valores seguros por defecto en caso de error
-            normalized = normalize_text(text)
+            normalized = normalize_text(text)  # Valores seguros por defecto en caso de error
             return normalized[:40]
 
-    def cancel_doc(self, operation_type: str) -> str:
-        """Metodo para cancelar, anular o cerrar documento"""
-        msg = ""
-        result = self._printer.PFCancelaDoc(b"D", b"0").decode("utf-8")
-        if result == "OK":
-            msg = "Documento Cancelado"
-        if result == "TO":
-            msg = "Se excedió el tiempo de respuesta esperado del equipo"
-        if result == "NP":
-            msg = "Puerto NO Abierto"
-        if result == "ER":
-            if operation_type == "note":
-                self._printer.PFCierraNF()
-                msg = "Impresión Interrumpida"
-            else:
-                self._printer.PFComando(b"C")
-                result = self._printer.PFultimo().decode("utf-8").split(",")
-                if int(result[15]) > 0:
-                    msg = "Impresora con documento fiscal abierto. Cancelar la operación reiniciando la impresora"
-                else:
-                    self._printer.PFComando(b"E|T")
-                    msg = "Impresora con documento fiscal en cero. Se procede a cancelar la operación"
-        return msg
+    def connect(self) -> bool:
+        """
+        Establece la conexión con la impresora
+        Returns:
+            bool: True si la conexión fue exitosa
+        """
+        try:
+            if self._printer.open_port():
+                if not self.check_status():
+                    self._printer.close_port()
+                    return False
+
+                serial_info = self._printer.get_version()  # Obtener modelo de la impresora
+                if not serial_info:
+                    raise RuntimeError("No se pudo obtener el modelo o serial de la impresora")
+                self._model = serial_info.get("modelo", "PF-220")
+                self._serial = serial_info.get("serial", "EOO9000000")
+
+                logger.info("Conexión con impresora modelo: %s, serial: %s", self._model, self._serial)
+                return True
+            logger.error("Error al conectar con el puerto: %s", self.port)
+            return False
+        except KeyError as ke:
+            logger.error("KeyError: %s", ke)
+            self._printer.close_port()
+            return False
+        except Exception as e:
+            logger.error("Error al iniciar conexión: %s", str(e))
+            self._printer.close_port()
+            return False
 
     def disconnect(self) -> None:
-        """Desconecta la impresora fiscal y libera el DLL"""
+        """Desconecta la impresora fiscal"""
         try:
-            if self._printer:
-                self._printer.PFcierrapuerto()
-                # Get DLL handle using safer method
-                handle = ctypes.c_void_p.from_address(id(self._printer)).value
-                self._printer = None
-
-                if handle:  # Free DLL from memory
-                    ctypes.windll.kernel32.FreeLibrary(handle)
-
-            logger.info("Desconexión y liberación de DLL exitosa")
+            self._printer.close_port()
+            logger.info("Desconexión exitosa")
         except Exception as e:
             logger.error("Error al desconectar: %s", str(e))
 
@@ -259,29 +180,38 @@ class PnpPrinter(BasePrinter):
             bool: True si el comando se ejecutó correctamente
         """
         try:
-            result = self._printer.PFComando(command.encode())
-            # print(f"send_command: {command} | {result}")
-            if result.decode("utf-8") == "OK":
-                logger.info(command)
+            value = False
+            logger.info("Comando  Enviado: %s", command)
+            result = self._printer.send_cmd(command)
+            logger.debug("Valores Recibidos: %s", result)
+            if result:
+                if result[0] == "0080" and result[1] == "2600":
+                    value = True
+
+                if result[0] == "0080" and result[1] == "3600":
+                    value = True
+
+                if result[0] == "0080" and result[1] == "0600" and len(result) == 2:
+                    value = True
+
+                if result[0] == "0080" and result[1] == "0600" and len(result) >= 3:
+                    if self._type_doc == "note":
+                        self._last_document = result[2]
+                    elif self._type_doc == "invoice":
+                        self._last_document = result[3]
+                    elif self._type_doc == "credit":
+                        self._last_document = result[4]
+                    else:
+                        self._last_document = "0000000000"
+                    logger.info("Documento Fiscal: %s", self._last_document)
+                    value = True
+
                 if wait_time > 0:
                     time.sleep(wait_time)
-                value = True
-            else:
-                logger.error("Error al enviar comando: %s", command)
-                # status = self.get_printer_status()
-                # logger.error(
-                #     "Estado: %s %s ",
-                #     status["status_description"],
-                #     status["error_description"],
-                # )
-                # print("en metodo send_command")
-                # print(status["error_code"], status["status_code"])
-                # print(status["error_description"], status["status_description"])
-                # self._printer.PFCancelaDoc(PNPcommand.CANCEL)
-                value = False
+
             return value
         except Exception as e:
-            logger.error("Error al enviar comando: %s", str(e))
+            logger.error("Error al enviar comando %s: %s", command, str(e))
             return False
 
     def check_status(self) -> bool:
@@ -291,14 +221,17 @@ class PnpPrinter(BasePrinter):
             bool: True si la impresora está lista, False en caso contrario
         """
         try:
-            printer_data = self.get_printer_data("V")
-            if not printer_data["status"] or not printer_data["data"]:
-                logger.error("Error al obtener estado de la impresora")
+            status = self._printer.get_status()
+            if status["status"] != "00":
+                logger.error("Estado: %s", status["status_detallado"])
                 return False
 
-            printer_state_code = printer_data["data"]["printer_state"]["code"]
-            return printer_state_code == "00"
+            if status["status_code"] != "0080" or status["error_code"] != "0600":
+                logger.error("Estado: %s || Error: %s", status["status_code"], status["error_code"])
+                self._cancel_doc(status["status_code"], status["error_code"])
+                return False
 
+            return True
         except Exception as e:
             logger.error("Error al verificar estado de la impresora: %s", str(e))
             return False
@@ -310,139 +243,52 @@ class PnpPrinter(BasePrinter):
             Dict[str, Any]: Diccionario con la información del estado
         """
         try:
-            check_status = self._printer.PFestatus(b"V").decode("utf-8")
-            if check_status != "OK":
+            check_status = self._printer.get_status()
+            if not check_status:
                 logger.error("Error al obtener estado de la impresora")
                 return {
-                    "error_code": "0000",
                     "status_code": "0000",
-                    "error_description": "Error al obtener estado",
-                    "status_description": "Error al obtener estado",
+                    "error_code": "0000",
+                    "status": "Error al obtener estado",
+                    "error": "Error al obtener estado",
                 }
 
-            logger.debug("Estado de la impresora: %s", self._printer.PFultimo().decode("utf-8"))
-            status = self._printer.PFultimo().decode("utf-8").split(",")
-            error_code = status[0]  # Estado de la impresora
-            status_code = status[1]  # Estado fiscal
-            return PNPcmd.parse_status(error_code, status_code)
+            if check_status["error_critico"] or check_status["requiere_servicio"]:
+                logger.error("Estado: %s", check_status["estado_detallado"])
 
+            return {
+                "status_code": check_status["status_code"],
+                "error_code": check_status["error_code"],
+                "status": check_status["status"],
+                "error": check_status["status_detallado"],
+            }
         except Exception as e:
             logger.error("Error al obtener estado de impresora: %s", str(e))
             return {
-                "error_code": "0000",
                 "status_code": "0000",
-                "error_description": f"Error inesperado: {str(e)}",
-                "status_description": f"Error inesperado: {str(e)}",
+                "error_code": "0000",
+                "status": f"Error inesperado: {str(e)}",
+                "error": f"Error inesperado: {str(e)}",
             }
 
-    def get_printer_data(self, model: str) -> Dict[str, Any]:
-        """
-        Obtiene información específica de la impresora según el modelo solicitado
-        Args:
-            model (str): Tipo de información a solicitar
-                'N' = datos de los contadores
-                'T' = Numero de última nota de crédito generada
-                'U' = Valor IGTF fac, y nota de credito/devolucion
-                'V' = Envia versión del FW del equipo
-        Returns:
-            Dict[str, Any]: Diccionario con la información solicitada según el modelo
-        """
-        try:
-            printer_states = PNPcmd.PRINTER_STATES
-            cmd = f"8|{model}".encode()
-            if self._printer.PFComando(cmd).decode("utf-8") != "OK":
-                logger.error("Error al obtener datos de la impresora con modelo %s", model)
-                return {"status": False, "error": "Error al obtener datos de la impresora", "data": None}
+    def _cancel_doc(self, value1: str, value2: str) -> None:
+        """Metodo para cancelar, anular o cerrar documento"""
+        result = None
+        if value1 == "0080" and value2 == "2600":
+            result = self.send_command(PNPcmd.DNF_CLOSE)
 
-            response = self._printer.PFultimo().decode("utf-8")
-            response_data = response.split(",")
+        if value1 == "0080" and value2 == "8620":
+            result = self.send_command(PNPcmd.CLOSE_TOTAL)
 
-            if len(response_data) < 2:
-                return {"status": False, "error": "Respuesta incompleta de la impresora", "data": None}
-
-            # Procesar respuesta según el modelo
-            if model == "V":  # Versión del FW
-                if len(response_data) >= 8:
-                    printer_state_code = response_data[3]  # Obtener estado de la impresora (Campo 4)
-                    printer_state_desc = printer_states.get(printer_state_code, "Estado desconocido")
-                    return {
-                        "status": True,
-                        "error": None,
-                        "data": {
-                            "sequence": response_data[2],  # Campo 3: Último valor de secuencia
-                            "printer_state": {  # Campo 4: Estado actual de la impresora
-                                "code": printer_state_code,
-                                "description": printer_state_desc,
-                            },
-                            "last_command": int(response_data[4], 16),  # Campo 5: Código último comando (en decimal)
-                            "date": format_date(response_data[5]),  # Campo 6: Fecha formateada
-                            "time": format_time(response_data[6]),  # Campo 7: Hora formateada
-                            "firmware_version": response_data[7],  # Campo 8: Version del firmware
-                        },
-                    }
-            elif model == "U":  # IGTF factura y nota de crédito
-                if len(response_data) >= 9:
-                    return {
-                        "status": True,
-                        "error": None,
-                        "data": {
-                            "igtf_amount": str(response_data[7]),  # Campo 8: IGTF acumulado en el periodo
-                            "credit_amount": str(response_data[8]),  # Campo 9: Crédito acumulado en el periodo
-                        },
-                    }
-            elif model == "T":  # Número de última nota de crédito
-                if len(response_data) >= 8:
-                    return {
-                        "status": True,
-                        "error": None,
-                        "data": {
-                            "date": format_date(response_data[5]),  # Campo 6: Fecha formateada
-                            "time": format_time(response_data[6]),  # Campo 7: Hora formateada
-                            "last_credit_note": normalize_number(
-                                response_data[7], 10
-                            ),  # Campo 8: Último # de nota de crédito
-                        },
-                    }
-            elif model == "N":  # Datos de los contadores
-                if len(response_data) >= 11:
-                    return {
-                        "status": True,
-                        "error": None,
-                        "data": {
-                            "date": format_date(response_data[5]),  # Campo 6: Fecha formateada
-                            "time": format_time(response_data[6]),  # Campo 7: Hora formateada
-                            "total_fiscal_docs": normalize_number(
-                                response_data[7], 10
-                            ),  # Campo 8: Total documentos fiscales
-                            "last_document_invoice": normalize_number(
-                                response_data[8], 8
-                            ),  # Campo 9: Ultima factura fiscal
-                            "last_document_note": normalize_number(
-                                response_data[9], 8
-                            ),  # Campo 10: Ultima nota no fiscal
-                            "last_machine_report": normalize_number(response_data[10], 4),  # Campo 11: Último reporte Z
-                        },
-                    }
-
-            # Si el modelo no coincide retornar error
-            return {
-                "status": False,
-                "error": f"Modelo {model} no soportado o sin implementación específica",
-                "data": None,
-            }
-
-        except Exception as e:
-            logger.error("Error al obtener datos de la impresora: %s", str(e))
-            return {"status": False, "error": str(e), "data": None}
+        logger.info("Resultado de Cancelado: %s", result)
 
     def report_x(self) -> bool:
         """Imprime reporte X (reporte diario sin cierre)"""
         try:
-            response = self._printer.PFrepx()
-            if response.decode("utf-8") != "OK":
-                logger.error("Error en PFrepx: %s", response.decode("utf-8"))
-                return False
-            return True
+            if self.send_command(PNPcmd.DAILY_REPORT):
+                time.sleep(3)
+                return True
+            return False
         except Exception as e:
             logger.error("Error al generar reporte X: %s", str(e))
             return False
@@ -450,7 +296,10 @@ class PnpPrinter(BasePrinter):
     def report_z(self) -> bool:
         """Imprime reporte Z (cierre diario)"""
         try:
-            return self._printer.PFrepz()
+            if self.send_command(PNPcmd.DAILY_CLOSE):
+                time.sleep(3)
+                return True
+            return False
         except Exception as e:
             logger.error("Error al generar reporte Z: %s", str(e))
             return False
@@ -464,230 +313,209 @@ class PnpPrinter(BasePrinter):
             Dict[str, Any]: Resultado de la impresión
         """
         logger.debug("Procesando documento")
+        status = self.get_printer_status()
+        message_info = f"Estado: {status['status']} - {status['error']}"
+        if status["status_code"] != "0080" or status["error_code"] != "0600":
+            self._cancel_doc(status["status_code"], status["error_code"])
+
+            logger.error("Estado Cod.: %s || Error Cod.: %s", status["status_code"], status["error_code"])
+            logger.error("%s", message_info)
+            return {
+                "status": False,
+                "message": f"Impresora fiscal {self.printer} en estado inoperativo",
+                "data": {
+                    "Estado": status["status"],
+                    "Error": status["error"],
+                },
+            }
+
         try:
             operation_type = data.get("operation_type", "").lower()
-            status = self.get_printer_status()
-            message = f"Estado: {status['error_description']} | {status['status_description']}"
-
             if operation_type not in ("credit", "debit", "invoice", "note"):
                 return {
                     "status": False,
                     "message": f"Tipo de documento no válido: {operation_type}",
                     "data": None,
                 }
-            logger.info(message)
-            # Procesar datos del cliente
-            self._process_customer_data(data, operation_type)
-            # Procesar ítems
-            self._process_items(data, operation_type)
-            # Procesar pie de página
-            self._process_footer(data, operation_type)
-            # Procesar pagos
-            self._process_payments(data, operation_type)
-            # Procesar envio de datos
-            return self._process_send_data(operation_type)
 
+            logger.info(message_info)
+            self._type_doc = operation_type
+            self._process_customer_data(data)  # Procesar datos del cliente
+            self._process_items(data)  # Procesar ítems
+            self._process_footer(data)  # Procesar pie de página
+            self._process_payments(data)  # Procesar pagos
+            return self._process_send_data()  # Procesar envio de datos
         except Exception as e:
-            message = f"Falla durante la impresión del documento de tipo: {operation_type} [{str(e)}]"
-            logger.error(message)
-            return {"status": False, "message": message, "data": None}
+            message_error = f"Falla durante la impresión del documento de tipo: {operation_type} [{str(e)}]"
+            return {"status": False, "message": message_error, "data": None}
 
-    def _process_customer_data(self, data: Dict[str, Any], operation_type: str) -> None:
+    def _process_customer_data(self, data: Dict[str, Any]) -> None:
         """Procesa y envía los datos del cliente a la impresora."""
         logger.debug("Procesando datos del documento")
-
         customer = data.get("customer", {})
-        customer_vat = self.format_text(customer.get("customer_vat", ""), "vat")
-        customer_name = self.format_text(customer.get("customer_name", ""), "partner")
-        customer_address = self.format_text(customer.get("customer_address", ""), "comment")
-        customer_phone = self.format_text(customer.get("customer_phone", ""), "comment")
-        customer_email = self.format_text(customer.get("customer_email", ""), "comment")
+        customer_vat = self._format_text(customer.get("customer_vat", ""), "vat")
+        customer_name = self._format_text(customer.get("customer_name", ""), "partner")
+        customer_address = self._format_text(customer.get("customer_address", ""), "comment")
+        customer_phone = self._format_text(customer.get("customer_phone", ""), "comment")
+        customer_email = self._format_text(customer.get("customer_email", ""), "comment")
 
         document = data.get("document", {})
         document_number = normalize_number(document.get("document_number", ""))
         document_date = normalize_date(document.get("document_date", ""))
-        document_name = self.format_text(document.get("document_name", ""), "comment")
-        document_cashier = self.format_text(document.get("document_cashier", ""), "comment")
+        document_name = self._format_text(document.get("document_name", ""), "comment")
+        document_cashier = self._format_text(document.get("document_cashier", ""), "comment")
 
         commands = []
-        if operation_type == "credit":
+        if self._type_doc == "credit":
             affected_document = data.get("affected_document", {})
             affected_number = normalize_number(affected_document.get("affected_number", ""), 10)
             affected_date = normalize_date(affected_document.get("affected_date", ""))
-            affected_serial = self.format_text(affected_document.get("affected_serial", ""), "comment")
+            affected_serial = self._format_text(affected_document.get("affected_serial", ""), "comment")
             current_time = format_time(datetime.datetime.now().strftime("%H%M"))
 
-            logger.info(
-                "PFDevolucion(%s,%s,%s,%s,%s,%s)",
-                customer_name,
-                customer_vat,
-                affected_number,
-                affected_serial,
-                affected_date,
-                current_time,
+            resp = self.send_command(
+                PNPcmd.OPEN_CREDIT.format(
+                    customer_name,
+                    customer_vat,
+                    affected_number,
+                    affected_serial,
+                    affected_date,
+                    current_time,
+                )
             )
-            result = self._printer.PFDevolucion(
-                customer_name.encode(),
-                customer_vat.encode(),
-                affected_number.encode(),
-                affected_serial.encode(),
-                affected_date.encode(),
-                current_time.encode(),
-            )
-            if result.decode("utf-8") != "OK":
-                response = self.cancel_doc(operation_type)
-                raise RuntimeError(f"Error al abrir la nota de credito || PFCancelaDoc: {response}")
+            if not resp:
+                raise RuntimeError("Error al abrir nota de credito")
 
-        if operation_type in ("debit", "invoice"):
-            logger.info("PFabrefiscal(%s,%s)", customer_name, customer_vat)
-            result = self._printer.PFabrefiscal(customer_name.encode(), customer_vat.encode())
-            if result.decode("utf-8") != "OK":
-                response = self.cancel_doc(operation_type)
-                raise RuntimeError(f"Error al abrir la factura || PFCancelaDoc: {response}")
+        if self._type_doc in ("debit", "invoice"):
+            resp = self.send_command(PNPcmd.OPEN_INVOICE.format(customer_name, customer_vat))
+            if not resp:
+                raise RuntimeError("Error al abrir factura")
 
-        if operation_type in ("credit", "debit", "invoice"):
+        if self._type_doc in ("credit", "debit", "invoice"):
             include_line = {
-                "include_partner_address": PNPcmd.PARTNER_ADDRESS.format(customer_address).encode(),
-                "include_partner_phone": PNPcmd.PARTNER_PHONE.format(customer_phone).encode(),
-                "include_partner_email": PNPcmd.PARTNER_EMAIL.format(customer_email).encode(),
-                "include_document_number": PNPcmd.DOCUMENT_NUMBER.format(document_number).encode(),
-                "include_document_date": PNPcmd.DOCUMENT_DATE.format(document_date).encode(),
-                "include_document_name": PNPcmd.DOCUMENT_NAME.format(document_name).encode(),
-                "include_document_cashier": PNPcmd.DOCUMENT_CASHIER.format(document_cashier).encode(),
+                "include_partner_address": PNPcmd.PARTNER_ADDRESS.format(customer_address),
+                "include_partner_phone": PNPcmd.PARTNER_PHONE.format(customer_phone),
+                "include_partner_email": PNPcmd.PARTNER_EMAIL.format(customer_email),
+                "include_document_number": PNPcmd.DOCUMENT_NUMBER.format(document_number),
+                "include_document_date": PNPcmd.DOCUMENT_DATE.format(document_date),
+                "include_document_name": PNPcmd.DOCUMENT_NAME.format(document_name),
+                "include_document_cashier": PNPcmd.DOCUMENT_CASHIER.format(document_cashier),
             }
-
             format_config = self.template_config.get("format", {})
             lines_add = [value for key, value in include_line.items() if format_config.get(key, False)]
 
             if lines_add:
                 for command in lines_add[:3]:
-                    logger.info("PFTfiscal(%s)", command)
-                    self._printer.PFTfiscal(command)
-                logger.info("PFTfiscal(%s)", PNPcmd.INTER_LINE)
-                self._printer.PFTfiscal(PNPcmd.INTER_LINE.encode())
+                    resp = self.send_command(PNPcmd.COMMENTS.format(command))
+                    if not resp:
+                        raise RuntimeError("Error en datos adicionales de documento fiscal")
+                self.send_command(PNPcmd.COMMENTS.format(PNPcmd.INTER_LINE))
 
-        if operation_type == "note":
-            name_note = self.template_config.get("fiscal", {}).get("name_note", "Nota").encode()
+        if self._type_doc == "note":
+            name_note = self.template_config.get("fiscal", {}).get("name_note", "Nota")
+            resp = self.send_command(PNPcmd.DNF_OPEN)
 
-            result = self._printer.PFAbreNF()
-            logger.info("PFAbreNF()")
-            if result.decode("utf-8") != "OK":
-                raise RuntimeError("Error al abrir documento NO fiscal")
-
+            if not resp:
+                raise RuntimeError("Error en inicio de documento NO fiscal")
             commands = [
                 name_note,
-                PNPcmd.INTER_LINE.encode(),
-                PNPcmd.PARTNER_VAT.format(customer_vat).encode(),
-                PNPcmd.PARTNER_NAME.format(customer_name).encode(),
-                PNPcmd.PARTNER_ADDRESS.format(customer_address).encode(),
-                PNPcmd.PARTNER_PHONE.format(customer_phone).encode(),
-                PNPcmd.PARTNER_EMAIL.format(customer_email).encode(),
-                PNPcmd.DOCUMENT_NUMBER.format(document_number).encode(),
-                PNPcmd.DOCUMENT_DATE.format(document_date).encode(),
-                PNPcmd.DOCUMENT_NAME.format(document_name).encode(),
-                PNPcmd.DOCUMENT_CASHIER.format(document_cashier).encode(),
-                PNPcmd.INTER_LINE.encode(),
+                PNPcmd.INTER_LINE,
+                PNPcmd.PARTNER_VAT.format(customer_vat),
+                PNPcmd.PARTNER_NAME.format(customer_name),
+                PNPcmd.PARTNER_ADDRESS.format(customer_address),
+                PNPcmd.PARTNER_PHONE.format(customer_phone),
+                PNPcmd.PARTNER_EMAIL.format(customer_email),
+                PNPcmd.DOCUMENT_NUMBER.format(document_number),
+                PNPcmd.DOCUMENT_DATE.format(document_date),
+                PNPcmd.DOCUMENT_NAME.format(document_name),
+                PNPcmd.DOCUMENT_CASHIER.format(document_cashier),
+                PNPcmd.INTER_LINE,
             ]
-
             for command in commands:
-                self._printer.PFLineaNF(command)
-                logger.info("PFLineaNF(%s)", command.decode("utf-8"))
+                resp = self.send_command(PNPcmd.DNF_TEXT.format(command))
+                if not resp:
+                    raise RuntimeError("Error en datos de documento NO fiscal")
 
-    def _process_items(self, data: Dict[str, Any], operation_type: str) -> None:
+    def _process_items(self, data: Dict[str, Any]) -> None:
         """Procesa y envía los ítems del documento a la impresora."""
         logger.debug("Procesando items")
 
         for item in data.get("items", []):
-            item_comment = self.format_text(item.get("item_comment", ""), "comment")
+            item_comment = self._format_text(item.get("item_comment", ""), "comment")
             if self.template_config.get("format", {}).get("include_item_reference", False):
                 item_code = item.get("item_ref", "")
                 item_product = item.get("item_name", "")
-                item_name = self.format_text(f"[{item_code}] {item_product}", "product")
+                item_name = self._format_text(f"[{item_code}] {item_product}", "product")
             else:
-                item_name = self.format_text(item.get("item_name", ""), "product")
+                item_name = self._format_text(item.get("item_name", ""), "product")
 
-            item_quantity = self.format_number(item.get("item_quantity", 0), "quantity")
-            item_price = self.format_number(item.get("item_price", 0), "price")
+            item_quantity = self._format_number(item.get("item_quantity", 0), "quantity")
+            item_price = self._format_number(item.get("item_price", 0), "price")
             item_tax = item.get("item_tax", "0")
 
-            if operation_type == "note":
+            if self._type_doc == "note":
                 item_line = f"{item_name} x{item_quantity} x{item_price} Iva:{item_tax}"
-
-                result = self._printer.PFLineaNF(item_line.encode())
-                logger.info("PFLineaNF(%s)", item_line)
-                if result.decode("utf-8") != "OK":
-                    response = self.cancel_doc(operation_type)
-                    raise RuntimeError(f"Error al procesar ítem || PFCancelaDoc: {response}")
+                resp = self.send_command(PNPcmd.DNF_TEXT.format(item_line))
+                if not resp:
+                    raise RuntimeError("Error en items de documento NO fiscal")
 
                 if self.template_config.get("format", {}).get("include_item_comment", False) and item_comment:
-                    self._printer.PFLineaNF(item_comment.encode())
-                    logger.info("PFLineaNF(%s)", item_comment)
+                    resp = self.send_command(PNPcmd.DNF_TEXT.format(item_comment))
+                    if not resp:
+                        raise RuntimeError("Error de comentario en item de documento NO fiscal")
             else:
                 tax_value = str(int(float(item_tax) * 100)).zfill(4)
-
-                logger.info("PFrenglon(%s,%s,%s,%s)", item_name, item_quantity, item_price, tax_value)
-                result = self._printer.PFrenglon(
-                    item_name.encode(), item_quantity.encode(), item_price.encode(), tax_value.encode()
-                )
-                if result.decode("utf-8") != "OK":
-                    response = self.cancel_doc(operation_type)
-                    raise RuntimeError(f"Error al procesar ítem || PFCancelaDoc: {response}")
+                resp = self.send_command(PNPcmd.ITEM_LINE.format(item_name, item_quantity, item_price, tax_value))
+                if not resp:
+                    self.send_command(PNPcmd.ITEM_LINE_DEL.format(item_name, item_quantity, item_price, tax_value))
+                    raise RuntimeError("Error al procesar ítem fiscal")
 
                 if self.template_config.get("format", {}).get("include_item_comment", False) and item_comment:
-                    logger.info("PFTfiscal(%s)", item_comment)
-                    result = self._printer.PFTfiscal(item_comment.encode())
-                    if result.decode("utf-8") != "OK":
-                        raise RuntimeError(f"Error al procesar comentario: {item_comment}")
+                    resp = self.send_command(PNPcmd.COMMENTS.format(item_comment))
+                    if not resp:
+                        raise RuntimeError(f"Error al procesar comentario fiscal: {item_comment}")
 
-    def _process_footer(self, data: Dict[str, Any], operation_type: str) -> None:
+    def _process_footer(self, data: Dict[str, Any]) -> None:
         """Procesa el pie de página."""
         logger.debug("Procesando pie de página")
-
         delivery_comments = data.get("delivery", {}).get("delivery_comments", [])
         delivery_barcode = data.get("delivery", {}).get("delivery_barcode", "")
 
         if delivery_comments and self.template_config.get("format", {}).get("include_delivery_comments", False):
-            if operation_type == "note":
-                logger.info("PFLineaNF(%s)", PNPcmd.INTER_LINE)
-                self._printer.PFLineaNF(PNPcmd.INTER_LINE.encode())
+            if self._type_doc == "note":
+                self.send_command(PNPcmd.DNF_TEXT.format(PNPcmd.INTER_LINE))
             else:
-                logger.info("PFTfiscal(%s)", PNPcmd.INTER_LINE)
-                self._printer.PFTfiscal(PNPcmd.INTER_LINE.encode())
+                self.send_command(PNPcmd.COMMENTS.format(PNPcmd.INTER_LINE))
 
             for comment in delivery_comments:
-                line_comment = self.format_text(comment, "comment")
-                if operation_type == "note":
-                    self._printer.PFLineaNF(line_comment.encode())
-                    logger.info("PFLineaNF(%s)", line_comment)
+                line_comment = self._format_text(comment, "comment")
+                if self._type_doc == "note":
+                    resp = self.send_command(PNPcmd.DNF_TEXT.format(line_comment))
                 else:
-                    logger.info("PFTfiscal(%s)", line_comment)
-                    result = self._printer.PFTfiscal(line_comment.encode())
-                    if result.decode("utf-8") != "OK":
-                        raise RuntimeError(f"Error al procesar delivery comments: {line_comment}")
+                    resp = self.send_command(PNPcmd.COMMENTS.format(line_comment))
+
+                if not resp:
+                    raise RuntimeError(f"Error al procesar delivery comments: {line_comment}")
 
         if delivery_barcode and self.template_config.get("format", {}).get("include_delivery_barcode", False):
-            if operation_type == "note":
-                self._printer.PFLineaNF(delivery_barcode.encode())
-                logger.info("PFLineaNF(%s)", delivery_barcode)
+            if self._type_doc == "note":
+                resp = self.send_command(PNPcmd.DNF_TEXT.format(delivery_barcode))
             else:
-                logger.info("PFBarra(%s)", delivery_barcode)  # Se usa PFTfiscal por error en el simulador
-                result = self._printer.PFTfiscal(delivery_barcode.encode())  # Pendiente por probar funcion PFBarra
-                if result.decode("utf-8") != "OK":
-                    raise RuntimeError(f"Error al procesar código de barras: {delivery_barcode}")
+                resp = self.send_command(PNPcmd.BARCODE.format(delivery_barcode))
 
-    def _process_payments(self, data: Dict[str, Any], operation_type: str) -> None:
+            if not resp:
+                raise RuntimeError(f"Error al procesar barcode: {delivery_barcode}")
+
+    def _process_payments(self, data: Dict[str, Any]) -> None:
         """Procesa los métodos de pago del documento."""
         logger.debug("Procesando pagos")
-
         payments = data.get("payments", [])
         total_amount = sum(float(payment.get("payment_amount", 0)) for payment in payments)
 
-        if operation_type == "note":
-            self._printer.PFLineaNF(f"Monto Total: {total_amount}".encode())
-            result = self._printer.PFCierraNF()
-            logger.info("PFCierraNF(Monto Total %s)", total_amount)
-            if result.decode("utf-8") != "OK":
-                raise RuntimeError("Error al cerrar documento NO fiscal")
+        if self._type_doc == "note":
+            self.send_command(PNPcmd.DNF_TEXT.format(f"Monto Total: {total_amount}"))
+            if not self.send_command(PNPcmd.DNF_CLOSE):
+                raise RuntimeError("Error al procesar cierre de documento NO fiscal")
         else:
             if payments:
                 mount_base = 0
@@ -699,41 +527,30 @@ class PnpPrinter(BasePrinter):
                     mount_igtf += payment["payment_amount"] if 20 <= int(code) <= 24 else 0
 
                 if mount_igtf > 0:
-                    formatted_igtf = self.format_number(mount_igtf, "payment").replace(".", "")
+                    formatted_igtf = self._format_number(mount_igtf, "payment").replace(".", "")
                     if not self.send_command(PNPcmd.CLOSE_PARTIAL_IGTF.format(formatted_igtf)):
                         raise RuntimeError("Error en pago con IGTF")
 
             time.sleep(1)
-            result = self._printer.PFtotal()
-            logger.info("PFtotal(%s)", total_amount)
-            if result.decode("utf-8") != "OK":
+            if not self.send_command(PNPcmd.CLOSE_TOTAL):
                 raise RuntimeError("Error al cerrar documento fiscal")
 
-        response = self._printer.PFultimo().decode("utf-8").split(",")
-        if operation_type == "note":
-            self._last_document = response[2]
-        if operation_type in ("debit", "invoice"):
-            self._last_document = response[3]
-        if operation_type == "credit":
-            self._last_document = response[4]
-
-    def _process_send_data(self, operation_type: str) -> Dict[str, Any]:
+    def _process_send_data(self) -> Dict[str, Any]:
         """Obtiene los datos finales después de la impresión."""
-        logger.debug("Obteniendo datos de los contadores finales")
-        print(operation_type)
+        logger.debug("Obteniendo datos de los contadores finales %s", self._type_doc)
         try:
-            machine_number = "EOO9000001"
-            machine_report = "00000001"
-            document_date = "2025-02-16"
+            data = self._printer.get_counters()
+            daily_closure = data["ultimo_z"]
+            daily_closure = int(daily_closure) + 1
 
             return {
                 "status": True,
                 "message": "Impresión finalizada exitosamente",
                 "data": {
-                    "document_date": document_date,
+                    "document_date": data["fecha_formateada"],
                     "document_number": self._last_document,
-                    "machine_serial": machine_number,
-                    "machine_report": machine_report,
+                    "machine_serial": self._serial,
+                    "machine_report": str(daily_closure).zfill(4),
                 },
             }
 

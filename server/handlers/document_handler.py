@@ -175,7 +175,7 @@ def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int
         logger.debug("Documento result= %s", result)
 
         if result.get("status", False):
-            logger.info("Documento %s impreso correctamente", invoice.document_number)
+            logger.info("Documento Origen: %s, impreso correctamente", invoice.document_number)
             return jsonify(
                 {
                     "status": True,

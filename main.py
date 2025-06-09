@@ -13,13 +13,12 @@ import webbrowser
 from datetime import datetime, timedelta
 from logging.config import dictConfig
 from logging.handlers import TimedRotatingFileHandler
-from utils.version import __version__
 
-from utils.tools import get_base_path
+from handy.version import __version__
+from handy.tools import get_base_path
+from handy.tray_system import TrayManager
 from server.config_loader import ConfigManager
 from server.server_api import create_app
-
-print(f"Versión actual: {__version__}")
 
 
 def main():
@@ -27,25 +26,31 @@ def main():
     config = ConfigManager.get_config()  # Cargar configuración
     ConfigManager.start_watcher()
 
+    base_path = get_base_path()
     configure_logging(config.get("logging", {}))  # Configurar logging
 
     logger = logging.getLogger(__name__)  # Log inicial
-    logger.info("=" * 120)
-    logger.info("Iniciando Servidor API REST")
+    logger.info("=" * 60)
+    logger.info("Versión actual: %s-Ian", __version__)
 
     app = create_app(config)  # Crear y configurar flask
+
+    # Iniciar el system tray
+    tray = TrayManager(app, base_path)
+    tray.run()
 
     server_host = config.get("server", {}).get("server_host", "0.0.0.0")
     server_port = config.get("server", {}).get("server_port", 5000)
     server_debug = config.get("server", {}).get("server_debug", False)
 
+    logger.info("Iniciando Servidor API REST en http://%s:%s", server_host, server_port)
+    logger.info("=" * 60)
+
     if config.get("server", {}).get("auto_browser", False):  # Iniciar el navegador
         webbrowser.open(f"http://{server_host}:{server_port}")
 
     app.run(
-        host=server_host,
-        port=server_port,
-        debug=server_debug,
+        host=server_host, port=server_port, debug=server_debug, passthrough_errors=True, use_reloader=False
     )  # Iniciar el servidor
 
 
@@ -60,7 +65,7 @@ def cleanup_old_logs(log_dir: str, max_days: int) -> None:
         current_date = datetime.now()
         cutoff_date = current_date - timedelta(days=max_days)
 
-        log_pattern = os.path.join(log_dir, "printer_service_*.log*")
+        log_pattern = os.path.join(log_dir, "*.log*")
         for log_file in glob.glob(log_pattern):
             try:
                 file_date_str = os.path.basename(log_file).split("_")[2][:8]  # Obtiene YYYYMMDD
@@ -173,7 +178,7 @@ def configure_logging(log_config: dict) -> None:
                 },
             },
             "root": {"level": log_level, "handlers": handlers},
-            "loggers": {"werkzeug": {"level": "INFO", "handlers": handlers, "propagate": False}},
+            "loggers": {"werkzeug": {"level": "WARNING", "handlers": handlers, "propagate": False}},
         }
     )
 

@@ -17,7 +17,7 @@ from jsonschema import validate
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from utils.tools import get_base_path
+from handy.tools import get_base_path
 
 # Constantes
 VALID_SERVER_MODES = {"SPOOLER", "PROXY"}
@@ -123,7 +123,7 @@ CONFIG_SCHEMA = {
 logger = logging.getLogger(__name__)
 
 
-class ConfigReloader(FileSystemEventHandler): # pylint: disable=R0903
+class ConfigReloader(FileSystemEventHandler):  # pylint: disable=R0903
     """Maneja la recarga automática del archivo de configuración"""
 
     def __init__(self, callback: callable):

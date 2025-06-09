@@ -13,7 +13,7 @@ import os
 from typing import Dict, Any, List, Optional, Tuple
 
 import win32print
-from utils.tools import get_base_path, normalize_text, format_multiline
+from handy.tools import get_base_path, normalize_text, format_multiline
 
 from .printer_base import BasePrinter
 from .printer_commands import ESCPcmd

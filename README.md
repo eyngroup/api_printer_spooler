@@ -86,3 +86,4 @@ Copyright © 2024, Iron Graterol
 ##
 Todo el codigo está bajo los términos de la [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html).
 Consulta el documento LICENSE incluido en este proyecto para más detalles.
+

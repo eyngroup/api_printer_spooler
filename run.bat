@@ -1,8 +1,8 @@
 @echo off
 
 for /f "delims=" %%i in ('python -c "import struct; print(struct.calcsize('P') * 8)"') do set "PYTHON_ARCH=%%i"
-if not "%PYTHON_ARCH%"=="32" (
-    echo Python no es de 32 bits. Por favor, instale la version de 32 bits.
+if not "%PYTHON_ARCH%"=="64" (
+    echo Python no es de 64 bits. Por favor, instale la version de 64 bits.
     exit /b 1
 )
 
