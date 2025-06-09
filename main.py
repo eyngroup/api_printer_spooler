@@ -30,8 +30,8 @@ def main():
     configure_logging(config.get("logging", {}))  # Configurar logging
 
     logger = logging.getLogger(__name__)  # Log inicial
-    logger.info("=" * 120)
-    logger.info("Iniciando Servidor API REST")
+    logger.info("=" * 60)
+    logger.info("Iniciando Spooler: %s-Ian", __version__)
 
     app = create_app(config)  # Crear y configurar flask
 
@@ -173,7 +173,7 @@ def configure_logging(log_config: dict) -> None:
                 },
             },
             "root": {"level": log_level, "handlers": handlers},
-            "loggers": {"werkzeug": {"level": "INFO", "handlers": handlers, "propagate": False}},
+            "loggers": {"werkzeug": {"level": "WARNING", "handlers": handlers, "propagate": False}},
         }
     )
 

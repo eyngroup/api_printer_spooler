@@ -203,6 +203,8 @@ class PNPcmd: # pylint: disable=R0903
 
     # Comandos fiscales
     CANCEL = "C|0"
+    DAILY_REPORT = "9|X"
+    DAILY_CLOSE = "9|Z"
 
     # Comandos para documentos fiscales
     OPEN_CREDIT = "@|{}|{}|{}|{}|{}|{}|D"  # cliente, rif, documento, serial, fecha, hora
@@ -219,8 +221,6 @@ class PNPcmd: # pylint: disable=R0903
     DOCUMENT_NAME = "DOC:{}"  # Nombre del documento origen "A|DOC:{}"
     DOCUMENT_CASHIER = "CAJ:{}"  # Nombre del Cajero o Vendedor "A|CAJ:{}"
 
-    INTER_LINE = "-" * 40
-
     # Comandos para items fiscales
     ITEM_LINE = "B|{}|{}|{}|{}|M"  # Agregar ítem fiscal
     ITEM_LINE_DEL = "B|{}|{}|{}|{}|m"  # Anular ítem fiscal
@@ -234,8 +234,10 @@ class PNPcmd: # pylint: disable=R0903
 
     # Comandos para líneas adicionales
     COMMENTS = "A|{}"  # comentarios en cuerpo del documento
+    INTER_LINE = "-" * 40
 
     # Comandos para código de barra de pie de ticket
+    BARCODE = "T|{}"
 
     # Comandos para documentos NO fiscales
     DNF_OPEN = "H|{}"  # Abrir documento no fiscal

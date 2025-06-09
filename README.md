@@ -26,9 +26,9 @@
 
 ## Guía Rápida
 
-### Requisitos minimos
+### Requisitos
 
-- Python 3.10 (64-bit)
+- Python 3.10 (32-bit)
 - Entorno virtual recomendado
 
 ### Instalación
@@ -36,7 +36,7 @@
 <details>
 <summary>🖥️ Windows</summary>
 
-1. Instalar [Python 3.10 64-bit](https://www.python.org/ftp/python/3.10.0/python-3.10.0.exe)
+1. Instalar [Python 3.10 32-bit](https://www.python.org/ftp/python/3.10.0/python-3.10.0.exe)
 ```bash
 git clone https://github.com/eyngroup/api_printer_server.git
 cd api_printer_server
