@@ -10,12 +10,9 @@ port_comm = "COM9"
 print("PRUEBAS CON PFHKA.PY")
 pf = FiscalPrinter(port=port_comm)
 try:
-    # Verificar que el puerto de comunicación se está abriendo correctamente
     if pf.open_port():
-        # Verificar que se está chuequeando la conexión con la impresora
         estado = pf.get_status()
         print(estado)
-        # Verificar el valor de las variables de Status&Error
         if estado["status_code"] == 96 and estado["error_code"] == 64:
             # Verificar que se están solicitando los status S1,S3,S5 para control interno del sistema
 
