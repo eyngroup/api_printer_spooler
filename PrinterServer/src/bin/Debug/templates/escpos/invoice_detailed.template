@@ -1,0 +1,55 @@
+[center]
+[double-height]{{company_name}}[/double-height]
+[normal]{{company_address}}
+RIF: {{company_rif}}
+Tel: {{company_phone}}[/center]
+
+[center]================================[/center]
+
+[center][bold]FACTURA[/bold][/center]
+Nro: {{invoice_number}}
+Fecha: {{invoice_date}}
+Hora: {{invoice_time}}
+
+[bold]CLIENTE[/bold]
+Nombre: {{customer_name}}
+RIF/CI: {{customer_vat}}
+Dir: {{customer_address}}
+Tel: {{customer_phone}}
+
+[center]--------------------------------[/center]
+
+[bold]PRODUCTOS[/bold]
+[condensed]
+DESCRIPCIÓN          CANT   PRECIO   TOTAL
+[table]
+{{#each items}}
+{{item_name}}|{{item_quantity}}|{{item_price}}|{{item_total}}
+{{/each}}
+[/table]
+[/condensed]
+
+[right]
+SUBTOTAL: {{subtotal}}
+IVA ({{tax_rate}}%): {{tax_amount}}
+[bold]TOTAL: {{total}}[/bold]
+[/right]
+
+[center]--------------------------------[/center]
+
+[bold]FORMA DE PAGO[/bold]
+[table]
+{{#each payments}}
+{{payment_method}}||{{payment_amount}}
+{{/each}}
+[/table]
+
+[center]--------------------------------[/center]
+
+[center][condensed]
+{{footer_text}}
+[qr]{{qr_data}}[/qr]
+[barcode]{{barcode_data}}[/barcode]
+[/condensed][/center]
+
+[cut]

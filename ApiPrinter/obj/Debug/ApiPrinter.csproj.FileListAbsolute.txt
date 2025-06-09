@@ -1,0 +1,13 @@
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.csproj.AssemblyReference.cache
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.Form1.resources
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.Properties.Resources.resources
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.csproj.GenerateResource.cache
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.csproj.CoreCompileInputs.cache
+D:\source\ApiPrinter\bin\Debug\ApiPrinter.exe.config
+D:\source\ApiPrinter\bin\Debug\ApiPrinter.exe
+D:\source\ApiPrinter\bin\Debug\ApiPrinter.pdb
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.exe
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.pdb
+D:\source\ApiPrinter\bin\Debug\Newtonsoft.Json.dll
+D:\source\ApiPrinter\bin\Debug\Newtonsoft.Json.xml
+D:\source\ApiPrinter\obj\Debug\ApiPrinter.csproj.Up2Date

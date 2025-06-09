@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Set>
+	<Settings>
+		<PortComm>COM4</PortComm>
+		<PrinterSerial>Z7B1234567</PrinterSerial>
+	</Settings>
+	<PostgreSQL>
+		<PostgresqlServer>192.168.1.100</PostgresqlServer>
+		<PostgresqlPort>5432</PostgresqlPort>
+		<PostgresqlDataBase>ATM</PostgresqlDataBase>
+		<PostgresqlUser>odoo</PostgresqlUser>
+		<PostgresqlPassword>odoo</PostgresqlPassword>
+	</PostgreSQL>
+</Set>

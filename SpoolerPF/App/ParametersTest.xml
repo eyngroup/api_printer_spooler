@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Set>
+	<Printer>
+		<PortComm>COM9</PortComm>
+		<PrinterSerial>Z7C7007929</PrinterSerial>
+		<CompanyVAT>J123456789</CompanyVAT>
+	</Printer>
+	<Odoo>
+		<OdooUrl>http://127.0.0.1:8090</OdooUrl>
+		<OdooDb>ATM</OdooDb>
+		<OdooUser>nombre_usuario@dominio.com</OdooUser>
+		<OdooPass>S0port3</OdooPass>
+		<OdooCompany>1</OdooCompany>
+	</Odoo>
+	<Sql>
+		<SQLServer>127.0.0.1</SQLServer>
+		<SQLPort>5432</SQLPort>
+		<SQLDataBase>ATM</SQLDataBase>
+		<SQLUser>odoo</SQLUser>
+		<SQLPassword>odoo</SQLPassword>
+	</Sql>
+</Set>

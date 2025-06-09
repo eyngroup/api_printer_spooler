@@ -1,0 +1,69 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{7A3889C6-1FCC-4DAC-BFD5-B510912C9284}|ModuloESCPOS\\ModuloESCPOS.csproj|c:\\devgithub\\api_printer_spooler\\modulosbase\\moduloescpos\\templates\\templateengine.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{7A3889C6-1FCC-4DAC-BFD5-B510912C9284}|ModuloESCPOS\\ModuloESCPOS.csproj|solutionrelative:moduloescpos\\templates\\templateengine.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7A3889C6-1FCC-4DAC-BFD5-B510912C9284}|ModuloESCPOS\\ModuloESCPOS.csproj|C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\moduloescpos\\invoice.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{7A3889C6-1FCC-4DAC-BFD5-B510912C9284}|ModuloESCPOS\\ModuloESCPOS.csproj|solutionrelative:moduloescpos\\invoice.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7A3889C6-1FCC-4DAC-BFD5-B510912C9284}|ModuloESCPOS\\ModuloESCPOS.csproj|C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\moduloescpos\\templates\\simple.template.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{7A3889C6-1FCC-4DAC-BFD5-B510912C9284}|ModuloESCPOS\\ModuloESCPOS.csproj|solutionrelative:moduloescpos\\templates\\simple.template.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "TemplateEngine.cs",
+              "DocumentMoniker": "C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\ModuloESCPOS\\Templates\\TemplateEngine.cs",
+              "RelativeDocumentMoniker": "ModuloESCPOS\\Templates\\TemplateEngine.cs",
+              "ToolTip": "C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\ModuloESCPOS\\Templates\\TemplateEngine.cs",
+              "RelativeToolTip": "ModuloESCPOS\\Templates\\TemplateEngine.cs",
+              "ViewState": "AgIAAD4AAAAAAAAAAAAnwCkAAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-01-01T22:08:06.114Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "invoice.json",
+              "DocumentMoniker": "C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\ModuloESCPOS\\invoice.json",
+              "RelativeDocumentMoniker": "ModuloESCPOS\\invoice.json",
+              "ToolTip": "C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\ModuloESCPOS\\invoice.json",
+              "RelativeToolTip": "ModuloESCPOS\\invoice.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-01-01T21:55:56.381Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "simple.template.json",
+              "DocumentMoniker": "C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\ModuloESCPOS\\Templates\\simple.template.json",
+              "RelativeDocumentMoniker": "ModuloESCPOS\\Templates\\simple.template.json",
+              "ToolTip": "C:\\DevGitHub\\api_printer_spooler\\ModulosBase\\ModuloESCPOS\\Templates\\simple.template.json",
+              "RelativeToolTip": "ModuloESCPOS\\Templates\\simple.template.json",
+              "ViewState": "AgIAADMAAAAAAAAAAAAAABYAAAAdAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-01-01T21:50:29.029Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

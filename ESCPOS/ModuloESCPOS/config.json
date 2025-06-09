@@ -1,0 +1,44 @@
+{
+    "printer": {
+        "name": "POS-80C",
+        "charWidth": 48
+    },
+    "template": {
+        "active": "simple",
+        "templates": {
+            "simple": "Templates/simple.template.json",
+            "detailed": "Templates/detailed.template.json"
+        }
+    },
+    "features": {
+        "logo": {
+            "enabled": false,
+            "path": "Assets/logo.png",
+            "maxWidth": 380
+        },
+        "barcode": {
+            "enabled": false,
+            "type": "CODE128",
+            "height": 64,
+            "width": 2,
+            "hri": true
+        },
+        "qr": {
+            "enabled": false,
+            "size": 6,
+            "correction": "M"
+        }
+    },
+    "formatting": {
+        "dateFormat": "dd/MM/yyyy",
+        "numberFormat": {
+            "decimals": 2,
+            "decimalSeparator": ".",
+            "thousandsSeparator": ","
+        },
+        "condensedMode": {
+            "enabled": false,
+            "columns": 56
+        }
+    }
+}

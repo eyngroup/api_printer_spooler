@@ -1,0 +1,14 @@
+C:\DevSpooler\ModulosBase\ModuloESCPOS\obj\Debug\ModuloESCPOS.csproj.AssemblyReference.cache
+C:\DevSpooler\ModulosBase\ModuloESCPOS\obj\Debug\ModuloESCPOS.csproj.CoreCompileInputs.cache
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\ModuloESCPOS.exe.config
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\ModuloESCPOS.exe
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\ModuloESCPOS.pdb
+C:\DevSpooler\ModulosBase\ModuloESCPOS\obj\Debug\ModuloESCPOS.exe
+C:\DevSpooler\ModulosBase\ModuloESCPOS\obj\Debug\ModuloESCPOS.pdb
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\Newtonsoft.Json.dll
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\Newtonsoft.Json.xml
+C:\DevSpooler\ModulosBase\ModuloESCPOS\obj\Debug\ModuloES.7B2AAF55.Up2Date
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\Templates\simple.template.json
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\invoice.json
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\Assets\logo.png
+C:\DevSpooler\ModulosBase\ModuloESCPOS\bin\Debug\config.json

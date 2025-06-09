@@ -1,0 +1,309 @@
+using System;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+
+namespace Fiscal.Printers;
+
+public class PNPFI32
+{
+	public class PrinterStatus
+	{
+		public string status { get; set; }
+	}
+
+	private static bool isConnected = false;
+
+	private static string status = "";
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFAbreNF();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFabrefiscal(string Razon, string RIF);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFComando(string comando);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFtotal();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFrepz();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFrepx();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFrenglon(string Descripcion, string cantidad, string monto, string iva);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFabrepuerto(string numero);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFcierrapuerto();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFDisplay950(string edlinea);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFLineaNF(string edlinea);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFCierraNF();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFCortar();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFTfiscal(string edlinea);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFparcial();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFSerial();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFtoteconomico();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFCancelaDoc(string edlinea, string monto);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFGaveta();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFDevolucion(string razon, string rif, string comp, string maqui, string fecha, string hora);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFSlipON();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFSLIPOFF();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFestatus(string edlinea);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFreset();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFendoso(string campo1, string campo2, string campo3, string tipoendoso);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFvalida675(string campo1, string campo2, string campo3, string campo4);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFCheque2(string mon, string ben, string fec, string c1, string c2, string c3, string c4, string campo1, string campo2);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFcambiofecha(string edfecha, string edhora);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFcambiatasa(string t1, string t2, string t3);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFBarra(string edbarra);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFVoltea();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFLeereloj();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFrepMemNF(string desf, string hasf, string modmem);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFRepMemoriaNumero(string desn, string hasn, string modmem);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFCambtipoContrib(string tip);
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFultimo();
+
+	[DllImport("PNPDLL.dll")]
+	public static extern IntPtr PFTipoImp(string edtexto);
+
+	private bool validateResponse(string response)
+	{
+		status = response;
+		if (response != "OK")
+		{
+			return false;
+		}
+		return true;
+	}
+
+	private bool validateResponse(IntPtr response)
+	{
+		string ret = Marshal.PtrToStringAnsi(response);
+		return validateResponse(ret);
+	}
+
+	public bool checkPrinter()
+	{
+		return isConnected;
+	}
+
+	public PrinterStatus getPrinterStatus()
+	{
+		return new PrinterStatus
+		{
+			status = status
+		};
+	}
+
+	public bool abrePuerto(string port)
+	{
+		string sPort = Regex.Match(port, "\\d+").Value;
+		IntPtr ret = PFabrepuerto(sPort);
+		isConnected = validateResponse(ret);
+		return isConnected;
+	}
+
+	public bool cierraPuerto()
+	{
+		IntPtr ret = PFcierrapuerto();
+		isConnected = false;
+		return validateResponse(ret);
+	}
+
+	public bool pfAbreFiscal(string razonSocial, string idFiscal)
+	{
+		IntPtr ret = PFabrefiscal(razonSocial, idFiscal);
+		return validateResponse(ret);
+	}
+
+	public bool pfDevolucion(string razonSocial, string idFiscal, string numFact, string serial, DateTime fechaFactura)
+	{
+		string fecha = fechaFactura.ToString("ddMMyy");
+		string hora = fechaFactura.ToString("HHMM");
+		IntPtr ret = PFDevolucion(razonSocial, idFiscal, numFact, serial, fecha, hora);
+		return validateResponse(ret);
+	}
+
+	public bool pfAnular()
+	{
+		IntPtr ret = PFCancelaDoc("C", "0");
+		return validateResponse(ret);
+	}
+
+	public bool pfAbreNF()
+	{
+		IntPtr ret = PFAbreNF();
+		return validateResponse(ret);
+	}
+
+	public bool pfCierraNF()
+	{
+		IntPtr ret = PFCierraNF();
+		return validateResponse(ret);
+	}
+
+	public bool pfLineaNF(string linea)
+	{
+		IntPtr ret = PFLineaNF(linea);
+		return validateResponse(ret);
+	}
+
+	public bool pftFiscal(string txt)
+	{
+		IntPtr ret = PFTfiscal(txt);
+		return validateResponse(ret);
+	}
+
+	public bool pfParcial()
+	{
+		IntPtr ret = PFparcial();
+		return validateResponse(ret);
+	}
+
+	public bool pfTotal()
+	{
+		IntPtr ret = PFtotal();
+		return validateResponse(ret);
+	}
+
+	public string pfUltimo()
+	{
+		IntPtr ptr = PFultimo();
+		return Marshal.PtrToStringAnsi(ptr);
+	}
+
+	public bool pfRenglon(string descripcion, string cantidad, string monto, string tax)
+	{
+		IntPtr ret = PFrenglon(descripcion, cantidad, monto, tax);
+		return validateResponse(ret);
+	}
+
+	public bool pfComando(string cmd)
+	{
+		IntPtr ret = PFComando(cmd);
+		return validateResponse(ret);
+	}
+
+	public bool pfPrintX()
+	{
+		IntPtr ret = PFrepx();
+		return validateResponse(ret);
+	}
+
+	public bool pfPrintZ()
+	{
+		IntPtr ret = PFrepz();
+		return validateResponse(ret);
+	}
+
+	public string pfSerial()
+	{
+		IntPtr ret = PFSerial();
+		string ultimo = pfUltimo();
+		return ("," + ultimo).Split(',')[3];
+	}
+
+	public string pfLeeReloj()
+	{
+		IntPtr ptr = PFLeereloj();
+		bool bok = validateResponse(ptr);
+		return pfUltimo();
+	}
+
+	public string fechaHora()
+	{
+		string ret = pfLeeReloj();
+		string[] fechahora = ret.Split(',');
+		string fecha = "20" + fechahora[2].Substring(0, 2) + "-" + fechahora[2].Substring(2, 2) + "-" + fechahora[2].Substring(4, 2);
+		string hora = fechahora[3].Substring(0, 2) + ":" + fechahora[3].Substring(2, 2);
+		return fecha + " " + hora;
+	}
+
+	public string[] pfEstatus(string q = "N")
+	{
+		PFestatus(q);
+		string status = pfUltimo();
+		return ("," + status).Split(',');
+	}
+
+	public string[] pfRepMemoriaNumero(int start, int end, string modo = "M")
+	{
+		PFRepMemoriaNumero(start.ToString(), end.ToString(), modo);
+		string ret = pfUltimo();
+		return ("," + ret).Split(',');
+	}
+
+	public string[] pfRepMemoriaFecha(DateTime start, DateTime end, string modo = "M")
+	{
+		PFrepMemNF(start.ToString("ddMMyy"), end.ToString("ddMMyy"), modo);
+		string ret = pfUltimo();
+		return ("," + ret).Split(',');
+	}
+
+	public bool pfTipoImp(string tipo)
+	{
+		IntPtr ret = PFTipoImp(tipo);
+		isConnected = validateResponse(ret);
+		return isConnected;
+	}
+}

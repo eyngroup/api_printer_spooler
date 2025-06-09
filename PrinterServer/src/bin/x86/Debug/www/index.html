@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Printer Server - Status</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>API Printer Server</h1>
+            <div class="status-badge" id="serverStatus">
+                <span class="dot"></span>
+                <span class="text">Checking...</span>
+            </div>
+        </header>
+
+        <main>
+            <section class="card" id="serverInfo">
+                <h2>Server Information</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>Start Time:</label>
+                        <span id="startTime">Loading...</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Uptime:</label>
+                        <span id="uptime">Loading...</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Printer Mode:</label>
+                        <span id="printerMode">Loading...</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Current Handler:</label>
+                        <span id="currentHandler">Loading...</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card" id="printerStatus">
+                <h2>Printer Status</h2>
+                <div class="status-details" id="statusDetails">
+                    <p>Loading printer status...</p>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Actions</h2>
+                <div class="actions">
+                    <button onclick="refreshStatus()">Refresh Status</button>
+                    <button onclick="window.location.href='/api/ping'">Check Connection</button>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>API Printer Server - Version 1.0</p>
+        </footer>
+    </div>
+
+    <script src="scripts.js"></script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+@echo off
+echo Pulse una tecla para iniciar
+pause > null
+
+REM Inicio del bloque de código aquí
+REM ORIGINALES
+IntTFHKA SendCmd(PE01EFECTIVO_1)
+IntTFHKA SendCmd(PE02EFECTIVO_2)
+IntTFHKA SendCmd(PE03EFECTIVO_3)
+IntTFHKA SendCmd(PE04EFECTIVO_4)
+IntTFHKA SendCmd(PE05EFECTIVO_5)
+IntTFHKA SendCmd(PE06EFECTIVO_6)
+IntTFHKA SendCmd(PE07CHEQUE_1)
+IntTFHKA SendCmd(PE08CHEQUE_2)
+IntTFHKA SendCmd(PE09CHEQUE_3)
+IntTFHKA SendCmd(PE10CHEQUE_4)
+IntTFHKA SendCmd(PE11CHEQUE_5)
+IntTFHKA SendCmd(PE12CHEQUE_6)
+IntTFHKA SendCmd(PE13TARJETA_1)
+IntTFHKA SendCmd(PE14TARJETA_2)
+IntTFHKA SendCmd(PE15TARJETA_3)
+IntTFHKA SendCmd(PE16TARJETA_4)
+IntTFHKA SendCmd(PE17TARJETA_5)
+IntTFHKA SendCmd(PE18TARJETA_6)
+IntTFHKA SendCmd(PE19OTROS_1)
+IntTFHKA SendCmd(PE20DIVISAS_1)
+IntTFHKA SendCmd(PE21DIVISAS_2)
+IntTFHKA SendCmd(PE22DIVISAS-3)
+IntTFHKA SendCmd(PE23DIVISAS_4)
+IntTFHKA SendCmd(PE24DIVISAS_5)
+
+REM MODIFICACIONES
+IntTFHKA SendCmd(PE01EfectivoBs)
+IntTFHKA SendCmd(PE02EfectivoOtros)
+IntTFHKA SendCmd(PE06CxC.Credito)
+IntTFHKA SendCmd(PE13T.Debito)
+IntTFHKA SendCmd(PE14T.Credito)
+IntTFHKA SendCmd(PE15CestaTicket)
+IntTFHKA SendCmd(PE16PagoMovil)
+IntTFHKA SendCmd(PE07Cheque)
+IntTFHKA SendCmd(PE08Deposito)
+IntTFHKA SendCmd(PE09Transferencia)
+IntTFHKA SendCmd(PE20DivisasUSD)
+IntTFHKA SendCmd(PE21DivisasEUR)
+IntTFHKA SendCmd(PE22DivisasOtros)
+IntTFHKA SendCmd(PE19Dif.IGTF)
+
+REM IntTFHKA SendCmd("D")
+
+echo Pulse una tecla para concluir
+pause > null
+goto :eof

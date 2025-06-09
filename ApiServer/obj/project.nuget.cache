@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "dgSpecHash": "itPOBLsl2bw=",
+  "success": true,
+  "projectFilePath": "C:\\DevSpooler\\ApiServer\\ApiServer.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.aspnet.webapi.client\\5.2.9\\microsoft.aspnet.webapi.client.5.2.9.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.aspnet.webapi.core\\5.2.9\\microsoft.aspnet.webapi.core.5.2.9.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.aspnet.webapi.owin\\5.2.9\\microsoft.aspnet.webapi.owin.5.2.9.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.aspnet.webapi.owinselfhost\\5.2.9\\microsoft.aspnet.webapi.owinselfhost.5.2.9.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.owin\\4.2.2\\microsoft.owin.4.2.2.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.owin.host.httplistener\\4.2.2\\microsoft.owin.host.httplistener.4.2.2.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.owin.host.systemweb\\4.2.2\\microsoft.owin.host.systemweb.4.2.2.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\microsoft.owin.hosting\\4.2.2\\microsoft.owin.hosting.4.2.2.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\nlog\\5.2.7\\nlog.5.2.7.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\owin\\1.0.0\\owin.1.0.0.nupkg.sha512",
+    "C:\\Users\\Soporte\\.nuget\\packages\\swashbuckle.core\\5.6.0\\swashbuckle.core.5.6.0.nupkg.sha512"
+  ],
+  "logs": []
+}

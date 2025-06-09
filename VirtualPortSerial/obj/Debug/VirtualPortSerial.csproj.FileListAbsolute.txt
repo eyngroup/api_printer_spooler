@@ -1,0 +1,8 @@
+D:\ProjectsDev\VirtualPortSerial\bin\Debug\VirtualPortSerial.exe.config
+D:\ProjectsDev\VirtualPortSerial\bin\Debug\VirtualPortSerial.exe
+D:\ProjectsDev\VirtualPortSerial\bin\Debug\VirtualPortSerial.pdb
+D:\ProjectsDev\VirtualPortSerial\obj\Debug\VirtualPortSerial.csproj.AssemblyReference.cache
+D:\ProjectsDev\VirtualPortSerial\obj\Debug\VirtualPortSerial.csproj.SuggestedBindingRedirects.cache
+D:\ProjectsDev\VirtualPortSerial\obj\Debug\VirtualPortSerial.csproj.CoreCompileInputs.cache
+D:\ProjectsDev\VirtualPortSerial\obj\Debug\VirtualPortSerial.exe
+D:\ProjectsDev\VirtualPortSerial\obj\Debug\VirtualPortSerial.pdb

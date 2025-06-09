@@ -1,0 +1,13 @@
+D:\VisualStudioProjects\Curso\ToolsPF\bin\Debug\ToolsPF.exe.config
+D:\VisualStudioProjects\Curso\ToolsPF\bin\Debug\ToolsPF.exe
+D:\VisualStudioProjects\Curso\ToolsPF\bin\Debug\ToolsPF.pdb
+D:\VisualStudioProjects\Curso\ToolsPF\bin\Debug\TfhkaNet.dll
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.csproj.AssemblyReference.cache
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.csproj.SuggestedBindingRedirects.cache
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.Properties.Resources.resources
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.csproj.GenerateResource.cache
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.csproj.CoreCompileInputs.cache
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.csproj.CopyComplete
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.exe
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.pdb
+D:\VisualStudioProjects\Curso\ToolsPF\obj\Debug\ToolsPF.WndMain.resources

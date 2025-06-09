@@ -1,0 +1,33 @@
+[condensed]
+                         COMPROBANTE DE VENTA
+                            {{DOCUMENT_NAME}}
+================================================================================
+
+Fecha: {{DOCUMENT_DATE}}                                         Doc #: {{DOCUMENT_NUMBER}}
+
+Cliente: {{CUSTOMER_NAME}}
+RIF/CI: {{CUSTOMER_VAT}}
+Dir.: {{CUSTOMER_ADDRESS}}
+Tel.: {{CUSTOMER_PHONE}}
+
+================================================================================
+PRODUCTOS
+================================================================================
+[table]
+Descripción                                    Cant.     Precio    Subtotal
+--------------------------------------------------------------------------------
+{{ITEMS}}
+[/table]
+
+                                                 ==============================
+                                                 TOTAL {{DOCUMENT_CURRENCY}}: {{TOTAL}}
+
+================================================================================
+FORMAS DE PAGO
+================================================================================
+{{PAYMENTS}}
+
+[center]
+¡Gracias por su compra!
+[/center]
+[/condensed]

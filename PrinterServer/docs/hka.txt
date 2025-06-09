@@ -1,0 +1,496 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using Fiscal.Printers.Models;
+using Newtonsoft.Json;
+using TfhkaNet.IF;
+using TfhkaNet.IF.VE;
+
+namespace Fiscal.Printers;
+
+public class HKA : Printer
+{
+	private Tfhka driver = new Tfhka();
+
+	private S3PrinterData printerData;
+
+	private int[] flags;
+
+	private string fmtPrecio;
+
+	private string fmtCantidad;
+
+	private string fmtPago;
+
+	private int addr_maxLines = 3;
+
+	private int addr_maxChars = 30;
+
+	private Dictionary<int, string> taxFactura = new Dictionary<int, string>
+	{
+		{ 0, " " },
+		{ 8, "\"" },
+		{ 16, "!" },
+		{ 31, "#" }
+	};
+
+	private Dictionary<int, string> taxNotaCredito = new Dictionary<int, string>
+	{
+		{ 0, "d0" },
+		{ 8, "d2" },
+		{ 16, "d1" },
+		{ 31, "d3" }
+	};
+
+	private int taxDefault = 16;
+
+	public override string name => "HKA";
+
+	private void setup()
+	{
+		printerData = driver.GetS3PrinterData();
+		flags = printerData.AllSystemFlags;
+		if (flags[21] == 30)
+		{
+			fmtPrecio = "00000000000000.00";
+			fmtCantidad = "00000000000000.000";
+			fmtPago = "000000000000000.00";
+		}
+		else
+		{
+			fmtPrecio = "00000000.00";
+			fmtCantidad = "00000.000";
+			fmtPago = "0000000000.00";
+		}
+		addr_maxLines = config.config.GetInteger(name, "addr_maxLines", addr_maxLines);
+		addr_maxChars = config.config.GetInteger(name, "addr_maxChars", addr_maxChars);
+	}
+
+	public HKA(Config config)
+		: base(config)
+	{
+	}
+
+	public override ResponsePrinter connect()
+	{
+		if (driver.CheckFPrinter())
+		{
+			return new ResponsePrinter("OK");
+		}
+		ResponsePrinter ret;
+		if (driver.OpenFpCtrl(config["port"]))
+		{
+			setup();
+			if (driver.CheckFPrinter())
+			{
+				ret = new ResponsePrinter("OK");
+			}
+			else
+			{
+				PrinterStatus ps = driver.GetPrinterStatus();
+				ret = new ResponsePrinter("ERROR", "", ps);
+			}
+		}
+		else
+		{
+			PrinterStatus ps2 = driver.GetPrinterStatus();
+			ret = new ResponsePrinter("ERROR", "", ps2);
+		}
+		return ret;
+	}
+
+	public override ResponsePrinter disconnect()
+	{
+		driver.CloseFpCtrl();
+		return new ResponsePrinter("OK");
+	}
+
+	public override ResponsePrinter ImprimirFactura(Factura factura)
+	{
+		return ImprimirFacturaOrNC(factura);
+	}
+
+	public override ResponsePrinter ImprimirFactura(int numDesde, int numHasta)
+	{
+		string cmd = "RF" + numDesde.ToString("D7") + numHasta.ToString("D7");
+		if (sendCmd(cmd))
+		{
+			return new ResponsePrinter("OK");
+		}
+		PrinterStatus ps = driver.GetPrinterStatus();
+		return new ResponsePrinter("ERROR", "", ps);
+	}
+
+	public override ResponsePrinter ImprimirNotaCredito(NotaCredito factura)
+	{
+		return ImprimirFacturaOrNC(factura);
+	}
+
+	public ResponsePrinter ImprimirFacturaOrNC(FacturaOrNC factura)
+	{
+		decimal total = factura.items.Sum((Item item) => item.cantidad * item.precio);
+		if (total <= 0m)
+		{
+			return new ResponsePrinter("ERROR", "El documento no tiene valor comercial");
+		}
+		if (factura.pagos.Count == 0)
+		{
+			factura.pagos.Add(new Pago
+			{
+				codigo = "01",
+				monto = total
+			});
+		}
+		factura.pagos = new List<Pago>(factura.pagos.OrderByDescending((Pago r) => r.codigo));
+		try
+		{
+			decimal pagado = default(decimal);
+			decimal pagoDivisa = default(decimal);
+			foreach (Pago paymentline in factura.pagos)
+			{
+				int nPago = int.Parse(paymentline.codigo);
+				if (nPago < 1 || nPago > 24)
+				{
+					throw new Exception("Error en método de pago. Debe estar entre '00' y '24' ");
+				}
+				pagado += paymentline.monto;
+				pagoDivisa += ((nPago < 20) ? 0m : paymentline.monto);
+			}
+			decimal montoIGTF = decimal.Round(Math.Min(total, pagoDivisa) * 3m / 100m, 2);
+		}
+		catch (Exception ex)
+		{
+			return new ResponsePrinter("ERROR", ex.Message);
+		}
+		bool ret = true && sendCmd("iR*" + factura.idFiscal) && sendCmd("iS*" + factura.razonSocial);
+		NotaCredito nc = factura as NotaCredito;
+		if (nc != null)
+		{
+			ret = DateTime.TryParse(nc.fechaFactura, out var fechaFactura);
+			if (!ret)
+			{
+				return new ResponsePrinter("ERROR", "Fecha Inválida (yyyy-MM-dd HH:mm)");
+			}
+			ret = ret && sendCmd("iF*" + nc.nroFactura) && sendCmd("iD*" + fechaFactura.ToString("dd/MM/yyyy")) && sendCmd("iI*" + nc.serial);
+		}
+		string[] lines = formatLine("Direccion: " + factura.direccion, addr_maxLines, addr_maxChars);
+		int i;
+		for (i = 0; i < lines.Length; i++)
+		{
+			ret = ret && sendCmd($"i0{i}{lines[i]}");
+		}
+		ret = ret && sendCmd($"i0{i}Teléfono: {factura.telefono}");
+		i++;
+		foreach (string l in factura.cabecera)
+		{
+			ret = ret && sendCmd($"i0{i}{l}");
+			i++;
+		}
+		if (!string.IsNullOrEmpty(factura.backendRef))
+		{
+			ret = ret && sendCmd("@" + factura.backendRef);
+		}
+		foreach (Item productline in factura.items)
+		{
+			if (productline.cantidad > 0m)
+			{
+				ret = ((nc != null) ? (ret && sendCmd(prepareLinea(productline, taxNotaCredito))) : (ret && sendCmd(prepareLinea(productline, taxFactura))));
+				if (productline.descuento > 0m)
+				{
+					ret = ret && sendCmd(prepareDescuento(productline));
+				}
+			}
+			else
+			{
+				productline.comentario = productline.nombre;
+			}
+			if (!string.IsNullOrWhiteSpace(productline.comentario))
+			{
+				ret = ret && sendCmd("@" + productline.comentario);
+			}
+		}
+		ret = ret && sendCmd("3");
+		if (!string.IsNullOrEmpty(factura.barcode))
+		{
+			ret = ret && sendCmd("y" + factura.barcode);
+		}
+		foreach (string l2 in factura.comentarios)
+		{
+			sendCmd("@" + l2);
+		}
+		List<Pago> pagos = new List<Pago>(factura.pagos.OrderByDescending((Pago r) => r.codigo));
+		Pago line;
+		string monto;
+		for (i = 0; i < pagos.Count - 1; i++)
+		{
+			line = pagos[i];
+			monto = line.monto.ToString(fmtPago).Replace(".", "").Replace(",", "");
+			ret = ret && sendCmd("2" + line.codigo + monto);
+		}
+		line = pagos[i];
+		monto = line.monto.ToString(fmtPago).Replace(".", "").Replace(",", "");
+		ret = ret && sendCmd("1" + line.codigo);
+		PrinterStatus ps = driver.GetPrinterStatus();
+		if (ret)
+		{
+			if (flags[50] == 1)
+			{
+				sendCmd("199");
+			}
+			else
+			{
+				sendCmd("101");
+			}
+			ps = driver.GetPrinterStatus();
+			S1PrinterData s1 = driver.GetS1PrinterData();
+			ResponseDocumentoFiscal rf = new ResponseDocumentoFiscal
+			{
+				nroFiscal = s1.LastInvoiceNumber,
+				fecha = s1.CurrentPrinterDateTime.ToString("yyyy-MM-dd HH:mm"),
+				serial = s1.RegisteredMachineNumber,
+				ultimoZ = s1.DailyClosureCounter
+			};
+			if (nc != null)
+			{
+				rf.nroFiscal = s1.LastCreditNoteNumber;
+			}
+			return new ResponsePrinter("OK", "", rf);
+		}
+		sendCmd("7");
+		ps = driver.GetPrinterStatus();
+		return new ResponsePrinter("ERROR", "", ps);
+	}
+
+	public override ResponsePrinter ImprimirNotaCredito(int numDesde, int numHasta)
+	{
+		string cmd = "RC" + numDesde.ToString("D7") + numHasta.ToString("D7");
+		if (sendCmd(cmd))
+		{
+			return new ResponsePrinter("OK");
+		}
+		PrinterStatus ps = driver.GetPrinterStatus();
+		return new ResponsePrinter("ERROR", "", ps);
+	}
+
+	public override ResponsePrinter ImprimirNoFiscal(NoFiscal data)
+	{
+		bool ret = true;
+		string styleText = "0";
+		try
+		{
+			foreach (string line in data.lineas)
+			{
+				ret = ret && sendCmd("80" + styleText + line);
+			}
+		}
+		catch (Exception ex)
+		{
+			return new ResponsePrinter("ERROR", ex.Message);
+		}
+		if (ret && sendCmd("81"))
+		{
+			return new ResponsePrinter("OK");
+		}
+		PrinterStatus ps = driver.GetPrinterStatus();
+		return new ResponsePrinter("ERROR", "", ps);
+	}
+
+	public override ResponsePrinter ImprimirReporteX()
+	{
+		driver.PrintXReport();
+		ReportData dataX = driver.GetXReport();
+		DatosZ data = prepareDatosZ(dataX);
+		return new ResponsePrinter("OK", "", data);
+	}
+
+	public override ResponsePrinter ImprimirReporteZ()
+	{
+		driver.PrintZReport();
+		return GetDatosZ(0);
+	}
+
+	private ReportData GetZReport()
+	{
+		ReportData dataZ = null;
+		int tries = 5;
+		do
+		{
+			Thread.Sleep(1000);
+			dataZ = driver.GetZReport();
+			tries--;
+		}
+		while (dataZ == null && tries > 0);
+		return dataZ;
+	}
+
+	public override ResponsePrinter GetDatosZ(int numZ)
+	{
+		DatosZ data = new DatosZ();
+		if (numZ == 0)
+		{
+			ReportData dataZ = GetZReport();
+			if (dataZ == null)
+			{
+				return new ResponsePrinter("ERROR", "La impresora no pudo entregar los datos Z");
+			}
+			data = prepareDatosZ(dataZ);
+		}
+		else
+		{
+			ReportData[] reports = driver.GetZReport(numZ, numZ);
+			if (reports.Length != 0)
+			{
+				data = prepareDatosZ(reports[0]);
+			}
+			if (data.numero_ultimo_reporte_z != numZ.ToString())
+			{
+				return new ResponsePrinter("ERROR", "Z no encontrado");
+			}
+		}
+		return new ResponsePrinter("OK", "", data);
+	}
+
+	private string prepareLinea(Item line, Dictionary<int, string> taxMap)
+	{
+		string tax;
+		try
+		{
+			tax = taxMap[(int)line.impuesto];
+		}
+		catch
+		{
+			tax = taxMap[taxDefault];
+		}
+		string codigo = "";
+		if (!string.IsNullOrEmpty(line.codigo))
+		{
+			codigo = line.codigo + " ";
+		}
+		string monto = line.precio.ToString(fmtPrecio).Replace(".", "").Replace(",", "");
+		string cantidad = line.cantidad.ToString(fmtCantidad).Replace(".", "").Replace(",", "");
+		return tax + monto + cantidad + codigo + line.nombre;
+	}
+
+	private string prepareDescuento(Item line)
+	{
+		return string.Concat(str2: (!(line.tipoDescuento == "p")) ? line.descuento.ToString("0000000.00").Replace(".", "").Replace(",", "") : line.descuento.ToString("00.00").Replace(".", "").Replace(",", ""), str0: line.tipoDescuento, str1: "-");
+	}
+
+	public override bool SendCmd(string cmd)
+	{
+		return sendCmd(cmd);
+	}
+
+	private bool sendCmd(string str)
+	{
+		Console.WriteLine(str);
+		bool ret = driver.SendCmd(str);
+		if (!ret)
+		{
+			PrinterStatus ps = driver.GetPrinterStatus();
+			string sps = JsonConvert.SerializeObject(ps);
+			Console.WriteLine(sps);
+		}
+		return ret;
+	}
+
+	private DatosZ prepareDatosZ(ReportData reportData)
+	{
+		S1PrinterData s1Data = driver.GetS1PrinterData();
+		return new DatosZ
+		{
+			numero_ultimo_reporte_z = reportData.NumberOfLastZReport.ToString(),
+			fecha_ultimo_reporte_z = reportData.ZReportDate.ToString("yyyy-MM-dd"),
+			hora_ultimo_reporte_z = reportData.ZReportDate.ToString("HH:mm"),
+			numero_ultima_factura = reportData.NumberOfLastInvoice.ToString(),
+			fecha_ultima_factura = reportData.LastInvoiceDate.ToString("yyyy-MM-dd"),
+			hora_ultima_factura = reportData.LastInvoiceDate.ToString("HH:mm"),
+			numero_ultima_nota_de_debito = reportData.NumberOfLastDebitNote.ToString(),
+			numero_ultima_nota_de_credito = reportData.NumberOfLastCreditNote.ToString(),
+			numero_ultimo_doc_no_fiscal = reportData.NumberOfLastNonFiscal.ToString(),
+			ventas_exento = (decimal)reportData.FreeSalesTax,
+			base_imponible_ventas_iva_g = (decimal)reportData.GeneralRate1Sale,
+			impuesto_iva_g = (decimal)reportData.GeneralRate1Tax,
+			base_imponible_ventas_iva_a = (decimal)reportData.AdditionalRate3Sale,
+			impuesto_iva_a = (decimal)reportData.AdditionalRate3Tax,
+			base_imponible_ventas_iva_r = (decimal)reportData.ReducedRate2Sale,
+			impuesto_iva_r = (decimal)reportData.ReducedRate2Tax,
+			nota_de_debito_exento = (decimal)reportData.FreeTaxDebit,
+			bi_iva_g_en_nota_de_debito = (decimal)reportData.GeneralRateDebit,
+			impuesto_iva_g_en_nota_de_debito = (decimal)reportData.GeneralRateTaxDebit,
+			bi_iva_r_en_nota_de_debito = (decimal)reportData.ReducedRateDebit,
+			impuesto_iva_r_en_nota_de_debito = (decimal)reportData.ReducedRateTaxDebit,
+			bi_iva_a_en_nota_de_debito = (decimal)reportData.AdditionalRateDebit,
+			impuesto_iva_a_en_nota_de_debito = (decimal)reportData.AdditionalRateTaxDebit,
+			nota_de_credito_exento = (decimal)reportData.FreeTaxDevolution,
+			bi_iva_g_en_nota_de_credito = (decimal)reportData.GeneralRateDevolution,
+			impuesto_iva_g_en_nota_de_credito = (decimal)reportData.GeneralRateTaxDevolution,
+			bi_iva_r_en_nota_de_credito = (decimal)reportData.ReducedRateDevolution,
+			impuesto_iva_r_en_nota_de_credito = (decimal)reportData.ReducedRateTaxDevolution,
+			bi_iva_a_en_nota_de_credito = (decimal)reportData.AdditionalRateDevolution,
+			impuesto_iva_a_en_nota_de_credito = (decimal)reportData.AdditionalRateTaxDevolution,
+			numero_impresora = s1Data.RegisteredMachineNumber,
+			bi_igtf_en_factura = (decimal)reportData.IgtfRateSales,
+			impuesto_igtf_en_factura = (decimal)reportData.IgtfRateTaxSales,
+			bi_igtf_en_nota_de_credito = (decimal)reportData.IgtfRateDevolution,
+			impuesto_igtf_en_nota_de_credito = (decimal)reportData.IgtfRateTaxDevolution
+		};
+	}
+
+	public override ResponsePrinter ImprimirReporteZ(int numDesde, int numHasta)
+	{
+		driver.PrintZReport(numDesde, numHasta);
+		return new ResponsePrinter("OK");
+	}
+
+	public override ResponsePrinter ImprimirReporteZ(string fechaDesde, string fechaHasta)
+	{
+		driver.PrintZReport(fechaDesde, fechaHasta);
+		return new ResponsePrinter("OK");
+	}
+
+	public override ResponsePrinter GetNumeros()
+	{
+		S1PrinterData s1 = driver.GetS1PrinterData();
+		object ret = new
+		{
+			ultimaFactura = s1.LastInvoiceNumber,
+			ultimaNotaCredito = s1.LastCreditNoteNumber,
+			ultimoDocumentoNoFiscal = s1.LastNonFiscalDocNumber,
+			ultimoZ = s1.DailyClosureCounter
+		};
+		return new ResponsePrinter("OK", "", ret);
+	}
+
+	private string[] formatLine(string txt, int maxLines, int lineChars)
+	{
+		List<string> lines = new List<string>();
+		for (int i = 0; i < txt.Length; i += lineChars)
+		{
+			int endLength = Math.Min(lineChars, txt.Length - i);
+			lines.Add(txt.Substring(i, endLength));
+		}
+		return lines.GetRange(0, Math.Min(maxLines, lines.Count)).ToArray();
+	}
+
+	public override ResponsePrinter ImprimirNotaEntrega(int numDesde, int NumHasta)
+	{
+		throw new NotImplementedException();
+	}
+
+	public override ResponsePrinter ImprimirNotaEntrega(NotaEntrega notaEntrega)
+	{
+		throw new NotImplementedException();
+	}
+
+	public override ResponsePrinter ImprimirNotaCreditoEntrega(NotaCreditoEntrega notaEntrega)
+	{
+		throw new NotImplementedException();
+	}
+
+	public override ResponsePrinter ImprimirNotaCreditoEntrega(int numDesde, int NumHasta)
+	{
+		throw new NotImplementedException();
+	}
+}

@@ -1,0 +1,10 @@
+Servidor iniciado.
+Puerto COM9 Abierto. 
+Check True 
+System.NullReferenceException: Referencia a objeto no establecida como instancia de un objeto.
+   en ApiPrinter.Form1.ResponseThread() en D:\source\ApiPrinter\Form1.cs:línea 82
+Check True 
+Retorno: [True] | Status: [4] 
+ In Fiscal Mode and Waiting | Error: [0] No Error 
+Servidor detenido. 
+La Aplicacion se cerrara. 

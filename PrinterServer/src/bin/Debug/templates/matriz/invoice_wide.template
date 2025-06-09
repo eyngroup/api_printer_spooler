@@ -1,0 +1,50 @@
+[condensed]
+                                   {{company_name}}
+                                   {{company_address}}
+                            RIF: {{company_rif}} - Tel: {{company_phone}}
+
+================================================================================
+
+                                     FACTURA
+Nro: {{invoice_number}}                                        Fecha: {{invoice_date}}
+                                                              Hora:  {{invoice_time}}
+
+DATOS DEL CLIENTE:
+--------------------------------------------------------------------------------
+Nombre: {{customer_name}}
+RIF/CI: {{customer_vat}}
+Dir.:  {{customer_address}}
+Tel.:  {{customer_phone}}
+
+DETALLES DE LA FACTURA:
+================================================================================
+CÓDIGO        DESCRIPCIÓN                          CANT.    PRECIO    DESC.   TOTAL
+--------------------------------------------------------------------------------
+[fixed-width]
+{{#each items}}
+{{item_code}} {{item_name}}                       {{item_quantity}} {{item_price}} {{item_discount}} {{item_total}}
+{{/each}}
+[/fixed-width]
+================================================================================
+
+                                                    SUBTOTAL: {{subtotal}}
+                                               IVA ({{tax_rate}}%): {{tax_amount}}
+                                                       TOTAL: {{total}}
+
+--------------------------------------------------------------------------------
+FORMA DE PAGO:
+{{#each payments}}
+{{payment_method}}: {{payment_amount}}
+{{/each}}
+
+================================================================================
+
+NOTAS:
+{{notes}}
+
+                               {{footer_text}}
+
+[barcode]{{barcode_data}}[/barcode]
+
+[/condensed]
+[formfeed]

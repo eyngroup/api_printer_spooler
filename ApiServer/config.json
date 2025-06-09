@@ -1,0 +1,15 @@
+{
+  "Server": {
+    "Port": 9000,
+    "Host": "localhost",
+    "ApiPath": "api"
+  },
+  "Logging": {
+    "LogLevel": "Debug",
+    "LogPath": "logs"
+  },
+  "Security": {
+    "EnableCors": true,
+    "AllowedOrigins": ["*"]
+  }
+}

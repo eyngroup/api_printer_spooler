@@ -1,0 +1,57 @@
+{
+  "idFiscal": "6346367",
+  "razonSocial": "ADOLFO PEREA",
+  "direccion": "EL MARQUES, XQ, Caracas, Distrito Capital (VE), Venezuela",
+  "telefono": "0291",
+  "comentarios": [],
+  "barcode": "00004-001-0002",
+  "cabecera": [
+    "Nro de Orden: 00004-001-0002",
+    "TPV Valencia C1 (Ian Graterol)"
+  ],
+  "items": [
+    {
+      "codigo": "60-2005",
+      "nombre": "ACEITE REFRIGERANTE PAG-150 R134 AUTOM 8",
+      "cantidad": 1,
+      "precio": 140.22,
+      "impuesto": 16,
+      "comentario": "oz GENETRON",
+      "descuento": 0,
+      "tipoDescuento": ""
+    },
+    {
+      "codigo": "60-2002",
+      "nombre": "ACEITE REFRIGERANTE PAG-46 R134 C/UV 8oz",
+      "cantidad": 1,
+      "precio": 103.87,
+      "impuesto": 16,
+      "comentario": " GENETRON",
+      "descuento": 0,
+      "tipoDescuento": ""
+    },
+    {
+      "codigo": "60-2503",
+      "nombre": "ACEITE SINTETICO 100RLH 1Gal EMKARATE",
+      "cantidad": 1,
+      "precio": 4362.5,
+      "impuesto": 16,
+      "comentario": "",
+      "descuento": 0,
+      "tipoDescuento": ""
+    }
+  ],
+  "pagos": [
+    {
+      "codigo": "02",
+      "nombre": "USD Efectivo Valencia  C1",
+      "monto": 5343.650000000001
+    }
+  ]
+}
+
+
+
+
+
+{'backendRef': 'Shop/0001', 'idFiscal': 'V131348076', 'razonSocial': 'NOMBRE DEL CLIENTE', 'direccion': 'DIRECCION DEL CLIENTE\n\nCIUDAD DEL CLIENTE  1021\nVenezuela', 'telefono': '02916419691', 'items': [{'referencia_interna': 'P001', 'nombre': '[P001] PRODUCTO', 'cantidad': 6, 'precio': 100, 'impuesto': 0, 'descuento': 0, 'comentario': ''}], 'pagos': [{'codigo': '01', 'nombre': 'EFECTIVO', 'monto': 600}], 'comentarios': ''}

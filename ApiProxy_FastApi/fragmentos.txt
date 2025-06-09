@@ -1,0 +1,142 @@
+    # uvicorn.run(app, host=config.IP, port=config.PORT, reload=True)
+
+
+@app.get("/api/get_config")
+async def get_config():
+    try:
+        resp = fiscal.OpenFpctrl(PORT)
+        print(resp)
+        resp = fiscal.SendCmd("D")
+        print(resp)
+        fiscal.CloseFpctrl()
+        return json.dumps({"Command":"Processing Successful"})
+    except AttributeError as e:
+        print(f"Error: {e}")
+        return json.dumps({"Error":"Printer Not Found"}), 503
+
+
+
+@app.get("/api/invoice")
+async def invoice(request: Request):
+    """
+    Invoicing function.
+    :return: Invoice number
+    :rtype: json.
+    """
+    global configuration
+    states = {'e': ' ', 'g': '!', 'r': '"', 'a': '#'}
+    codecs = []
+    data = await request.json()
+
+
+    customer_data = data.get("invoice").get("client")
+    customer_name = f"{customer_data.get('name')} {customer_data.get('surname')}"
+    customer_address = customer_data.get("address")
+    customer_document = customer_data.get("document").get("document")
+    customer_phone = customer_data.get("phone")
+    document_type = customer_data.get("document").get("documentType")
+    cashier_data = data.get("invoice").get("cashier")
+    items_data = data.get("invoice").get("items")
+    pay_data = data.get("invoice").get("payments")
+
+    for x in items_data:
+        item_tax = x.get("exempt")
+        item_price = str(x.get('price'))
+        p_integer, p_decimal = item_price.split('.')
+        item_quantity = str(float(x.get('amount')))
+        c_integer, c_decimal = item_quantity.split('.')
+        item_name = x.get('name')
+        codecs.append(
+            f"{states.get('e') if item_tax else states.get('g')}"
+            f"{('0' * (8 - len(p_integer))) + p_integer}"
+            f"{p_decimal + ('0' * (2 - len(p_decimal)))}"
+            f"{('0' * (5 - len(c_integer))) + c_integer}"
+            f"{c_decimal + ('0' * (3 - len(c_decimal)))}"
+            f"{item_name}"
+        )
+    try:
+        fiscal = Operations()
+        fiscal.recognize_port()
+        fiscal.open_port()
+        previous_invoice = fiscal.printer.n_factura()
+        if configuration:
+            fiscal.printer.SendCmd('PJ2100')
+            configuration = False
+        fiscal.invoice(products_list=codecs, customer=customer_name,
+                       address=customer_address, document="-".join([document_type, customer_document]),
+                       phone=customer_phone,
+                       payment=pay_data, employee=cashier_data)
+        fiscal.close_port()
+        fiscal.open_port()
+        invoice_n = fiscal.printer.n_factura()
+        fiscal.close_port()
+        if previous_invoice != invoice_n:
+            return json.dumps({'invoice_number': invoice_n})
+        else:
+            print(f"It is this invoice: {invoice_n}")
+            return json.dumps({'Error': 'Fiscal machine error'}), 418
+    except AttributeError as e:
+        print(f"Error: {e}")
+        return json.dumps({"Error": "Printer not connected"}), 503
+
+
+
+
+# hka = TfhkaPyGD.Tfhka()
+# res = hka.OpenFpctrl("COM3")
+# print(res)
+# res = hka.ReadFpStatus()
+# print(res)
+# hka.CloseFpctrl()
+# uvicorn.run(app, host=config.IP, port=config.PORT, debug=config.DEBUG)
+
+
+
+def validate_json(json_data):
+    try:
+        params = json_data["params"]
+        cmd = params["cmd"]
+        return True
+    except KeyError:
+        return False
+
+def validate_list_cmd(cmd):
+    return all(isinstance(item, str) for item in cmd)
+
+@app.get("/api/invoice_other")
+async def invoice(request: Request):
+    print("recibir solicitud")
+
+    data = await request.json()
+
+    if validate_json(data):
+        cmd_values = data["params"]["cmd"]
+        if validate_list_cmd(cmd_values):
+            fiscal.OpenFpctrl(PORT)
+            for value in cmd_values:
+                # print(value)
+                fiscal.SendCmd(value)
+            fiscal.CloseFpctrl()
+            return json.dumps({"invoice_number": "invoice_n"})
+        else:
+            print("The list of commands does not meet the requirements.")
+    else:
+        print("The JSON does not comply with the required structure.")
+
+
+    return json.dumps({"Error": "Printer Not Connected"}), 404
+	
+	
+	
+	
+	
+	
+	{
+    "PrinterSerial": "<valor de PrinterSerial>",
+    "PrinterCounterZ": "<valor de PrinterCounterZ>",
+    "PrinterNumber": "<valor de PrinterNumber>",
+    "PrinterDate": "<valor de PrinterDate>",
+    "PrinterBase": "<valor de PrinterBase>",
+    "PrinterTax": "<valor de PrinterTax>",
+    "PrinterIgt": "<valor de PrinterIgt>"
+}

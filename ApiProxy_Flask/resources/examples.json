@@ -1,0 +1,36 @@
+{
+    "type": "FAV",
+    "cmd": [
+        "iR*V131328526",
+        "iS*Maria Juana",
+        "i00Telefono: 04148754142",
+        "i01Direccion: Calle Principal",
+        "i02Email: maria_juana@arco.com",
+        "i03Ref: Pedido 00011-002-0001",
+        " 000000010000002000Producto IVA00",
+        "3",
+        "101",
+        "199"
+    ]
+}
+
+{
+    "jsonrpc": "2.0",
+    "method": "call",
+    "params": {
+        "type": "FAV",
+        "cmd": [
+            "iR*V131328526",
+            "iS*Maria Juana",
+            "i00Telefono: 04148754142",
+            "i01Direccion: Calle Principal",
+            "i02Email: maria_juana@arco.com",
+            "i03Ref: Pedido 00011-002-0001",
+            " 000000010000002000Producto IVA00",
+            "3",
+            "101",
+            "199"
+        ]
+    },
+    "id": 241193775
+}

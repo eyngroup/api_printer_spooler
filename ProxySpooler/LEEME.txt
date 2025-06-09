@@ -1,0 +1,14 @@
+CREAR UN API
+
+python3 -m venv venv
+
+source venv/bin/activate
+D:\ApiFiscal\venv\Scripts\activate.bat
+venv/scripts/activate.bat
+
+pip install fastapi
+pip install "fastapi[all]"
+pip install "uvicorn[standard]"
+python.exe -m pip install --upgrade pip
+
+ 

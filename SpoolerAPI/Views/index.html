@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bienvenido al servidor API</title>
+    <style>
+        /* Agrega estilo a los botones */
+        button {
+            display: block;
+            margin: 20px;
+            padding: 20px;
+            background-color: blue;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 150px;
+        }
+
+        /* Agrega estilo al contenedor de los botones */
+        #container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            height: 80vh;
+            padding: 20px;
+        }
+
+        /* Agrega estilo al contenedor de la respuesta */
+        #response-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Agrega estilo al contenido de la respuesta */
+        #response-content {
+            width: 50%;
+            height: 40%;
+            background-color: white;
+            border-radius: 10px;
+            overflow: auto;
+            padding: 20px;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        /* Agrega estilo al título de la respuesta */
+        #response-title {
+            margin-top: 0;
+            font-size: 24px;
+        }
+
+        /* Agrega estilo al cuerpo de la respuesta */
+        #response-body {
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Bienvenido al servidor API v0.3.4</h1>
+    <div id="container">
+        <div>
+            <button onclick="makeRequest('/api/ping',this)">Ping</button>
+            <button onclick="makeRequest('/api/info',this)">Info</button>
+            <button onclick="makeRequest('/api/status',this)">Status</button>
+        </div>
+        <div>
+            <button onclick="makeRequest('/api/reportx',this)">Report X</button>
+            <button onclick="makeRequest('/api/reportz',this)">Report Z</button>
+            <button onclick="makeRequest('/api/uploadstatus',this)">Upload Status</button>
+        </div>
+    </div>
+    <!-- Contenedor de respuesta -->
+    <div id="response-container">
+        <div id="response-content">
+            <h2 id="response-title"></h2>
+            <pre id="response-body"></pre>
+            <button onclick="closeResponse()">Cerrar</button>
+        </div>
+    </div>
+    <script>
+        function makeRequest(url, currentButton) {
+            // Desactivar todos los botones
+            var buttons = document.getElementsByTagName("button");
+            for (var i = 0; i < buttons.length; i++) {
+                buttons[i].disabled = true;
+            }
+
+            // Almacenar el color original del botón
+            var originalColor = currentButton.style.backgroundColor;
+
+            // Cambiar el color del botón
+            currentButton.style.backgroundColor = "red";
+
+            // Realizar solicitud XMLHttpRequest
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url);
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    // Mostrar ventana emergente con la respuesta
+                    var responseContainer = document.getElementById('response-container');
+                    var responseTitle = document.getElementById('response-title');
+                    var responseBody = document.getElementById('response-body');
+                    responseTitle.innerText = xhr.statusText;
+                    responseBody.innerText = xhr.responseText;
+                    responseContainer.style.display = 'flex';
+                } else {
+                    alert('Error al realizar la solicitud');
+                }
+            };
+
+            xhr.onerror = function () {
+                // Mostrar error en la consola
+                console.error(xhr.statusText);
+            };
+            xhr.send();
+
+            
+            xhr.onloadend = function () {
+                // Restaurar el color original del botón después de recibir la respuesta
+                currentButton.style.backgroundColor = originalColor;
+
+                // Activar todos los botones después de recibir la respuesta
+                var buttons = document.getElementsByTagName("button");
+                for (var i = 0; i < buttons.length; i++) {
+                    buttons[i].disabled = false;
+                }
+            };
+        }
+        function closeResponse() {
+            var responseContainer = document.getElementById('response-container');
+            responseContainer.style.display = 'none';
+        }
+    </script>
+</body>
+
+</html>

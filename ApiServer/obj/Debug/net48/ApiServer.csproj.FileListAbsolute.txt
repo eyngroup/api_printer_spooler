@@ -1,0 +1,12 @@
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.csproj.AssemblyReference.cache
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.GeneratedMSBuildEditorConfig.editorconfig
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.AssemblyInfoInputs.cache
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.AssemblyInfo.cs
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.csproj.CoreCompileInputs.cache
+C:\DevSpooler\ApiServer\bin\Debug\net48\ApiServer.exe.config
+C:\DevSpooler\ApiServer\bin\Debug\net48\ApiServer.exe
+C:\DevSpooler\ApiServer\bin\Debug\net48\ApiServer.pdb
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.exe
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.pdb
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.csproj.SuggestedBindingRedirects.cache
+C:\DevSpooler\ApiServer\obj\Debug\net48\ApiServer.exe.config

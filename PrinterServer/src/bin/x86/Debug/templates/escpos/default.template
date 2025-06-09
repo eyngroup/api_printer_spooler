@@ -1,0 +1,31 @@
+[center]
+**COMPROBANTE DE VENTA**
+{{DOCUMENT_NAME}}
+[/center]
+
+Fecha: {{DOCUMENT_DATE}}
+Doc #: {{DOCUMENT_NUMBER}}
+
+Cliente: {{CUSTOMER_NAME}}
+RIF/CI: {{CUSTOMER_VAT}}
+Dir.: {{CUSTOMER_ADDRESS}}
+Tel.: {{CUSTOMER_PHONE}}
+
+[center]--------------------------------[/center]
+PRODUCTOS
+[center]--------------------------------[/center]
+
+{{ITEMS}}
+
+[right]--------------------------------[/right]
+[right]TOTAL {{DOCUMENT_CURRENCY}}: {{TOTAL}}[/right]
+
+[center]--------------------------------[/center]
+FORMAS DE PAGO
+[center]--------------------------------[/center]
+
+{{PAYMENTS}}
+
+[center]
+¡Gracias por su compra!
+[/center]

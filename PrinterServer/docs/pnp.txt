@@ -1,0 +1,570 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using Fiscal.Printers.Models;
+using Newtonsoft.Json;
+
+namespace Fiscal.Printers;
+
+public class PNP : Printer
+{
+	private PNPFI32 driver = new PNPFI32();
+
+	private int item_maxLines = 1000;
+
+	private int item_maxChars = 1000;
+
+	private int addr_maxLines = 1000;
+
+	private int addr_maxChars = 1000;
+
+	private string modelo = null;
+
+	private Dictionary<int, string> taxFactura = new Dictionary<int, string>
+	{
+		{ 0, "0000" },
+		{ 8, "0800" },
+		{ 16, "1600" },
+		{ 31, "3100" }
+	};
+
+	private Dictionary<int, string> taxNotaCredito = new Dictionary<int, string>
+	{
+		{ 0, "0000" },
+		{ 8, "0800" },
+		{ 16, "1600" },
+		{ 31, "3100" }
+	};
+
+	private int taxDefault = 16;
+
+	public override string name => "PNP";
+
+	private CultureInfo cultureVE => CultureInfo.GetCultureInfo("es-VE");
+
+	private void setup()
+	{
+		item_maxLines = config.config.GetInteger(name, "item_maxLines", item_maxLines);
+		item_maxChars = config.config.GetInteger(name, "item_maxChars", addr_maxChars);
+		addr_maxLines = config.config.GetInteger(name, "addr_maxLines", addr_maxLines);
+		addr_maxChars = config.config.GetInteger(name, "addr_maxChars", addr_maxChars);
+		modelo = config["modelo"];
+		if (!string.IsNullOrEmpty(modelo))
+		{
+			driver.pfTipoImp(modelo);
+		}
+	}
+
+	public PNP(Config config)
+		: base(config)
+	{
+	}
+
+	public override ResponsePrinter connect()
+	{
+		if (driver.checkPrinter())
+		{
+			return new ResponsePrinter("OK");
+		}
+		ResponsePrinter ret;
+		if (driver.abrePuerto(config["port"]))
+		{
+			setup();
+			if (driver.checkPrinter())
+			{
+				ret = new ResponsePrinter("OK");
+			}
+			else
+			{
+				PNPFI32.PrinterStatus ps = driver.getPrinterStatus();
+				ret = new ResponsePrinter("ERROR", "", ps);
+			}
+		}
+		else
+		{
+			PNPFI32.PrinterStatus ps2 = driver.getPrinterStatus();
+			ret = new ResponsePrinter("ERROR", "", ps2);
+		}
+		return ret;
+	}
+
+	public override ResponsePrinter disconnect()
+	{
+		driver.cierraPuerto();
+		return new ResponsePrinter("OK");
+	}
+
+	public override ResponsePrinter ImprimirFactura(Factura factura)
+	{
+		decimal total = factura.items.Sum((Item item) => item.cantidad * item.precio);
+		if (total <= 0m)
+		{
+			return new ResponsePrinter("ERROR", "El documento no tiene valor comercial");
+		}
+		if (factura.pagos.Count == 0)
+		{
+			factura.pagos.Add(new Pago
+			{
+				codigo = "01",
+				monto = total
+			});
+		}
+		factura.pagos = new List<Pago>(factura.pagos.OrderByDescending((Pago r) => r.codigo));
+		decimal bi_igtf = default(decimal);
+		try
+		{
+			decimal pagado = default(decimal);
+			decimal pagoDivisa = default(decimal);
+			foreach (Pago paymentline in factura.pagos)
+			{
+				int nPago = int.Parse(paymentline.codigo);
+				if (nPago < 1 || nPago > 24)
+				{
+					throw new Exception("Error en método de pago. Debe estar entre '00' y '24' ");
+				}
+				pagado += paymentline.monto;
+				pagoDivisa += ((nPago < 20) ? 0m : paymentline.monto);
+			}
+			decimal montoIGTF = decimal.Round(Math.Min(total, pagoDivisa) * 3m / 100m, 2);
+			bi_igtf = pagoDivisa;
+		}
+		catch (Exception ex)
+		{
+			return new ResponsePrinter("ERROR", ex.Message);
+		}
+		bool ret = true && driver.pfAbreFiscal(factura.razonSocial, factura.idFiscal);
+		if (!string.IsNullOrWhiteSpace(factura.direccion))
+		{
+			string direccion = "Direccion: " + factura.direccion;
+			string[] lines = formatLine(direccion, addr_maxLines, addr_maxChars);
+			string[] array = lines;
+			foreach (string item2 in array)
+			{
+				driver.pftFiscal(item2);
+			}
+			ret = ret && driver.pftFiscal(factura.direccion);
+		}
+		foreach (Item productline in factura.items)
+		{
+			if (productline.cantidad > 0m)
+			{
+				ret = ret && printRenglon(productline, taxFactura);
+				if (productline.descuento > 0m)
+				{
+					ret = ret && printDescuento(productline);
+				}
+			}
+			else
+			{
+				productline.comentario = productline.nombre;
+				if (!string.IsNullOrWhiteSpace(productline.comentario))
+				{
+					ret = ret && driver.pftFiscal(productline.comentario);
+				}
+			}
+		}
+		if (bi_igtf == 0m)
+		{
+			ret = ret && driver.pfParcial();
+		}
+		else
+		{
+			string sbi_igtf = bi_igtf.ToString("N2", cultureVE).Replace(".", "").Replace(",", "");
+			ret = ret && driver.pfComando("E|B|" + sbi_igtf);
+		}
+		string[] ultimo = driver.pfUltimo().Split(',');
+		foreach (string l in factura.comentarios)
+		{
+			driver.pftFiscal(l);
+		}
+		driver.pfTotal();
+		if (ret)
+		{
+			string serial = driver.pfSerial();
+			string fechahora = driver.fechaHora();
+			string[] statusN = driver.pfEstatus();
+			ResponseDocumentoFiscal rf = new ResponseDocumentoFiscal
+			{
+				nroFiscal = int.Parse(ultimo[3]),
+				fecha = fechahora,
+				serial = serial,
+				ultimoZ = int.Parse(statusN[12])
+			};
+			return new ResponsePrinter("OK", "", rf);
+		}
+		driver.pfAnular();
+		return new ResponsePrinter("ERROR");
+	}
+
+	public override ResponsePrinter ImprimirFactura(int numDesde, int numHasta)
+	{
+		string cmd = "º|1|" + numDesde;
+		bool ret = driver.pfComando(cmd);
+		string[] ps = driver.pfEstatus();
+		if (ret)
+		{
+			return new ResponsePrinter("OK");
+		}
+		return new ResponsePrinter("ERROR", "", ps);
+	}
+
+	public override ResponsePrinter ImprimirNotaCredito(NotaCredito factura)
+	{
+		decimal total = factura.items.Sum((Item item) => item.cantidad * item.precio);
+		if (total <= 0m)
+		{
+			return new ResponsePrinter("ERROR", "El documento no tiene valor comercial");
+		}
+		bool ret = DateTime.TryParse(factura.fechaFactura, out var fechaFactura);
+		if (!ret)
+		{
+			return new ResponsePrinter("ERROR", "Fecha Inválida (yyyy-MM-dd HH:mm)");
+		}
+		if (factura.pagos.Count == 0)
+		{
+			factura.pagos.Add(new Pago
+			{
+				codigo = "01",
+				monto = total
+			});
+		}
+		factura.pagos = new List<Pago>(factura.pagos.OrderByDescending((Pago r) => r.codigo));
+		decimal bi_igtf = default(decimal);
+		try
+		{
+			decimal pagado = default(decimal);
+			decimal pagoDivisa = default(decimal);
+			foreach (Pago paymentline in factura.pagos)
+			{
+				int nPago = int.Parse(paymentline.codigo);
+				if (nPago < 1 || nPago > 24)
+				{
+					throw new Exception("Error en método de pago. Debe estar entre '00' y '24' ");
+				}
+				pagado += paymentline.monto;
+				pagoDivisa += ((nPago < 20) ? 0m : paymentline.monto);
+			}
+			decimal montoIGTF = decimal.Round(Math.Min(total, pagoDivisa) * 3m / 100m, 2);
+			bi_igtf = pagoDivisa;
+		}
+		catch (Exception ex)
+		{
+			return new ResponsePrinter("ERROR", ex.Message);
+		}
+		ret = ret && driver.pfDevolucion(factura.razonSocial, factura.idFiscal, factura.nroFactura, factura.serial, fechaFactura);
+		if (!string.IsNullOrWhiteSpace(factura.direccion))
+		{
+			ret = ret && driver.pftFiscal(factura.direccion);
+		}
+		foreach (Item productline in factura.items)
+		{
+			if (productline.cantidad * productline.precio > 0m)
+			{
+				ret = ret && printRenglon(productline, taxFactura);
+			}
+			else
+			{
+				productline.comentario = productline.nombre;
+			}
+			if (!string.IsNullOrWhiteSpace(productline.comentario))
+			{
+				ret = ret && driver.pftFiscal(productline.comentario);
+			}
+		}
+		if (bi_igtf == 0m)
+		{
+			ret = ret && driver.pfParcial();
+		}
+		else
+		{
+			string sbi_igtf = bi_igtf.ToString("N2", cultureVE).Replace(".", "").Replace(",", "");
+			ret = ret && driver.pfComando("E|B|" + sbi_igtf);
+		}
+		foreach (string l in factura.comentarios)
+		{
+			driver.pftFiscal(l);
+		}
+		driver.pfTotal();
+		if (ret)
+		{
+			string serial = driver.pfSerial();
+			string fechahora = driver.fechaHora();
+			string[] ultimo = driver.pfEstatus("T");
+			string[] statusN = driver.pfEstatus();
+			ResponseDocumentoFiscal rf = new ResponseDocumentoFiscal
+			{
+				nroFiscal = int.Parse(ultimo[8]),
+				fecha = fechahora,
+				serial = serial,
+				ultimoZ = int.Parse(statusN[12])
+			};
+			return new ResponsePrinter("OK", "", rf);
+		}
+		driver.pfAnular();
+		return new ResponsePrinter("ERROR");
+	}
+
+	public override ResponsePrinter ImprimirNotaCredito(int numDesde, int numHasta)
+	{
+		string cmd = "º|2|" + numDesde;
+		bool ret = driver.pfComando(cmd);
+		string[] ps = driver.pfEstatus();
+		if (ret)
+		{
+			return new ResponsePrinter("OK");
+		}
+		return new ResponsePrinter("ERROR", "", ps);
+	}
+
+	public override ResponsePrinter ImprimirNoFiscal(NoFiscal data)
+	{
+		bool ret = driver.pfAbreNF();
+		foreach (string line in data.lineas)
+		{
+			ret = ret && driver.pfLineaNF(line);
+		}
+		if (ret && driver.pfCierraNF())
+		{
+			return new ResponsePrinter("OK");
+		}
+		string[] ps = driver.pfEstatus();
+		return new ResponsePrinter("ERROR", "", ps);
+	}
+
+	public override ResponsePrinter ImprimirReporteX()
+	{
+		driver.pfPrintX();
+		string data = driver.pfUltimo();
+		return new ResponsePrinter("OK", "", data);
+	}
+
+	public override ResponsePrinter ImprimirReporteZ()
+	{
+		driver.pfPrintZ();
+		string ret = driver.pfUltimo();
+		return GetDatosZ(0);
+	}
+
+	public override ResponsePrinter GetDatosZ(int numZ = 0)
+	{
+		string fechaHora = driver.fechaHora();
+		string[] statusN = driver.pfEstatus();
+		if (numZ == 0 && !int.TryParse(statusN[12], out numZ))
+		{
+			return new ResponsePrinter("ERROR", "ultimoZ falló");
+		}
+		string[] dataZ = driver.pfRepMemoriaNumero(numZ, numZ, "C");
+		string[] statusT = driver.pfEstatus("T");
+		DatosZ z = new DatosZ
+		{
+			numero_ultimo_reporte_z = numZ.ToString(),
+			fecha_ultimo_reporte_z = dataZ[10],
+			hora_ultimo_reporte_z = "",
+			numero_ultima_factura = dataZ[21],
+			fecha_ultima_factura = dataZ[20].Substring(0, 6),
+			hora_ultima_factura = dataZ[20].Substring(dataZ[20].Length - 6),
+			numero_ultima_nota_de_credito = statusT[8],
+			numero_ultimo_doc_no_fiscal = (int.Parse(statusN[11]) + 1).ToString(),
+			ventas_exento = int.Parse(dataZ[3]) / 100,
+			base_imponible_ventas_iva_g = int.Parse(dataZ[4]) / 100,
+			impuesto_iva_g = int.Parse(dataZ[5]) / 100,
+			base_imponible_ventas_iva_a = int.Parse(dataZ[13]) / 100,
+			impuesto_iva_a = int.Parse(dataZ[14]) / 100,
+			base_imponible_ventas_iva_r = int.Parse(dataZ[11]) / 100,
+			impuesto_iva_r = int.Parse(dataZ[12]) / 100,
+			nota_de_credito_exento = int.Parse(dataZ[8]) / 100,
+			bi_iva_g_en_nota_de_credito = int.Parse(dataZ[9]) / 100,
+			impuesto_iva_g_en_nota_de_credito = int.Parse(dataZ[15]) / 100,
+			bi_iva_r_en_nota_de_credito = int.Parse(dataZ[16]) / 100,
+			impuesto_iva_r_en_nota_de_credito = int.Parse(dataZ[17]) / 100,
+			bi_iva_a_en_nota_de_credito = int.Parse(dataZ[18]) / 100,
+			impuesto_iva_a_en_nota_de_credito = int.Parse(dataZ[19]) / 100,
+			numero_impresora = driver.pfSerial()
+		};
+		return new ResponsePrinter("OK", "", z);
+	}
+
+	private bool printRenglon(Item line, Dictionary<int, string> taxMap)
+	{
+		string tax;
+		try
+		{
+			tax = taxMap[(int)line.impuesto];
+		}
+		catch
+		{
+			tax = taxMap[taxDefault];
+		}
+		string codigo = "";
+		string monto = line.precio.ToString("0.00");
+		string cantidad = line.cantidad.ToString("0.000");
+		string[] nombre = formatLine(line.nombre, item_maxLines, item_maxChars);
+		bool ret = driver.pfRenglon(nombre[0], cantidad, monto, tax);
+		for (int i = 1; i < nombre.Length; i++)
+		{
+			ret = ret && driver.pftFiscal(nombre[i]);
+		}
+		return ret;
+	}
+
+	private bool printDescuento(Item line)
+	{
+		string descuento = ((!(line.tipoDescuento == "p")) ? line.descuento.ToString("0000000.00").Replace(".", "").Replace(",", "") : line.descuento.ToString("00.00").Replace(".", "").Replace(",", ""));
+		return driver.pftFiscal(line.tipoDescuento + "-" + descuento);
+	}
+
+	public override bool SendCmd(string cmd)
+	{
+		return sendCmd(cmd);
+	}
+
+	private bool sendCmd(string str)
+	{
+		Console.WriteLine(str);
+		string s = Printer.DecodeEscapedHex(str);
+		bool ret = driver.pfComando(s);
+		if (!ret)
+		{
+			string ps = driver.pfUltimo();
+			string sps = JsonConvert.SerializeObject(ps);
+			Console.WriteLine(sps);
+		}
+		return ret;
+	}
+
+	public override ResponsePrinter ImprimirReporteZ(int numDesde, int numHasta)
+	{
+		driver.pfRepMemoriaNumero(numDesde, numHasta);
+		string ret = driver.pfUltimo();
+		return new ResponsePrinter("OK", "", ret);
+	}
+
+	public override ResponsePrinter ImprimirReporteZ(string fechaDesde, string fechaHasta)
+	{
+		DateTime dtDesde = DateTime.Parse(fechaDesde);
+		DateTime dtHasta = DateTime.Parse(fechaHasta);
+		driver.pfRepMemoriaFecha(dtDesde, dtHasta);
+		return new ResponsePrinter("OK");
+	}
+
+	public override ResponsePrinter GetNumeros()
+	{
+		string[] statusN = driver.pfEstatus();
+		string[] statusT = driver.pfEstatus("T");
+		try
+		{
+			object ret = new
+			{
+				ultimaFactura = statusN[10],
+				ultimaNotaCredito = statusT[8],
+				ultimoDocumentoNoFiscal = statusN[11],
+				ultimoZ = statusN[12]
+			};
+			return new ResponsePrinter("OK", "", ret);
+		}
+		catch (Exception)
+		{
+			object data = new
+			{
+				pfStatusN = statusN,
+				pfStatusT = statusT
+			};
+			return new ResponsePrinter("ERROR", "", data);
+		}
+	}
+
+	private string[] formatLine(string txt, int maxLines, int lineChars)
+	{
+		List<string> lines = new List<string>();
+		for (int i = 0; i < txt.Length; i += lineChars)
+		{
+			int endLength = Math.Min(lineChars, txt.Length - i);
+			lines.Add(txt.Substring(i, endLength));
+		}
+		return lines.GetRange(0, Math.Min(maxLines, lines.Count)).ToArray();
+	}
+
+	public NXResponsePrinter printInvoice(NXFactura factura)
+	{
+		bool ret = true;
+		if (string.IsNullOrEmpty(factura.FACTURA))
+		{
+			ret = ret && driver.pfAbreFiscal(factura.SOCIAL_REASON, factura.RIF);
+		}
+		else
+		{
+			ret = DateTime.TryParse(factura.FECHA + " " + factura.HORA, out var fechaFactura);
+			if (!ret)
+			{
+				return new NXResponsePrinter("ERROR", "Fecha Inválida (yyyy-MM-dd HH:mm)")
+				{
+					state = "500",
+					error = true
+				};
+			}
+			ret = ret && driver.pfDevolucion(factura.SOCIAL_REASON, factura.RIF, factura.FACTURA, factura.MAQUINA_FISCAL, fechaFactura);
+		}
+		if (!string.IsNullOrWhiteSpace(factura.DIRECCION))
+		{
+			ret = ret && driver.pftFiscal(factura.DIRECCION);
+		}
+		string[] cmds = factura.cmds;
+		foreach (string cmd in cmds)
+		{
+			ret = ret && driver.pfComando(cmd);
+		}
+		ret = ((!string.IsNullOrEmpty(factura.BASE_IGTF)) ? (ret && driver.pfComando("E|B|" + factura.BASE_IGTF)) : (ret && driver.pfParcial()));
+		string[] comentarios = factura.comentarios;
+		foreach (string l in comentarios)
+		{
+			driver.pftFiscal(l);
+		}
+		driver.pfTotal();
+		if (ret)
+		{
+			string serial = driver.pfSerial();
+			string fechahora = driver.fechaHora();
+			string[] ultimo = driver.pfEstatus("T");
+			int lastNumber = int.Parse(ultimo[8]);
+			ResponseDocumentoFiscal rf = new ResponseDocumentoFiscal
+			{
+				nroFiscal = lastNumber,
+				fecha = fechahora,
+				serial = serial
+			};
+			return new NXResponsePrinter("OK", "", rf)
+			{
+				state = "200",
+				error = false,
+				lastInvoiceNumber = lastNumber.ToString()
+			};
+		}
+		driver.pfAnular();
+		return new NXResponsePrinter("ERROR")
+		{
+			state = "500",
+			error = true
+		};
+	}
+
+	public override ResponsePrinter ImprimirNotaEntrega(int numDesde, int NumHasta)
+	{
+		throw new NotImplementedException();
+	}
+
+	public override ResponsePrinter ImprimirNotaEntrega(NotaEntrega notaEntrega)
+	{
+		throw new NotImplementedException();
+	}
+
+	public override ResponsePrinter ImprimirNotaCreditoEntrega(NotaCreditoEntrega notaEntrega)
+	{
+		throw new NotImplementedException();
+	}
+
+	public override ResponsePrinter ImprimirNotaCreditoEntrega(int numDesde, int NumHasta)
+	{
+		throw new NotImplementedException();
+	}
+}

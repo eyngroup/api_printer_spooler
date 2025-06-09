@@ -1,0 +1,104 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|c:\\devcustom\\app_devspooler\\apiprinter\\printerhka.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|solutionrelative:printerhka.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|c:\\devcustom\\app_devspooler\\apiprinter\\index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|solutionrelative:index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|solutionrelative:program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|c:\\devcustom\\app_devspooler\\apiprinter\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|solutionrelative:form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{1E5A5F73-2C38-4F71-83CB-D9A88C834600}|ApiPrinter.csproj|solutionrelative:form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "index.html",
+              "DocumentMoniker": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\index.html",
+              "RelativeDocumentMoniker": "index.html",
+              "ToolTip": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\index.html",
+              "RelativeToolTip": "index.html",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
+              "WhenOpened": "2024-12-31T02:18:14.685Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "PrinterHka.cs",
+              "DocumentMoniker": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\PrinterHka.cs",
+              "RelativeDocumentMoniker": "PrinterHka.cs",
+              "ToolTip": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\PrinterHka.cs",
+              "RelativeToolTip": "PrinterHka.cs",
+              "ViewState": "AgIAAA4AAAAAAAAAAAAAACIAAAAaAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-12-31T02:17:22.083Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Form1.cs",
+              "DocumentMoniker": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\Form1.cs",
+              "RelativeDocumentMoniker": "Form1.cs",
+              "ToolTip": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\Form1.cs",
+              "RelativeToolTip": "Form1.cs",
+              "ViewState": "AgIAAB8AAAAAAAAAAAAgwA0AAAAbAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-03-20T08:05:35.186Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\Program.cs",
+              "RelativeDocumentMoniker": "Program.cs",
+              "ToolTip": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\Program.cs",
+              "RelativeToolTip": "Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-03-20T08:05:05.154Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "Form1.cs [Dise\u00F1o]",
+              "DocumentMoniker": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\Form1.cs",
+              "RelativeDocumentMoniker": "Form1.cs",
+              "ToolTip": "C:\\DevCustom\\App_DevSpooler\\ApiPrinter\\Form1.cs [Dise\u00F1o]",
+              "RelativeToolTip": "Form1.cs [Dise\u00F1o]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-03-20T08:04:52.985Z",
+              "EditorCaption": " [Dise\u00F1o]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

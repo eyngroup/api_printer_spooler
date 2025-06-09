@@ -1,0 +1,18 @@
+[Inicio] -> [Recepción JSON]
+         -> [Validar JSON]
+             |
+             v
+    [Configuración del Servidor]
+        /  |  \    \   \
+       /   |   \    \   \
+[Spooler 1][Spooler 2][Spooler 3][Proxy][Conexión Directa]
+          |            |             |
+          v            v             v
+    [Procesar]     [Procesar]      [Procesar]
+       |               |               |
+       v               v               v
+   [Imprimir/     [Imprimir/       [Enviar Comando]
+   Generar]       Generar]
+       |
+       v
+     [Fin]

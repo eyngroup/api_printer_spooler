@@ -1,0 +1,1 @@
+Por favor referenciar la librería 32 bits o 64 bits de acuerdo a la arquitectura del S.O donde están ejecutando su sistema administrativo.

@@ -1,0 +1,1 @@
+C:\DevSpooler\api_printer_server\src\obj\Release\ApiPrinterServer.csprojResolveAssemblyReference.cache

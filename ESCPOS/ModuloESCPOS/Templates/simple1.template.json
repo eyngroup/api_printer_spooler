@@ -1,0 +1,67 @@
+{
+  "name": "Simple",
+  "description": "Plantilla básica para tickets",
+  "sections": [
+    {
+      "type": "init",
+      "commands": ["SetLineSpacing:1"]
+    },
+    {
+      "type": "header",
+      "align": "center",
+      "items": [
+        { "text": "{DocumentName}", "style": "bold" },
+        { "text": "Fecha: {DocumentDate:dd/MM/yyyy}", "style": "normal" },
+        { "type": "line" },
+        { "type": "line" }
+      ]
+    },
+    {
+      "type": "customer",
+      "align": "left",
+      "items": [
+        { "text": "Cliente: {CustomerName}", "style": "normal" },
+        { "text": "RIF: {CustomerVat}", "style": "normal" },
+        { "type": "line" }
+      ]
+    },
+    {
+      "type": "items",
+      "align": "left",
+      "header": {
+        "text": "DETALLE DE ITEMS",
+        "style": "bold"
+      },
+      "itemFormat": [
+        { "text": "{ItemRef} - {ItemName}", "style": "normal" },
+        { "text": "{ItemQuantity:N0} x {ItemPrice:N2} = {Total:N2}", "style": "normal" }
+      ]
+    },
+    {
+      "type": "totals",
+      "align": "right",
+      "items": [
+        { "type": "line" },
+        { "text": "Subtotal: {Subtotal:N2}", "style": "normal" },
+        { "text": "IVA: {TaxTotal:N2}", "style": "normal", "condition": "TaxTotal > 0" },
+        { "text": "Total {DocumentCurrency}: {GrandTotal:N2}", "style": "bold" },
+        { "type": "line" }
+      ]
+    },
+    {
+      "type": "payments",
+      "align": "left",
+      "header": {
+        "text": "FORMA DE PAGO",
+        "style": "bold"
+      },
+      "itemFormat": [
+        { "text": "{PaymentName}: {PaymentAmount:N2}", "style": "normal" }
+      ]
+    },
+    {
+      "type": "finish",
+      "commands": ["Feed:3", "Cut"]
+    }
+  ]
+}

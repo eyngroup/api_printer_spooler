@@ -1,0 +1,94 @@
+{
+  "rif": "J-31705290-0",
+  "trackingid": "",
+  "nombrecliente": "MARIA",
+  "rifcedulacliente": "V-12456987-6",
+  "idtipocedulacliente": 1,
+  "emailcliente": "False",
+  "direccioncliente": "ESTA ES LA CALLE 2 Maturín VE-N 6201 Venezuela",
+  "telefonocliente": "+58 414-8768740",
+  "idtipodocumento": 1,
+  "numerointerno": "0000000001",
+  "relacionado": "0000000000",
+  "tasadecambio": 1.0,
+  "tipomoneda": 1,
+  "subtotal": 2000.0,
+  "exento": 500.0,
+  "tasag": 16.0,
+  "baseg": 500.0,
+  "impuestog": 80.0,
+  "tasar": 8.0,
+  "baser": 500.0,
+  "impuestor": 40.0,
+  "tasaa": 31.0,
+  "basea": 500.0,
+  "impuestoa": 155.0,
+  "tasaigtf": 3.0,
+  "baseigtf": 0.0,
+  "impuestoigtf": 0.0,
+  "total": 2275.0,
+  "sendmail": 0,
+  "sucursal": "",
+  "direccionsucursal": "",
+  "observacion": "False",
+  "cuerpofactura": [
+    {
+      "codigo": "False",
+      "descripcion": "PRODUCTO INTEGRAL 16",
+      "comentario": "",
+      "precio": 500.0,
+      "cantidad": 1.0,
+      "tasa": 16.0,
+      "impuesto": 80.0,
+      "descuento": 0.0,
+      "exento": false,
+      "monto": 500.0
+    },
+    {
+      "codigo": "False",
+      "descripcion": "PRODUCTO INTEGRAL 8",
+      "comentario": "",
+      "precio": 500.0,
+      "cantidad": 1.0,
+      "tasa": 8.0,
+      "impuesto": 40.0,
+      "descuento": 0.0,
+      "exento": false,
+      "monto": 500.0
+    },
+    {
+      "codigo": "False",
+      "descripcion": "PRODUCTO INTEGRAL 0",
+      "comentario": "",
+      "precio": 500.0,
+      "cantidad": 1.0,
+      "tasa": 0.0,
+      "impuesto": 0.0,
+      "descuento": 0.0,
+      "exento": true,
+      "monto": 500.0
+    },
+    {
+      "codigo": "False",
+      "descripcion": "PRODUCTO INTEGRAL 31",
+      "comentario": "",
+      "precio": 500.0,
+      "cantidad": 1.0,
+      "tasa": 31.0,
+      "impuesto": 155.0,
+      "descuento": 0.0,
+      "exento": false,
+      "monto": 500.0
+    }
+  ],
+  "formasdepago": [
+    {
+      "forma": "EFECTIVO",
+      "valor": 1500.0
+    },
+    {
+      "forma": "BANCO",
+      "valor": 775.0
+    }
+  ]
+}

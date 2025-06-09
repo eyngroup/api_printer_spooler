@@ -1,0 +1,40 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "portHttps": 8043,
+    "log": true,
+    "log_level": "info"
+  },
+  "printer": {
+    "mode": "PRUEBA",
+    "settings": {
+      "FISCAL_TFHKA": {
+        "port": "COM1",
+        "model": "TFHKA"
+      },
+      "FISCAL_PNP": {
+        "port": "COM1",
+        "model": "PNP",
+        "additional_params": {}
+      },
+      "TICKET": {
+        "printer_name": "EPSON_TM",
+        "template": "default"
+      },
+      "MATRIZ": {
+        "printer_name": "EPSON_LX",
+        "template": "default"
+      },
+      "PROXY": {
+        "target_url": "http://localhost:5001",
+        "timeout_seconds": 30,
+        "retry_attempts": 3
+      },
+      "PRUEBA": {
+        "console_output": true,
+        "file_output": true
+      }
+    }
+  }
+}
