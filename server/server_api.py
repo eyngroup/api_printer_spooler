@@ -78,12 +78,16 @@ def create_app(config):
         # Localhost con cualquier puerto (IPv4)
         re.compile(r"^http://localhost(:\d+)?$"),
         re.compile(r"^http://127\.0\.0\.1(:\d+)?$"),
+
         # Localhost con cualquier puerto (IPv6)
         re.compile(r"^http://\[::1\](:\d+)?$"),
+
         # Rango 192.168.x.x con cualquier puerto
         re.compile(r"^http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$"),
+
         # Rango 10.x.x.x con cualquier puerto
         re.compile(r"^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$"),
+
         # Subdominios de odoo.com (solo https)
         re.compile(r"^https://.*\.odoo\.com$"),
     ]
