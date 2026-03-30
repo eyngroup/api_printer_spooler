@@ -20,9 +20,9 @@
 #### Campos del Header
 - `title`: Título principal del documento.
 - `subtitle`: Subtítulo o información adicional.
-- `company`: Nombre completo de la empresa.
-- `address`: Dirección completa de la empresa.
-- `phone`: Teléfono de contacto.
+- `company`: Nombre completo de la empresa. (Se auto-centra y ajusta con márgenes laterales dinámicos).
+- `address`: Dirección completa de la empresa. (Se auto-centra y ajusta con márgenes laterales dinámicos).
+- `phone`: Teléfono de contacto. (Se auto-centra y ajusta con márgenes laterales dinámicos).
 - `type`: Tipo de documento deseado "Nota", "Entrega", Etc. (* = usa el tipo del documento recibido).
 - `name`: Nombre del documento.
 
@@ -45,15 +45,23 @@
 ```json
 {
     "format": {
-        "width": 48,                          // Ancho total del ticket en caracteres
+        "width": 64,                          // Ancho total del ticket en caracteres
         "separator": "-",                     // Carácter usado para líneas separadoras
         "show_customer_address": false,       // Mostrar dirección del cliente
         "show_customer_phone": false,         // Mostrar teléfono del cliente
-        "show_document_name": false,          // Mostrar nombre del documento
-        "show_document_number": false,        // Mostrar número del documento
+        "show_customer_email": false,         // Mostrar email del cliente
+        "show_document_name": false,          // Mostrar nombre del documento original
+        "show_document_number": false,        // Mostrar número del id de la operación original
+        "show_document_reference": false,     // Mostrar número de la referencia
+        "show_document_date": true,           // Mostrar fecha y hora de emisión del documento
+        "show_document_cashier": true,        // Mostrar el nombre del cajero o vendedor
         "show_items_header": false,           // Mostrar encabezado de items
         "combine_item_ref": true,             // Combinar referencia con descripción
+        "show_subtotal": false,               // Mostrar sección de subtotal
+        "show_delivery_comments": false,      // Mostrar comentarios de entrega
         "width_item_description": 15,         // Ancho máximo para descripción de items
+        "width_free_space": 10,               // Espacio libre a los lados del ticket
+        "font": "B",                          // Tipo de fuente a usar (A, B o C)
         "qr": {
             "size": 6,                        // Tamaño del código QR (1-16)
             "error_level": "M",               // Nivel de corrección de errores
@@ -67,11 +75,17 @@
 - `separator`: Carácter usado para líneas separadoras.
 - `show_customer_address`: Mostrar dirección del cliente.
 - `show_customer_phone`: Mostrar teléfono del cliente.
-- `show_document_name`: Mostrar nombre del documento.
-- `show_document_number`: Mostrar número del documento.
-- `show_items_header`: Mostrar encabezado de items.
+- `show_customer_email`: Mostrar email del cliente.
+- `show_document_name`: Mostrar nombre del documento original.
+- `show_document_number`: Mostrar número del documento original debajo del nombre, ej. Orden de Compra. El generador interno crea uno principal para controlar cajas.
+- `show_document_date`: Mostrar fecha y hora de emisión.
+- `show_document_cashier`: Mostrar el nombre del cajero.
+- `show_items_header`: Mostrar encabezado de items (CANT / DESCRIPCION / PRECIO / TOTAL).
 - `combine_item_ref`: Combinar referencia (Codigo) con descripción del item.
-- `width_item_description`: Ancho máximo para descripción de items.
+- `show_subtotal`: Excluir o incluir la línea visual de SUBTOTAL.
+- `show_delivery_comments`: Excluir o incluir la sección de comentarios de entrega ubicada en el pie de página.
+- `width_item_description`: Reserva o margen mínimo para el monto, el espacio sobrante se usa para la descripción de items ajustándose inteligentemente en multilíneas sin descuadrar.
+- `font`: Tamaño y estilo de fuente ("A" normal(12x24), "B" condensada(9x17), "C" ultra-condensada si es soportada por equipo).
 #### Configuración de QR
 - `size`: Tamaño del código QR (1-16).
 - `error_level`: Nivel de corrección de errores ("L", "M", "Q", "H").
@@ -234,11 +248,13 @@
   },
   "format": {
     "include_partner_address": false,
+    "partner_address_lines": 4,
     "include_partner_phone": false,
     "include_partner_email": false,
     "include_document_number": false,
     "include_document_date": false,
     "include_document_name": false,
+    "include_document_reference": false,
     "include_document_cashier": false,
     "include_item_reference": false,
     "include_item_comment": false,
@@ -254,11 +270,13 @@
 - `name_note`: Título para Documentos NO Fiscales.
 #### Campos de Formato
 - `include_partner_address`: Habilitar/Deshabilitar dirección del cliente.
+- `partner_address_lines`: Cantidad máxima de líneas para la dirección del cliente (1-4, default: 4). Cada línea usa ~40 caracteres.
 - `include_partner_phone`: Habilitar/Deshabilitar teléfono de cliente.
 - `include_partner_email`: Habilitar/Deshabilitar email del cliente.
 - `include_document_number`: Habilitar/Deshabilitar número del documento original.
 - `include_document_date`: Habilitar/Deshabilitar fecha del documento original.
 - `include_document_name`: Habilitar/Deshabilitar nombre del documento original.
+- `include_document_reference`: Habilitar/Deshabilitar nombre del documento de referencia.
 - `include_document_cashier`: Habilitar/Deshabilitar nombre de cajero/vendedor/usuario.
 - `include_item_reference`: Habilitar/Deshabilitar código del ítem.
 - `include_item_comment`: Habilitar/Deshabilitar comentario del ítem.
@@ -272,6 +290,35 @@
 - Impresoras PNP solo soportan 3 includes de los siguiente: `address`, `phone`, `email`, `number`, `date`, `name`, `cashier`.
 - Impresoras PNP solo soportan 20 item con el include `comment`.
 - Impresoras PNP solo soportan 3 lineas del include `delivery_comments`.
+
+#### Balance de líneas en encabezado (TFHKA)
+
+Las impresoras fiscales TFHKA usan los índices i00 a i09 para el **encabezado** (datos del cliente y documento). El sistema de impresión asigna automáticamente los índices de forma dinámica:
+
+- **Orden de prioridad**: Dirección → Teléfono → Email → Número documento → Referencia → Fecha → Nombre documento → Cajero
+- **Cada línea de dirección** ocupa un índice (00, 01, 02, etc.) → comandos: i00, i01, i02...
+- **Teléfono y email** ocupan un índice cada uno (con prefijos TEL: y EMAIL:)
+- **Cada dato de documento** ocupa un índice (con prefijos NUM:, REF:, FECHA:, DOC:, CAJ:)
+
+**Ejemplo de asignación** (con 3 líneas de dirección + teléfono + email + referencia):
+```
+i00AV. PRINCIPAL 123
+i01SAN CRISTOBAL, TACHIRA
+i02VENEZUELA
+i03TEL:04141234567
+i04EMAIL:cliente@test.com
+i05REF:0004-001-0002
+```
+
+**Tabla de balance**:
+| partner_address_lines | Tel | Email | Docs disponibles | Total campos posibles |
+|-----------------------|-----|-------|------------------|------------------------|
+| 2 | ✓ | ✓ | 5 | 9 (i00-i08) |
+| 3 | ✓ | ✓ | 4 | 9 (i00-i08) |
+| 4 | ✓ | ✗ | 4 | 9 (i00-i08) |
+| 4 | ✗ | ✗ | 5 | 9 (i00-i08) |
+
+**Nota**: Las líneas adicionales del pie de página (delivery comments, operator mail) usan índices separados (i01-i09) y no afectan el balance del encabezado.
 
 # Section Counter (Contador)
 

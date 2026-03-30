@@ -19,8 +19,8 @@ from flask import Flask, request, jsonify, Blueprint, current_app, render_templa
 from flask_cors import CORS
 
 from handy.tools import get_base_path
-from server.config_loader import ConfigManager
-from .handlers.document_handler import handle_documents, handle_reports
+from server.config_loader import ConfigManager, get_security_code
+from .handlers.document_handler import handle_documents, handle_reports, handle_fiscal_commands
 from .handlers.proxy_handler import ProxyHandler
 from .auth import require_auth, create_session, cleanup_sessions
 
@@ -74,23 +74,31 @@ def create_app(config):
     static_folder = os.path.join(get_base_path(), "views", "static")
     app = Flask(__name__, template_folder=template_folder, static_folder=static_folder, instance_relative_config=True)
 
-    allowed_origins = [
-        # Localhost con cualquier puerto (IPv4)
-        re.compile(r"^http://localhost(:\d+)?$"),
-        re.compile(r"^http://127\.0\.0\.1(:\d+)?$"),
+    # Configuración de Orígenes Permitidos (CORS)
+    server_config = config.get("server", {})
+    allowed_origins_list = server_config.get("allowed_origins", [])
 
-        # Localhost con cualquier puerto (IPv6)
-        re.compile(r"^http://\[::1\](:\d+)?$"),
+    allowed_origins = []
+    if allowed_origins_list:
+        try:
+            allowed_origins = [re.compile(pattern) for pattern in allowed_origins_list]
+        except re.error as e:
+            logger.error(f"Error compilando regex en allowed_origins: {e}")
 
-        # Rango 192.168.x.x con cualquier puerto
-        re.compile(r"^http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$"),
-
-        # Rango 10.x.x.x con cualquier puerto
-        re.compile(r"^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$"),
-
-        # Subdominios de odoo.com (solo https)
-        re.compile(r"^https://.*\.odoo\.com$"),
-    ]
+    if not allowed_origins:
+        allowed_origins = [
+            # Localhost con cualquier puerto (IPv4)
+            re.compile(r"^http://localhost(:\d+)?$"),
+            re.compile(r"^http://127\.0\.0\.1(:\d+)?$"),
+            # Localhost con cualquier puerto (IPv6)
+            re.compile(r"^http://\[::1\](:\d+)?$"),
+            # Rango 192.168.x.x con cualquier puerto
+            re.compile(r"^http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$"),
+            # Rango 10.x.x.x con cualquier puerto
+            re.compile(r"^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$"),
+            # Subdominios de odoo.com (solo https)
+            re.compile(r"^https://.*\.odoo\.com$"),
+        ]
 
     CORS(app, origins=allowed_origins, supports_credentials=True)
 
@@ -236,6 +244,12 @@ def print_report_z():
     return handle_reports("Z")
 
 
+@api.route("/command", methods=["POST"])
+def fiscal_command():
+    """Ruta para enviar comandos directos a la impresora fiscal"""
+    return handle_fiscal_commands()
+
+
 @api.route("/config", methods=["POST"])
 def save_config():
     """Guarda la configuración en el archivo config.json usando ConfigManager"""
@@ -289,7 +303,7 @@ def validate_security_code():
         if not config or "security" not in config:
             return jsonify({"status": "error", "message": "Error de configuración"}), 500
 
-        if data["security_code"] == config["security"]["security_code"]:
+        if data["security_code"] == get_security_code():
             token = create_session()
             response = make_response(jsonify({"status": "success", "message": "Código válido"}))
             response.set_cookie("auth_token", token, httponly=True, samesite="Strict", max_age=1800)

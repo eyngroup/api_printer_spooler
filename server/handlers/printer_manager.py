@@ -64,8 +64,9 @@ class PrinterManager:
                     is_error = status["status_code"] != "0080" or status["error_code"] != "0600"
 
                 if is_error:
-                    msg_status = f"Impresora NO operativa - Estado: {status['status_description']}, "
-                    msg_error = f"Error: {status['error_description']}"
+                    status_msg, error_msg = cls._instances[printer_type].format_status_message(status)
+                    msg_status = f"Impresora NO operativa - Estado: {status_msg}, "
+                    msg_error = f"Error: {error_msg}"
                     logger.error("%s %s", msg_status, msg_error)
                     cls.remove_printer(printer_type)
                     raise ValueError(f"{msg_status} {msg_error}")

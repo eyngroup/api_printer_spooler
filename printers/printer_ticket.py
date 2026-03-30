@@ -14,7 +14,11 @@ from datetime import datetime
 from typing import Dict, Any, List
 from PIL import Image
 
-import win32print
+import sys
+import subprocess
+
+if sys.platform == "win32":
+    import win32print
 from handy.tools import get_base_path, normalize_text, format_multiline
 
 from .printer_base import BasePrinter
@@ -26,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 class TicketPrinter(BasePrinter):
     """Clase para manejar la impresión de tickets"""
+
+    STATUS_KEYS_ONLINE = frozenset({"enabled", "idle", "printing"})
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -52,13 +58,19 @@ class TicketPrinter(BasePrinter):
     def connect(self) -> bool:
         """Conecta con la impresora"""
         try:
-            self.printer_handle = win32print.OpenPrinter(self.printer_name)
+            if sys.platform == "win32":
+                self.printer_handle = win32print.OpenPrinter(self.printer_name)
 
-            printer_info = win32print.GetPrinter(self.printer_handle, 2)
-            if printer_info["Status"] != 0:  # 0 significa "Ready"
-                logger.error("Impresora no lista. Estado: %s", printer_info["Status"])
-                self.disconnect()
-                return False
+                printer_info = win32print.GetPrinter(self.printer_handle, 2)
+                if printer_info["Status"] != 0:  # 0 significa "Ready"
+                    logger.error("Impresora no lista. Estado: %s", printer_info["Status"])
+                    self.disconnect()
+                    return False
+            else:
+                # Linux: Verificar si la impresora existe en CUPS
+                # Usamos lpstat -p printer_name para verificar
+                cmd = ["lpstat", "-p", self.printer_name]
+                subprocess.check_output(cmd, stderr=subprocess.STDOUT)
 
             self.connected = True
             logger.info("Conectado a impresora: %s", self.printer_name)
@@ -66,16 +78,18 @@ class TicketPrinter(BasePrinter):
         except Exception as e:
             logger.error("Error conectando a impresora %s : %s", self.printer_name, str(e))
             self.connected = False
-            if self.printer_handle:
+            if sys.platform == "win32" and self.printer_handle:
                 self.disconnect()
             return False
 
     def disconnect(self) -> None:
         """Desconecta la impresora"""
         try:
-            if self.printer_handle:
-                win32print.ClosePrinter(self.printer_handle)
-            self.printer_handle = None
+            if sys.platform == "win32":
+                if self.printer_handle:
+                    win32print.ClosePrinter(self.printer_handle)
+                self.printer_handle = None
+
             self.connected = False
             logger.info("Impresora desconectada")
         except Exception as e:
@@ -113,12 +127,24 @@ class TicketPrinter(BasePrinter):
 
             if self.direct_print:
                 try:
-                    doc_info = ("Ticket", None, "RAW")  # (nombre_doc, nombre_output, tipo_datos)
-                    win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
-                    win32print.StartPagePrinter(self.printer_handle)  # Inicia
-                    win32print.WritePrinter(self.printer_handle, document_content.encode("utf-8"))  # Envía
-                    win32print.EndPagePrinter(self.printer_handle)  # Finaliza
-                    win32print.EndDocPrinter(self.printer_handle)  # Finaliza
+                    if sys.platform == "win32":
+                        doc_info = ("Ticket", None, "RAW")  # (nombre_doc, nombre_output, tipo_datos)
+                        win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
+                        win32print.StartPagePrinter(self.printer_handle)  # Inicia
+                        win32print.WritePrinter(self.printer_handle, document_content.encode("utf-8"))  # Envía
+                        win32print.EndPagePrinter(self.printer_handle)  # Finaliza
+                        win32print.EndDocPrinter(self.printer_handle)  # Finaliza
+                    else:
+                        # Linux: Usar lpr para enviar raw
+                        cmd = ["lpr", "-P", self.printer_name, "-o", "raw"]
+                        process = subprocess.Popen(
+                            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                        )
+                        stdout, stderr = process.communicate(input=document_content.encode("utf-8"))
+
+                        if process.returncode != 0:
+                            raise Exception(f"lpr error: {stderr.decode()}")
+
                 finally:
                     self.disconnect()
 
@@ -162,14 +188,27 @@ class TicketPrinter(BasePrinter):
             if not self.is_connected:
                 self.connect()
 
-            printer_info = win32print.GetPrinter(self.printer_handle, 2)
-            status = printer_info["Status"]
-
-            return {
-                "online": status == 0,  # 0 = Ready
-                "paper": not (status & win32print.PRINTER_STATUS_PAPER_OUT),
-                "error": None if status == 0 else f"Printer status: {status}",
-            }
+            if sys.platform == "win32":
+                printer_info = win32print.GetPrinter(self.printer_handle, 2)
+                status = printer_info["Status"]
+                return {
+                    "online": status == 0,  # 0 = Ready
+                    "paper": not (status & win32print.PRINTER_STATUS_PAPER_OUT),
+                    "error": None if status == 0 else f"Printer status: {status}",
+                }
+            else:
+                # Linux: Usar lpstat
+                cmd = ["lpstat", "-p", self.printer_name]
+                output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode()
+                # lpstat salida ejemplo: "printer EPSON_TM_T20II is idle. enabled since..."
+                if any(key in output for key in self.STATUS_KEYS_ONLINE):
+                    return {
+                        "online": True,
+                        "paper": True,  # Dificil de saber con lpr estandard sin drivers especificos
+                        "error": None,
+                    }
+                else:
+                    return {"online": False, "paper": False, "error": output.strip()}
 
         except Exception as e:
             logger.error("Error verificando estado de impresora: %s", str(e))
@@ -248,12 +287,23 @@ class TicketPrinter(BasePrinter):
         """Imprime el logo directamente"""
         try:
             logo_bytes = self._process_logo()
-            doc_info = ("Logo", None, "RAW")
-            win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
-            win32print.StartPagePrinter(self.printer_handle)
-            win32print.WritePrinter(self.printer_handle, logo_bytes)
-            win32print.EndPagePrinter(self.printer_handle)
-            win32print.EndDocPrinter(self.printer_handle)
+            if not logo_bytes:
+                return
+
+            if sys.platform == "win32":
+                doc_info = ("Logo", None, "RAW")
+                win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
+                win32print.StartPagePrinter(self.printer_handle)
+                win32print.WritePrinter(self.printer_handle, logo_bytes)
+                win32print.EndPagePrinter(self.printer_handle)
+                win32print.EndDocPrinter(self.printer_handle)
+            else:
+                # Linux
+                cmd = ["lpr", "-P", self.printer_name, "-o", "raw"]
+                process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = process.communicate(input=logo_bytes)
+                if process.returncode != 0:
+                    logger.error("Error imprimiendo logo (Linux): %s", stderr.decode())
         except Exception as e:
             logger.error("Error imprimiendo logo: %s", str(e))
 
@@ -273,17 +323,24 @@ class TicketPrinter(BasePrinter):
                 self.escpos_commands.CMD_BOLD_ON,
                 f"{self.template['header']['title']}\n",
                 self.escpos_commands.CMD_BOLD_OFF,
-            ]
-        )  # negrita y centrado
-
-        header.extend(
-            [
                 f"{self.template['header']['subtitle']}\n",
-                f"{self.template['header']['company']}\n",
-                f"{self.template['header']['address']}\n",
-                f"{self.template['header']['phone']}\n",
             ]
-        )  # Datos centrados
+        )  # Título y subtítulo centrados
+
+        # Datos de empresa, dirección y teléfono con márgenes
+        width = self.template["format"]["width"]
+        free_space = self.template["format"]["width_free_space"]
+        max_text_width = max(
+            width - free_space, free_space
+        )  # Dejar espacio libre a los lados (aprox 10 caracteres por lado)
+
+        for field in ["company", "address", "phone"]:
+            text = self.template["header"].get(field, "").replace("\n", " ").strip()
+            if text:
+                # Usar textwrap/format_multiline para separar el texto sin necesidad de \n manuales
+                lines = format_multiline(text, max_text_width)
+                for line in lines:
+                    header.append(f"{line}\n")
 
         return header
 
@@ -318,21 +375,18 @@ class TicketPrinter(BasePrinter):
             ]
         )  # Tipo de documento centrado
 
-        if self.template["format"]["show_document_number"]:
-            doc_number = data["document"]["document_number"].replace("-", "")
-            doc_number = doc_number[-8:] if len(doc_number) > 8 else doc_number
-        else:  # Tipos de documento a contadores
-            counter_mapping = {
-                "invoice": "document_invoice",
-                "credit": "document_credit",
-                "debit": "document_debit",
-                "note": "document_note",
-            }
+        # Tipos de documento a contadores
+        counter_mapping = {
+            "invoice": "document_invoice",
+            "credit": "document_credit",
+            "debit": "document_debit",
+            "note": "document_note",
+        }
 
-            counter_key = counter_mapping.get(data.get("operation_type", "invoice"), "document_invoice")
-            document_number = int(self.template["counter"][counter_key])
-            document_number += 1
-            doc_number = str(document_number).zfill(8)
+        counter_key = counter_mapping.get(data.get("operation_type", "invoice"), "document_invoice")
+        document_number = int(self.template["counter"][counter_key])
+        document_number += 1
+        doc_number = str(document_number).zfill(8)
 
         sub_header.extend(
             [
@@ -341,11 +395,12 @@ class TicketPrinter(BasePrinter):
             ]
         )  # Alinear documento y fecha/hora
 
-        date_parts = data["document"]["document_date"].split("-")  # Formatear fecha DD-MM-AAAA
-        formatted_date = f"FECHA: {date_parts[2]}-{date_parts[1]}-{date_parts[0]}"
-        current_time = f"HORA: {datetime.now().strftime('%H:%M')}"
+        if self.template["format"].get("show_document_date", True):
+            date_parts = data["document"]["document_date"].split("-")  # Formatear fecha DD-MM-AAAA
+            formatted_date = f"FECHA: {date_parts[2]}-{date_parts[1]}-{date_parts[0]}"
+            current_time = f"HORA: {datetime.now().strftime('%H:%M')}"
+            sub_header.append(self._format_line_justified(formatted_date, current_time, width) + "\n")
 
-        sub_header.append(self._format_line_justified(formatted_date, current_time, width) + "\n")
         sub_header.append(f"{self.template['format']['separator'] * width}\n")
         if self.template["format"]["show_items_header"]:
             sub_header.extend(
@@ -372,7 +427,7 @@ class TicketPrinter(BasePrinter):
         customer.append(self.escpos_commands.CMD_ALIGN_LEFT)
         customer_vat = data["customer"]["customer_vat"]
         customer_name = data["customer"]["customer_name"]
-        customer.extend([f"RIF/CI: {customer_vat}\n", f"Cliente: {customer_name}\n"])
+        customer.extend([f"RIF/C.I.: {customer_vat}\n", f"RAZON SOCIAL: {customer_name}\n"])
 
         if data["customer"].get("customer_address") and self.template["format"]["show_customer_address"]:
             address_format = normalize_text(f"DIR: {data['customer']['customer_address']}")
@@ -383,8 +438,21 @@ class TicketPrinter(BasePrinter):
         if data["customer"].get("customer_phone") and self.template["format"]["show_customer_phone"]:
             customer.append(f"TEL: {data['customer']['customer_phone']}\n")
 
+        if data["customer"].get("customer_email") and self.template["format"].get("show_customer_email", False):
+            customer.append(f"EMAIL: {data['customer']['customer_email']}\n")
+
+        if data["document"].get("document_number") and self.template["format"]["show_document_number"]:
+            customer.append(f"NUM: {data['document']['document_number']}\n")
+
+        if data["document"].get("doc_reference") and self.template["format"].get("show_document_reference", False):
+            customer.append(f"REF: {data['document']['doc_reference']}\n")
+
         if data["document"].get("document_name") and self.template["format"]["show_document_name"]:
             customer.append(f"DOC: {data['document']['document_name']}\n")
+
+        if self.template["format"].get("show_document_cashier", False) and data["document"].get("document_cashier"):
+            normalized_cashier = normalize_text(data["document"]["document_cashier"])
+            customer.append(f"CAJ: {normalized_cashier}\n")
 
         return customer
 
@@ -400,9 +468,8 @@ class TicketPrinter(BasePrinter):
         width = self.template["format"]["width"]
         subtotal = 0.0
 
-        # Para desarrollo en otra moneda
-        # symbol = data['operation_metadata'].get("currency_symbol", "")
-        symbol = "Bs"
+        currency_code = data.get("operation_metadata", {}).get("currency_code", "VEF")
+        symbol = "USD" if currency_code == "USD" else "Bs"
 
         for item in data["items"]:  # Procesar cada item
             quantity = item.get("item_quantity", 1)
@@ -423,14 +490,28 @@ class TicketPrinter(BasePrinter):
             if tax_indicator:
                 item_name = f"{item_name} {tax_indicator}"
 
-            item_width = self.template["format"]["width_item_description"]
-            if len(item_name) > width - 12:  # 12 = espacio para el total
-                item_name = item_name[: width - item_width] + "..."
+            right_text = f"{symbol} {total:.2f}"
 
-            items.append(self._format_line_justified(item_name, f"{symbol} {total:.2f}", width) + "\n")
+            # Asegurar que haya suficiente espacio para el total
+            item_width = self.template["format"].get("width_item_description", 15)
+            reserved_space = max(item_width, len(right_text) + 1)
 
-        items.append(f"{self.template['format']['separator'] * width}\n")
-        items.append(self._format_line_justified("SUBTOTAL:", f"{symbol} {subtotal:.2f}", width) + "\n")
+            max_name_len = width - reserved_space
+
+            # Separamos el nombre en múltiples líneas
+            name_lines = format_multiline(item_name, max_name_len) if item_name else [""]
+
+            for i, line in enumerate(name_lines):
+                if i == len(name_lines) - 1:
+                    # El total se imprime en la última línea del producto
+                    items.append(self._format_line_justified(line, right_text, width) + "\n")
+                else:
+                    # Líneas superiores solo con el texto descriptivo
+                    items.append(line + "\n")
+
+        if self.template["format"].get("show_subtotal", True):
+            items.append(f"{self.template['format']['separator'] * width}\n")
+            items.append(self._format_line_justified("SUBTOTAL:", f"{symbol} {subtotal:.2f}", width) + "\n")
         items.append(f"{self.template['format']['separator'] * width}\n")
 
         return items
@@ -457,8 +538,8 @@ class TicketPrinter(BasePrinter):
         totals = []
         width = self.template["format"]["width"]
 
-        # symbol = data['operation_metadata'].get("currency_symbol", "")
-        symbol = "Bs"
+        currency_code = data.get("operation_metadata", {}).get("currency_code", "VEF")
+        symbol = "USD" if currency_code == "USD" else "Bs"
 
         # Inicializar diccionarios para agrupar bases e impuestos
         tax_bases = {0: 0, 16: 0, 8: 0, 31: 0}
@@ -522,7 +603,9 @@ class TicketPrinter(BasePrinter):
             List[str]: Líneas del pie de página
         """
         footer = []
-        if data.get("delivery", {}).get("delivery_comments"):
+        if self.template["format"].get("show_delivery_comments", True) and data.get("delivery", {}).get(
+            "delivery_comments"
+        ):
             for comment in data["delivery"]["delivery_comments"]:
                 comment_format = normalize_text(comment)
                 footer.append(f"{comment_format}\n")
@@ -535,8 +618,11 @@ class TicketPrinter(BasePrinter):
             else:
                 footer.extend(
                     [
+                        self.escpos_commands.CMD_BARCODE_TXT_BLW,  # Imprimir texto debajo del código
+                        self.escpos_commands.command(
+                            "\x1d\x77\x02"
+                        ),  # Ancho 2 (es un poco más angosto/condensado que 3)
                         self.escpos_commands.CMD_BARCODE_HEIGHT,
-                        self.escpos_commands.CMD_BARCODE_WIDTH,
                         self.escpos_commands.CMD_BARCODE_CODE128,
                         chr(len(data["delivery"]["delivery_barcode"])),  # Length
                         data["delivery"]["delivery_barcode"],  # Data
@@ -597,10 +683,19 @@ class TicketPrinter(BasePrinter):
             str: Contenido formateado con comandos ESC/POS
         """
         content = []
+        font_choice = self.template.get("format", {}).get("font", "A").upper()
+        font_cmd = self.escpos_commands.CMD_FONT_A
+        if font_choice == "B":
+            font_cmd = self.escpos_commands.CMD_FONT_B
+        elif font_choice == "C":
+            # Some printers support Font C with \x1b\x4d\x02, we can fallback to B or use raw command
+            font_cmd = self.escpos_commands.command("\x1b\x4d\x02")
+
         content.extend(
             [
                 self.escpos_commands.CMD_INIT,
                 self.escpos_commands.CMD_CHARSET,
+                font_cmd,
                 self.escpos_commands.CMD_FONT_NORMAL,
             ]
         )

@@ -125,6 +125,11 @@ El servidor procesa directamente los documentos para impresión, soportando tres
     - Generación de números de control
     - Reportes X y Z
     - Respuesta con datos fiscales reales
+    - **Dirección multilínea**: La dirección del cliente puede ocupar múltiples líneas (1-4) con word-wrap automático a 40 caracteres por línea. La asignación de índices (i00-i09) es dinámica según la configuración.
+
+> **Nota sobre multilínea**: En impresoras TFHKA, los campos del encabezado usan índices dinámicos i00-i09. Mientras más líneas de dirección se configuren (`partner_address_lines`), menos espacio queda para teléfono, email y datos del documento.
+>
+> **Footer**: El pie de página incluye línea divisoria (i00 con 30 guiones), email del operador (i08), tasa de cambio (i09) y delivery comments (i01-i07).
 
 ##### 1.2 Impresora de Ticket
 

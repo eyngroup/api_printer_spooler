@@ -16,7 +16,7 @@ from decimal import Decimal, ROUND_HALF_UP, getcontext
 from typing import Any, Dict, Union
 
 from controllers.pfpnp import FiscalPrinterPnp
-from printers.printer_base import BasePrinter
+from printers.printer_base import BasePrinter, FiscalPrinterMixin
 from printers.printer_commands import PNPcmd
 from handy.tools import get_base_path, normalize_text, normalize_date, normalize_number, format_time
 
@@ -24,7 +24,7 @@ from handy.tools import get_base_path, normalize_text, normalize_date, normalize
 logger = logging.getLogger(__name__)
 
 
-class PnpPrinter(BasePrinter):
+class PnpPrinter(FiscalPrinterMixin, BasePrinter):
     """Clase para manejar la impresión en impresoras fiscales PNP"""
 
     def __init__(self, config: Dict[str, Any]):
@@ -50,29 +50,19 @@ class PnpPrinter(BasePrinter):
         if not self.connect():
             raise ConnectionError(f"Error al conectar con la impresora: {self.printer}")
 
-    def _load_config(self, file_name: str, local_path: str) -> Dict[str, Any]:
-        """
-        Carga un archivo de configuración JSON desde el directorio especificado.
-        Args:
-            file_name (str): Nombre del archivo de configuración
-            local_path (str): Directorio donde se encuentra el archivo
-        Returns:
-            Dict[str, Any]: Configuración cargada del archivo JSON
-        """
-        try:
-            config_path = os.path.join(get_base_path(), local_path, file_name)
-            if not os.path.exists(config_path):
-                logger.error("Archivo de configuración no encontrado: %s", config_path)
-                return {}
-
-            with open(config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning("Error cargando configuración %s: %s", file_name, str(e))
-            return {}
-
     def _initialize_printer(self) -> None:
         """Crea la instancia del controlador de la impresora PNP"""
+
+    def format_status_message(self, status: Dict[str, Any]) -> tuple[str, str]:
+        """
+        Formatea el mensaje de status para logging/respuesta.
+        PNP usa keys: 'status' y 'error'.
+        Args:
+            status: Dict con datos de status de la impresora.
+        Returns:
+            Tupla (status_message, error_message).
+        """
+        return (status.get("status", "unknown"), status.get("error", "none"))
         try:
             self._printer = FiscalPrinterPnp(self.port, self.baudrate, self.timeout)
             logger.info("Impresora PNP inicializada")
@@ -361,6 +351,7 @@ class PnpPrinter(BasePrinter):
 
         document = data.get("document", {})
         document_number = normalize_number(document.get("document_number", ""))
+        document_reference = self._format_text(document.get("doc_reference", ""), "comment")
         document_date = normalize_date(document.get("document_date", ""))
         document_name = self._format_text(document.get("document_name", ""), "comment")
         document_cashier = self._format_text(document.get("document_cashier", ""), "comment")
@@ -397,6 +388,7 @@ class PnpPrinter(BasePrinter):
                 "include_partner_phone": PNPcmd.PARTNER_PHONE.format(customer_phone),
                 "include_partner_email": PNPcmd.PARTNER_EMAIL.format(customer_email),
                 "include_document_number": PNPcmd.DOCUMENT_NUMBER.format(document_number),
+                "include_document_reference": PNPcmd.DOCUMENT_REFERENCE.format(document_reference),
                 "include_document_date": PNPcmd.DOCUMENT_DATE.format(document_date),
                 "include_document_name": PNPcmd.DOCUMENT_NAME.format(document_name),
                 "include_document_cashier": PNPcmd.DOCUMENT_CASHIER.format(document_cashier),

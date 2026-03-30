@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Módulo para escanear puertos seriales en diferentes sistemas operativos."""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Módulo para escanear puertos seriales en diferentes sistemas operativos.
+"""
 
 import sys
 import glob
@@ -116,6 +121,25 @@ class LinuxSerialScanner:  # pylint: disable=R0903
     Esta clase proporciona métodos para detectar y listar puertos seriales
     disponibles en sistemas Linux.
     """
+
+    COMMON_BAUDRATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
+
+    @staticmethod
+    def check_port_availability(port_comm: str) -> bool:
+        """Verifica si un puerto está disponible para usar.
+
+        Args:
+            port_comm: Nombre del puerto a verificar
+
+        Returns:
+            bool: True si el puerto está disponible, False si está en uso
+        """
+        try:
+            s = serial.Serial(port_comm)
+            s.close()
+            return True
+        except Exception:
+            return False
 
     @staticmethod
     def scan_ports() -> List[Dict[str, str]]:

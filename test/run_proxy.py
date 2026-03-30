@@ -1,9 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""test run proxy"""
+"""
+Copyright © 2024, Iron Graterol
+Licensed under the GNU Affero General Public License, version 3 or later.
+
+Test run proxy
+"""
 
 import json
 import os
+
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from main import configure_logging
 
@@ -16,10 +25,10 @@ def load_proxy_config():
         proxy_config = json.load(f)
 
     # Modificar para modo proxy
-    proxy_config["server"]["server_port"] = 5051  # Puerto diferente al SPOOLER
+    proxy_config["server"]["server_port"] = 5052  # Puerto diferente al SPOOLER
     proxy_config["server"]["server_mode"] = "PROXY"
     proxy_config["proxy"]["proxy_enabled"] = True
-    proxy_config["proxy"]["proxy_target"] = "http://localhost:5050/api/printers"  # URL del SPOOLER
+    proxy_config["proxy"]["proxy_target"] = "http://localhost:5051/api/printers"  # URL del SPOOLER
 
     return proxy_config
 

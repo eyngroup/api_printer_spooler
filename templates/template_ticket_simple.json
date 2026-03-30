@@ -9,19 +9,27 @@
     "name": "NUMERO"
   },
   "footer": {
-    "message": "¡Gracias por su Compra!",
+    "message": "Gracias por su Compra",
     "legal": "Este Documento No Tiene Validez Fiscal"
   },
   "format": {
-    "width": 48,
+    "width": 64,
     "separator": "-",
-    "show_customer_address": false,
+    "show_customer_address": true,
     "show_customer_phone": false,
-    "show_document_name": false,
+    "show_customer_email": false,
     "show_document_number": false,
+    "show_document_reference": true,
+    "show_document_date": true,
+    "show_document_name": true,
+    "show_document_cashier": true,
     "show_items_header": false,
-    "combine_item_ref": false,
+    "combine_item_ref": true,
+    "show_subtotal": false,
+    "show_delivery_comments": false,
     "width_item_description": 15,
+    "width_free_space": 15,
+    "font": "B",
     "qr": {
       "size": 6,
       "error_level": "M",

@@ -253,3 +253,60 @@ def handle_report_x() -> Tuple[Response, int]:
 def handle_report_z() -> Tuple[Response, int]:
     """Maneja la impresión del reporte Z"""
     return handle_reports("Z")
+
+
+def handle_fiscal_commands() -> Tuple[Response, int]:
+    """
+    Maneja el envío de comandos directos a la impresora fiscal.
+    Esperar payload: {"commands": ["CMD1", "CMD2"]}
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        commands = data.get("commands")
+
+        # Fallback a leer de handy/commands.json si no se proveen comandos
+        if not commands:
+            from handy.tools import get_base_path
+            import os
+            import json
+
+            file_path = os.path.join(get_base_path(), "handy", "commands.json")
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    file_data = json.load(f)
+                    commands = file_data.get("commands", [])
+            except Exception as e:
+                return error_response(f"No hay comandos en payload y falló lectura de {file_path}: {e}")
+
+        if not isinstance(commands, list) or not commands:
+            return error_response("'commands' debe ser una lista no vacía")
+
+        logger.info("Recibida solicitud de comandos directos: %s", commands)
+
+        printers_config = current_app.config.get("printers", {})
+        fiscal_config = printers_config.get("fiscal", {})
+
+        if not fiscal_config or not fiscal_config.get("fiscal_enabled", False):
+            return error_response("Impresora fiscal no está habilitada")
+
+        printer, error_data = printer_instance(printers_config)
+        if not printer:
+            message = (
+                error_data.get("message", "Error fiscal desconocido")
+                if error_data
+                else "No se pudo obtener la impresora fiscal"
+            )
+            return error_response(message, data=error_data)
+
+        if not printer.check_status():
+            return error_response("La impresora fiscal no está lista")
+
+        results = []
+        for cmd in commands:
+            success = printer.send_command(cmd)
+            results.append({"command": cmd, "success": success})
+
+        return jsonify({"status": True, "message": "Comandos procesados", "data": results}), 200
+
+    except Exception as e:
+        return error_response(f"Error procesando comandos: {str(e)}", HTTP_INTERNAL_ERROR)

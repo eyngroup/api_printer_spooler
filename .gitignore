@@ -7,9 +7,19 @@
 dist/
 build/
 __pycache__/
-
+logs/
 
 # Archivos
 .env
 *.log
 
+# Documentación interna (no subir al repo)
+docs/MEMORY.md
+docs/CHECKLIST.md
+docs/REFACTOR_PLAN.md
+docs/firewall.txt
+
+# Comandos de prueba manual (no subir al repo)
+handy/commands.json
+handy/commands_factura.json
+handy/commands_credito.json

@@ -1,32 +1,19 @@
 @echo off
-
-for /f "delims=" %%i in ('python -c "import struct; print(struct.calcsize('P') * 8)"') do set "PYTHON_ARCH=%%i"
-if not "%PYTHON_ARCH%"=="64" (
-    echo Python no es de 64 bits. Por favor, instale la version de 64 bits.
+rem Verificar la instalación de UV
+uv --version || (
+    echo Error: UV no está instalado. Por favor, instale UV y vuelva a intentar.
     exit /b 1
 )
 
-for /f "delims=" %%i in ('python --version') do set "PYTHON_VERSION=%%i"
-if not "%PYTHON_VERSION%"=="Python 3.10.11" (
-    echo La versión de Python no es 3.10.11. Por favor, instale Python 3.10.11 o superior.
-    exit /b 1
-)
+rem Instalar dependencias con UV
+uv pip install -r requirements.txt
 
-if not exist ".venv" (
-    python -m venv .venv
-)
-
-call .venv\Scripts\activate
-python.exe -m pip install --upgrade pip
-
-call .venv\Scripts\activate
-pip install -r requirements.txt
-
+rem Limpiar directorio build si existe
 if exist "build" (
     rmdir /s /q build
 )
 
-call .venv\Scripts\activate
-python.exe setup.py build
+rem Construir el ejecutable con setup.py usando UV
+uv run python setup.py build
 
 echo Proceso completado.

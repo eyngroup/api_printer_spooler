@@ -153,14 +153,15 @@ class HKAcmd:  # pylint: disable=R0903
 
     PARTNER_VAT = "iR*{}"  # RIF o CI
     PARTNER_NAME = "iS*{}"  # Razón Social
-    PARTNER_ADDRESS = "i00DIR:{}"  # Dirección
-    PARTNER_PHONE = "i01TEL:{}"  # Teléfono
-    PARTNER_EMAIL = "i03EMAIL:{}"  # Email
+    PARTNER_ADDRESS = "i{}{}"  # Dirección - usa índice dinámico (i00, i01, etc.)
+    PARTNER_PHONE = "i{}{}"  # Teléfono - usa índice dinámico
+    PARTNER_EMAIL = "i{}{}"  # Email - usa índice dinámico
 
-    DOCUMENT_NUMBER = "i04REF:{}"  # Numero de documento origen
-    DOCUMENT_DATE = "i05FECHA:{}"  # Fecha del documento origen
-    DOCUMENT_NAME = "i06DOC:{}"  # Nombre del documento origen
-    DOCUMENT_CASHIER = "i07CAJ:{}"  # Nombre del Cajero o Vendedor
+    DOCUMENT_NUMBER = "i{}{}"  # Numero de documento origen - usa índice dinámico
+    DOCUMENT_REFERENCE = "i{}{}"  # Referencia del documento origen - usa índice dinámico
+    DOCUMENT_DATE = "i{}{}"  # Fecha del documento origen - usa índice dinámico
+    DOCUMENT_NAME = "i{}{}"  # Nombre del documento origen - usa índice dinámico
+    DOCUMENT_CASHIER = "i{}{}"  # Nombre del Cajero o Vendedor - usa índice dinámico
 
     # Comandos para items fiscales
     ITEM_LINE = "{}{}{}{}"  # impuesto, precio, cantidad, nombre del producto
@@ -175,9 +176,8 @@ class HKAcmd:  # pylint: disable=R0903
     PAY_FULL = "1{}"  # Pago total
     PAY_PARTIAL = "2{}{}"  # Pago parcial
 
-    # Comandos para líneas adicionales
-    COMMENTS = "@{}"  # comentarios en cuerpo del documento
-    # COMMENTS = "i0{}{}"  # Líneas Adicionales
+    # Comandos para líneas adicionales (pie de página, antes del barcode)
+    ADDITIONAL_LINES = "i0{}{}"  # Líneas Adicionales (i01 a i09)
 
     # Comandos para código de barra de pie de ticket
     BARCODE_LINE = "y{}"  # Código de barra de pie de ticket
@@ -216,7 +216,8 @@ class PNPcmd:  # pylint: disable=R0903
     PARTNER_PHONE = "TEL:{}"  # Teléfono "A|TEL:{}"
     PARTNER_EMAIL = "EMAIL:{}"  # Email "A|EMAIL:{}"
 
-    DOCUMENT_NUMBER = "REF:{}"  # Numero de documento origen "A|REF:{}"
+    DOCUMENT_NUMBER = "NUM:{}"  # Numero de documento origen "A|NUM:{}"
+    DOCUMENT_REFERENCE = "REF:{}"  # Referencia del documento origen "A|REF:{}"
     DOCUMENT_DATE = "FECHA:{}"  # Fecha del documento origen "A|FECHA:{}"
     DOCUMENT_NAME = "DOC:{}"  # Nombre del documento origen "A|DOC:{}"
     DOCUMENT_CASHIER = "CAJ:{}"  # Nombre del Cajero o Vendedor "A|CAJ:{}"

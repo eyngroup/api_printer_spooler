@@ -1,9 +1,28 @@
+[project]
+name = "api-printer-spooler-version-python-full"
+version = "0.1.0"
+description = "Proyecto para la gestión de una API de impresión y spooler en Python."
+readme = "README.md"
+requires-python = ">=3.10.11"
+dependencies = [
+    "flask",
+    "flask-cors",
+    "requests",
+    "pywin32; sys_platform == 'win32'",
+    "pyserial",
+    "textwrap3",
+    "pillow",
+    "jsonschema",
+    "watchdog",
+    "cx-freeze",
+    "pystray"
+]
+
 [tool.black]
 line-length = 120
 indent-width = 4
 
 [tool.black.format]
-
 
 [tool.ruff]
 line-length = 120
@@ -16,4 +35,3 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 docstring-code-format = true
 docstring-code-line-length = "dynamic"
-

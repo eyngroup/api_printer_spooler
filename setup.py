@@ -80,7 +80,7 @@ build_options = {
 
 base = None
 if sys.platform == "win32":
-    base = "Win32GUI"  # Cambiado de "Console" a "Win32GUI" para ocultar la consola
+    base = "gui"  # Cambiado de "Console" a "gui" para ocultar la consola
 
 
 executables_exe = [

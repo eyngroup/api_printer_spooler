@@ -3,6 +3,7 @@
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
+
 Creado en memoria de mi amado hijo Ian
 """
 
@@ -17,14 +18,74 @@ from logging.handlers import TimedRotatingFileHandler
 from handy.version import __version__
 from handy.tools import get_base_path
 from handy.tray_system import TrayManager
+from handy.serial_scan import get_serial_scanner
 from server.config_loader import ConfigManager
 from server.server_api import create_app
+
+
+def autodetect_serial_port(config: dict) -> None:
+    """
+    Escanea y actualiza el puerto serial fiscal si la configuración lo indica.
+    """
+    server_config = config.get("server", {})
+    if not server_config.get("scan_serial_port", False):
+        return
+
+    logger = logging.getLogger(__name__)
+    logger.info("Iniciando auto-detección de puerto serial fiscal...")
+    scanner = get_serial_scanner()
+
+    # Escanear puertos disponibles
+    ports = scanner.scan_ports()
+
+    if not ports:
+        logger.warning("No se encontraron puertos seriales disponibles.")
+        return
+
+    candidate_port = None
+
+    # Estrategia de selección:
+    # 1. Buscar "Prolific" o "USB Serial" en la descripción (común en adaptadores fiscales)
+    # 2. Si no, tomar el primer puerto disponible y validarlo intentando abrirlo
+
+    for port in ports:
+        desc = port.get("description", "").lower()
+        port_name = port.get("port")
+
+        # Filtros heurísticos comunes para impresoras fiscales
+        is_prolific = "prolific" in desc or "usb-to-serial" in desc or "serial" in desc
+
+        # O simplemente probamos disponibilidad técnica del primero que responda
+        if scanner.check_port_availability(port_name):
+            if is_prolific:
+                candidate_port = port_name
+                logger.info(f"Candidato fuerte encontrado: {port_name} ({desc})")
+                break  # Priorizamos este
+            elif not candidate_port:
+                candidate_port = port_name  # Guardamos como fallback
+
+    current_port = config.get("printers", {}).get("fiscal", {}).get("fiscal_port")
+
+    if candidate_port and candidate_port != current_port:
+        logger.info(f"Actualizando puerto fiscal: {current_port} -> {candidate_port}")
+
+        # Actualizar estructura de configuración en memoria
+        config["printers"]["fiscal"]["fiscal_port"] = candidate_port
+
+        # Guardar cambios a disco
+        try:
+            ConfigManager.save_config(config)
+            logger.info("Configuración actualizada y guardada.")
+        except Exception as e:
+            logger.error(f"Error guardando configuración detectada: {e}")
+
+    elif candidate_port == current_port:
+        logger.info(f"El puerto actual ({current_port}) ya es el correcto.")
 
 
 def main():
     """Función principal que inicializa el servidor API REST."""
     config = ConfigManager.get_config()  # Cargar configuración
-    ConfigManager.start_watcher()
 
     base_path = get_base_path()
     configure_logging(config.get("logging", {}))  # Configurar logging
@@ -32,6 +93,11 @@ def main():
     logger = logging.getLogger(__name__)  # Log inicial
     logger.info("=" * 60)
     logger.info("Versión actual: %s-Ian", __version__)
+
+    # Auto-detección de puerto (Pre-Flight Check)
+    autodetect_serial_port(config)
+
+    ConfigManager.start_watcher()
 
     app = create_app(config)  # Crear y configurar flask
 

@@ -12,7 +12,13 @@ import logging
 import os
 from typing import Dict, Any, List, Optional, Tuple
 
-import win32print
+try:
+    import win32print
+
+    PLATFORM_HAS_WIN32 = True
+except ImportError:
+    PLATFORM_HAS_WIN32 = False
+
 from handy.tools import get_base_path, normalize_text, format_multiline
 
 from .printer_base import BasePrinter
@@ -26,6 +32,8 @@ class MatrixPrinter(BasePrinter):
     """Clase para manejar la impresión en impresoras matriciales"""
 
     def __init__(self, config: Dict[str, Any]):
+        if not PLATFORM_HAS_WIN32:
+            raise NotImplementedError("Matrix printing requires win32print on Windows")
         """
         Inicializa la impresora matricial
         Args:

@@ -76,9 +76,19 @@ class LogViewer:
                 "cursor": "hand2",  # Cursor tipo mano
             }
 
-            icon_path = os.path.join(get_base_path(), "resources", "printer_fiscal.ico")
-            if os.path.exists(icon_path):
-                self.root.iconbitmap(icon_path)
+            # En Linux, tkinter no soporta .ico, usar .png
+            if os.name == "nt":  # Windows
+                icon_path = os.path.join(get_base_path(), "resources", "printer_fiscal.ico")
+                if os.path.exists(icon_path):
+                    self.root.iconbitmap(icon_path)
+            else:  # Linux/Mac
+                icon_path = os.path.join(get_base_path(), "resources", "printer_fiscal.png")
+                if os.path.exists(icon_path):
+                    try:
+                        photo = tk.PhotoImage(file=icon_path)
+                        self.root.iconphoto(True, photo)
+                    except Exception as e:
+                        logger.warning("No se pudo cargar el icono de la ventana: %s", str(e))
 
             main_frame = tk.Frame(self.root, bg="#f0f0f0")
             main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)

@@ -101,13 +101,6 @@ class FiscalPrinterHka:
             self.serial_printer.reset_output_buffer()
 
             self.serial_printer.setRTS(True)
-            # Comentado por que da problemas con algunos modelos.
-            # attempt = 1
-            # while not self.serial_printer.getCTS():
-            #     attempt += 1
-            #     if attempt > 20:
-            #         self.serial_printer.setRTS(False)
-            #         return False
             return True
         except Exception as e:
             logging.error("Error en control CTS/RTS: %s", e)
@@ -329,8 +322,8 @@ class FiscalPrinterHka:
                     7: "notas_credito_dia",
                     8: "ultimo_doc_no_fiscal",
                     9: "docs_no_fiscales_dia",
-                    10: "contador_cierres_z",
-                    11: "contador_reportes_memoria",
+                    10: "contador_reportes_memoria",
+                    11: "contador_cierres_z",
                     12: "rif",
                     13: "registro_maquina",
                     14: "hora_impresora",

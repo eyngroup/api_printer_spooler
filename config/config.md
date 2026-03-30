@@ -21,9 +21,12 @@ El archivo de configuración está dividido en las siguientes secciones principa
     "server": {
         "server_mode": "SPOOLER",
         "server_host": "0.0.0.0",
-        "server_port": 5000,
         "server_debug": false,
-        "auto_browser": false
+        "auto_browser": false,
+        "allowed_origins": [
+            "^http://localhost(:\\d+)?$",
+            "^https://.*\\.my-domain\\.com$"
+        ]
     }
 }
 ```
@@ -33,6 +36,7 @@ El archivo de configuración está dividido en las siguientes secciones principa
 - `server_port`: Puerto del servidor.
 - `server_debug`: Habilita el modo debug para desarrollo.
 - `auto_browser`: Abrir navegador automáticamente al iniciar.
+- `allowed_origins`: Lista de patrones Regex para dominios permitidos (CORS). Si se omite, se usan valores seguros por defecto.
 
 ### Proxy
 
@@ -59,7 +63,9 @@ El archivo de configuración está dividido en las siguientes secciones principa
         "fiscal_name": "TFHKA",
         "fiscal_port": "COM9",
         "fiscal_baudrate": 9600,
-        "fiscal_timeout": 3
+        "fiscal_baudrate": 9600,
+        "fiscal_timeout": 3,
+        "fiscal_barcode_type": "CODE128"
     }
 }
 ```
@@ -69,6 +75,9 @@ El archivo de configuración está dividido en las siguientes secciones principa
 - `fiscal_port`: Puerto serial.
 - `fiscal_baudrate`: Velocidad de comunicación serial.
 - `fiscal_timeout`: Tiempo de espera en segundos.
+- `fiscal_barcode_type`: Tipo de código de barras a imprimir en el pie del documento. Configura automáticamente el `Flag 43` de la impresora.
+
+> **Nota sobre Auto-Programación**: El sistema verificará al inicio si el `Flag 43` de la impresora coincide con el `fiscal_barcode_type` configurado. Si difieren, enviará automáticamente el comando de programación correspondiente (ej: `PJ43xx`) para ajustar la impresora. Las reglas de validación se encuentran en `hka_barcode_rules.json`.
 
 *Nota: Los modelos RIGAZSA y BEMATECH están en desarrollo y no disponibles actualmente.
 
@@ -221,6 +230,7 @@ El archivo de configuración está dividido en las siguientes secciones principa
 ### Impresora Fiscal
 
 - `fiscal_name`: ["TFHKA", "PNP", "RIGAZSA"*, "BEMATECH"*]
+- `fiscal_barcode_type`: ["EAN13", "ITF", "CODE128", "CODE39", "QR", "PDF417"]
   *En desarrollo
 
 ### Impresora Matriz

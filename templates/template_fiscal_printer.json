@@ -5,17 +5,21 @@
     "name_note": "Nota de Despacho"
   },
   "format": {
-    "include_partner_address": false,
+    "include_partner_address": true,
+    "partner_address_lines": 3,
     "include_partner_phone": false,
     "include_partner_email": false,
     "include_document_number": false,
+    "include_document_reference": true,
     "include_document_date": false,
-    "include_document_name": false,
-    "include_document_cashier": false,
-    "include_item_reference": false,
+    "include_document_name": true,
+    "include_document_cashier": true,
+    "include_item_reference": true,
     "include_item_comment": false,
     "include_payment_subtotal": false,
     "include_delivery_comments": false,
-    "include_delivery_barcode": true
+    "include_delivery_barcode": true,
+    "include_operator_mail": true,
+    "include_exchange_rate": true
   }
 }

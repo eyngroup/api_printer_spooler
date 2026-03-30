@@ -23,7 +23,7 @@ from handy.tools import get_base_path
 VALID_SERVER_MODES = {"SPOOLER", "PROXY"}
 VALID_FISCAL_PRINTERS = {"TFHKA", "PNP", "RIGAZSA", "BEMATECH"}
 VALID_MATRIX_PAPER_TYPES = {"CARTA", "MEDIA_CARTA"}
-VALID_BARCODE_TYPES = {"QR", "BARCODE", "CODE128"}
+VALID_BARCODE_TYPES = {"QR", "BARCODE", "CODE128", "EAN13", "ITF", "CODE39", "PDF417"}
 
 CONFIG_SCHEMA = {
     "type": "object",
@@ -31,11 +31,12 @@ CONFIG_SCHEMA = {
         "server": {
             "type": "object",
             "properties": {
-                "server_mode": {"type": "string", "enum": list(VALID_SERVER_MODES)},
-                "server_host": {"type": "string"},
-                "server_port": {"type": "integer", "minimum": 1, "maximum": 65535},
-                "server_debug": {"type": "boolean"},
                 "auto_browser": {"type": "boolean"},
+                "server_debug": {"type": "boolean"},
+                "scan_serial_port": {"type": "boolean"},
+                "server_host": {"type": "string"},
+                "server_mode": {"type": "string", "enum": list(VALID_SERVER_MODES)},
+                "server_port": {"type": "integer", "minimum": 1, "maximum": 65535},
             },
             "required": ["server_mode", "server_host", "server_port", "server_debug"],
         },
@@ -58,6 +59,7 @@ CONFIG_SCHEMA = {
                         "fiscal_port": {"type": "string"},
                         "fiscal_baudrate": {"type": "integer"},
                         "fiscal_timeout": {"type": "integer"},
+                        "fiscal_barcode_type": {"type": "string", "enum": list(VALID_BARCODE_TYPES)},
                     },
                     "required": ["fiscal_enabled", "fiscal_name", "fiscal_port"],
                 },
@@ -121,6 +123,11 @@ CONFIG_SCHEMA = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+def get_security_code() -> str:
+    """Obtiene el security code desde variable de entorno o fallback."""
+    return os.environ.get("PRINTER_SECURITY_CODE", "0205")
 
 
 class ConfigReloader(FileSystemEventHandler):  # pylint: disable=R0903
