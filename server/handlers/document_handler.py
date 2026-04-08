@@ -77,10 +77,9 @@ def printer_instance(
 
         if printer_fiscal_enabled:
             printer_fiscal_name = find_value(printer_config, "fiscal_name").strip().lower()
+            fiscal_config = printer_config.get("fiscal", {})
             try:
-                printer = PrinterManager.get_printer(
-                    printer_fiscal_name, find_value(printer_config, PRINTER_TYPE_FISCAL)
-                )
+                printer = PrinterManager.get_printer(printer_fiscal_name, fiscal_config)
                 return printer, None
             except ValueError as e:
                 error_msg = str(e)

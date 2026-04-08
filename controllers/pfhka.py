@@ -145,10 +145,13 @@ class FiscalPrinterHka:
             Lista de líneas limpias
         """
         lines = []
+        # No hacer strip() porque elimina los ceros iniciales de la línea de flags
         for i, line in enumerate(response.split("\n")):
+            # Remover solo el comando del inicio (S1, S2, etc) pero mantener ceros
             clean = line.strip()
             if i == 0 and clean.startswith(command):
-                clean = clean[2:].strip()
+                # Remover "S3" o "S3" del inicio, pero mantener todo lo demás
+                clean = clean[len(command) :] if len(clean) > len(command) else ""
             if clean:
                 lines.append(clean)
         return lines
@@ -383,6 +386,9 @@ class FiscalPrinterHka:
     def get_s3(self, flags_to_read: Optional[List[int]] = None) -> Optional[Dict[str, str]]:
         """
         Comando S3, lee los impuestos y flags según la Tabla 72 del manual.
+        La respuesta puede tener:
+        - 4 líneas: 3 taxes + flags (Flag 63 = 00)
+        - 5 líneas: 3 taxes + IGTF + flags (Flag 63 = 01,02,03)
         Args:
             flags_to_read (Optional[List[int]]): Lista de flags a leer (0-63).
         Returns:
@@ -395,43 +401,54 @@ class FiscalPrinterHka:
             logging.debug("S3 raw response: %s", response)
             if response:
                 s3 = {}
-                tax_name = {0: "General", 1: "Reducido", 2: "Adicional"}
+                tax_name = {0: "General", 1: "Reducido", 2: "Adicional", 3: "IGTF"}
                 code_type = {"0": "[Percibido]", "1": "[Excluido]", "2": "[Incluido]"}
                 lines = self._clean_response(response, "S3")
                 logging.debug("S3 lines: %s (count: %d)", lines, len(lines))
 
-                for i, line in enumerate(lines[:3]):
-                    type_code = line[0] if line else "0"
-                    tipo = code_type.get(type_code, "Desconocido")
-                    valor_raw = line[1:] if len(line) > 1 else "0000"
-                    valor = f"{valor_raw[:2]}.{valor_raw[2:4]}"
-                    nombre = f"{tax_name[i]} {tipo}"
-                    s3[nombre] = valor
+                # Las primeras líneas son impuestos (3 o 4 dependiendo de Flag 63)
+                # La última línea es la cadena de flags (128 caracteres)
+                num_tax_lines = len(lines) - 1  # Asumir última línea es flags
+                tax_lines_to_process = min(num_tax_lines, 4)  # Max 4 taxes (incluyendo IGTF)
 
-                if len(lines) > 3:
-                    flags = lines[3]
+                for i in range(tax_lines_to_process):
+                    if i < len(lines):
+                        line = lines[i]
+                        type_code = line[0] if line else "0"
+                        tipo = code_type.get(type_code, "Desconocido")
+                        valor_raw = line[1:] if len(line) > 1 else "0000"
+                        valor = f"{valor_raw[:2]}.{valor_raw[2:4]}"
+                        nombre = f"{tax_name[i]} {tipo}"
+                        s3[nombre] = valor
+
+                # Los flags están en la última línea (siempre 128 caracteres)
+                if len(lines) > 1:
+                    flags = lines[-1]  # Última línea = flags
                     logging.debug("S3 flags string length: %d (expected 128 for flags 0-63)", len(flags))
-                    for flag in flags_to_read:
-                        if 0 <= flag <= 63:
-                            start = flag * 2
-                            end = start + 2
-                            if end <= len(flags):
+                    logging.debug("S3 flags string (first 50 chars): %s", flags[:50])
+
+                    if len(flags) >= 128:
+                        for flag in flags_to_read:
+                            if 0 <= flag <= 63:
+                                start = flag * 2
+                                end = start + 2
                                 s3[f"flag_{flag}"] = flags[start:end]
-                            else:
-                                logging.warning(
-                                    "Flag %d: índice fuera de rango (start=%d, end=%d, len=%d)",
-                                    flag,
-                                    start,
-                                    end,
-                                    len(flags),
-                                )
-                else:
-                    logging.warning("S3 response no tiene línea de flags. líneas recibidas: %d", len(lines))
+                        # Logging de los flags específicos que nos interesan
+                        logging.debug(
+                            "Parsed flags: flag_21=%s, flag_30=%s, flag_43=%s, flag_50=%s, flag_63=%s",
+                            s3.get("flag_21", "N/A"),
+                            s3.get("flag_30", "N/A"),
+                            s3.get("flag_43", "N/A"),
+                            s3.get("flag_50", "N/A"),
+                            s3.get("flag_63", "N/A"),
+                        )
+                    else:
+                        logging.warning("S3 flags string incompleto: %d caracteres (esperado 128)", len(flags))
 
                 return s3
             return None
         except Exception as e:
-            logging.error("Error leyendo estado S3 de la impresora: %s", e)
+            logging.error("Error leyendo estado S3 de la impresora: %s", str(e))
             return None
 
     def get_s5(self) -> Optional[Dict[str, str]]:

@@ -10,7 +10,7 @@
             "^https://sys\\.clidair\\.com$"
         ],
         "auto_browser": false,
-        "scan_serial_port": true,
+        "scan_serial_port": false,
         "server_debug": true,
         "server_host": "localhost",
         "server_mode": "SPOOLER",

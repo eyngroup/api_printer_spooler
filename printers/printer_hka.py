@@ -31,10 +31,16 @@ _SERIAL_FALLBACK = "Z1B1234567"
 # Serial de fallback para entorno de pruebas - NO usar en producción
 
 # Constantes para valores de impuestos
+# Según manual TFHKA V8.5.0:
+# - Factura: ! (signo de exclamación)
+# - Nota de Crédito: d (letra d)
+# - Nota de Débito: ' (comilla simple invertida, ASCII 0x60 + 0x27)
+# - Nota de Entrega: 80
+# Importante: Las notas de débito solo soportan tasas 0-3 según manual
 TAX_VALUES = {
     "invoice": {0: " ", 12: "!", 16: "!", 8: '"', 22: "#", 31: "#"},
     "credit": {0: "d0", 12: "d1", 16: "d1", 8: "d2", 22: "d3", 31: "d3"},
-    "debit": {0: "`0", 12: "`1", 16: "`1", 8: "`2", 22: "`3", 31: "`3"},
+    "debit": {0: "`0", 12: "`1", 16: "`1", 8: "`2", 22: "`2", 31: "`2"},  # Nota: 22 y 31 usan tasa adicional
     "note": {0: "80", 12: "80", 16: "80", 8: "80", 22: "80", 31: "80"},
 }
 
@@ -449,7 +455,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         document_cashier = self._format_text(document.get("document_cashier", ""), "comment")
 
         commands = []
-        if operation_type == "credit":
+        if operation_type in ("credit", "debit"):
             affected_document = data.get("affected_document", {})
             affected_number = normalize_number(affected_document.get("affected_number", ""))
             affected_date = normalize_date(affected_document.get("affected_date", ""))
