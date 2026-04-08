@@ -184,6 +184,7 @@ class FiscalPrinterHka:
             0x41: "Fin en la entrega de papel",
             0x42: "Error mecánico en la entrega de papel",
             0x43: "Fin en la entrega de papel y error mecánico",
+            0x48: "Error de gaveta",
             0x50: "Comando/Valor inválido",
             0x54: "Tasa inválida",
             0x58: "No hay asignadas directivas",
@@ -391,12 +392,13 @@ class FiscalPrinterHka:
             flags_to_read = [21, 30, 43, 50, 63]
         try:
             response = self.send_cmd("S3")
-            logging.debug("S3: %s", response)
+            logging.debug("S3 raw response: %s", response)
             if response:
                 s3 = {}
                 tax_name = {0: "General", 1: "Reducido", 2: "Adicional"}
                 code_type = {"0": "[Percibido]", "1": "[Excluido]", "2": "[Incluido]"}
                 lines = self._clean_response(response, "S3")
+                logging.debug("S3 lines: %s (count: %d)", lines, len(lines))
 
                 for i, line in enumerate(lines[:3]):
                     type_code = line[0] if line else "0"
@@ -408,11 +410,23 @@ class FiscalPrinterHka:
 
                 if len(lines) > 3:
                     flags = lines[3]
+                    logging.debug("S3 flags string length: %d (expected 128 for flags 0-63)", len(flags))
                     for flag in flags_to_read:
                         if 0 <= flag <= 63:
                             start = flag * 2
                             end = start + 2
-                            s3[f"flag_{flag}"] = flags[start:end]
+                            if end <= len(flags):
+                                s3[f"flag_{flag}"] = flags[start:end]
+                            else:
+                                logging.warning(
+                                    "Flag %d: índice fuera de rango (start=%d, end=%d, len=%d)",
+                                    flag,
+                                    start,
+                                    end,
+                                    len(flags),
+                                )
+                else:
+                    logging.warning("S3 response no tiene línea de flags. líneas recibidas: %d", len(lines))
 
                 return s3
             return None
