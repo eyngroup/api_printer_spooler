@@ -19,14 +19,6 @@ from ..document_schema import validate_document
 
 HTTP_BAD_REQUEST = 400
 HTTP_INTERNAL_ERROR = 500
-PRINTER_TYPE_FISCAL = "fiscal"
-PRINTER_TYPE_MATRIX = "matrix"
-PRINTER_TYPE_TICKET = "ticket"
-
-PRINTER_FISCAL_TYPES = {
-    "tfhka": "printers.printer_hka.TfhkaPrinter",
-    "pnp": "printers.printer_pnp.PnpPrinter",
-}
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +74,6 @@ def printer_instance(
     """
     try:
         printer_fiscal_enabled = find_value(printer_config, "fiscal_enabled")
-        printer_matrix_enabled = find_value(printer_config, "matrix_enabled")
-        printer_ticket_enabled = find_value(printer_config, "ticket_enabled")
 
         if printer_fiscal_enabled:
             printer_fiscal_name = find_value(printer_config, "fiscal_name").strip().lower()
@@ -104,16 +94,6 @@ def printer_instance(
                         "message": error_msg,
                     }
                 return None, {"printer_type": printer_fiscal_name, "message": error_msg}
-
-        if printer_matrix_enabled:
-            from printers.printer_dotmatrix import MatrixPrinter
-
-            return MatrixPrinter(find_value(printer_config, PRINTER_TYPE_MATRIX)), None
-
-        if printer_ticket_enabled:
-            from printers.printer_ticket import TicketPrinter
-
-            return TicketPrinter(find_value(printer_config, PRINTER_TYPE_TICKET)), None
 
         return None, {"message": "No hay impresoras configuradas"}
 

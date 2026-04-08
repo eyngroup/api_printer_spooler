@@ -8,7 +8,6 @@ dependencies = [
     "flask",
     "flask-cors",
     "requests",
-    "pywin32; sys_platform == 'win32'",
     "pyserial",
     "textwrap3",
     "pillow",

@@ -96,182 +96,6 @@
                             <!-- Sección Impresoras -->
                             <div class="config-section" id="printers-section" style="display: none;">
                                 <h3>Configuración de Impresoras</h3>
-                                <!-- Impresora de Tickets -->
-                                <div class="card mb-4">
-                                    <div class="card-header">
-                                        <h4 class="mb-0">Impresora de Tickets</h4>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="ticketEnabled"
-                                                    name="printers.ticket.ticket_enabled" type="checkbox">
-                                                <label class="form-check-label" for="ticketEnabled">Habilitada</label>
-                                            </div>
-                                            <div class="form-text">Habilitar/deshabilitar impresora de tickets</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="ticketName">Nombre</label>
-                                            <input class="form-control" id="ticketName"
-                                                name="printers.ticket.ticket_name" type="text">
-                                            <div class="form-text">Nombre o modelo de la impresora</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="ticketPrinterName">Nombre de
-                                                Impresora</label>
-                                            <input class="form-control" id="ticketPrinterName"
-                                                name="printers.ticket.ticket_port" type="text">
-                                            <div class="form-text">Puerto o nombre de la impresora en el sistema</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="ticketPaperSize">Tamaño de Papel</label>
-                                            <select class="form-select" id="ticketPaperSize"
-                                                name="printers.ticket.ticket_paper">
-                                                <option value="58mm">58mm</option>
-                                                <option value="80mm">80mm</option>
-                                            </select>
-                                            <div class="form-text">Ancho del papel para la impresora de tickets</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="ticketDirect"
-                                                    name="printers.ticket.ticket_direct" type="checkbox">
-                                                <label class="form-check-label" for="ticketDirect">Impresión
-                                                    Directa</label>
-                                            </div>
-                                            <div class="form-text">Habilitar impresión directa al puerto</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="ticketFile">Archivo de Salida</label>
-                                            <input class="form-control" id="ticketFile"
-                                                name="printers.ticket.ticket_file" type="text"
-                                                value="docs/ticket_output.txt">
-                                            <div class="form-text">Archivo de salida si no es impresión directa</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="ticketTemplate">Plantilla</label>
-                                            <input class="form-control" id="ticketTemplate"
-                                                name="printers.ticket.ticket_template" type="text">
-                                            <div class="form-text">Plantilla JSON a usar para el formato del ticket
-                                            </div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="ticketUseEscpos"
-                                                    name="printers.ticket.ticket_use_escpos" type="checkbox">
-                                                <label class="form-check-label" for="ticketUseEscpos">Usar
-                                                    ESC/POS</label>
-                                            </div>
-                                            <div class="form-text">Usar comandos ESC/POS para la impresión</div>
-                                        </div>
-                                        <h5 class="mt-4">Características</h5>
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="ticketBarcodeEnabled"
-                                                    name="printers.ticket.barcode_enabled" type="checkbox">
-                                                <label class="form-check-label" for="ticketBarcodeEnabled">Código de
-                                                    Barras</label>
-                                            </div>
-                                            <div class="form-text">Habilitar la impresión de códigos de barras</div>
-                                            <select class="form-select mt-2" id="ticketBarcodeType"
-                                                name="printers.ticket.barcode_type">
-                                                <option value="QR">QR</option>
-                                                <option value="BARCODE">BARCODE</option>
-                                                <option value="CODE128">CODE128</option>
-                                            </select>
-                                            <div class="form-text">Tipo de código de barras a utilizar</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="ticketLogoEnabled"
-                                                    name="printers.ticket.logo_enabled" type="checkbox">
-                                                <label class="form-check-label" for="ticketLogoEnabled">Logo</label>
-                                            </div>
-                                            <div class="row mt-2">
-                                                <div class="col">
-                                                    <input class="form-control" id="ticketLogoWidth"
-                                                        name="printers.ticket.logo_width" placeholder="Ancho"
-                                                        type="number">
-                                                </div>
-                                                <div class="col">
-                                                    <input class="form-control" id="ticketLogoHeight"
-                                                        name="printers.ticket.logo_height" placeholder="Alto"
-                                                        type="number">
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <!-- Impresora Matricial -->
-                                <div class="card mb-4">
-                                    <div class="card-header">
-                                        <h4 class="mb-0">Impresora Matricial</h4>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="matrixEnabled"
-                                                    name="printers.matrix.matrix_enabled" type="checkbox">
-                                                <label class="form-check-label" for="matrixEnabled">Habilitada</label>
-                                            </div>
-                                            <div class="form-text">Habilitar/deshabilitar impresora matricial</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="matrixName">Nombre</label>
-                                            <input class="form-control" id="matrixName"
-                                                name="printers.matrix.matrix_name" type="text">
-                                            <div class="form-text">Nombre o modelo de la impresora</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="matrixPrinterName">Nombre de
-                                                Impresora</label>
-                                            <input class="form-control" id="matrixPrinterName"
-                                                name="printers.matrix.matrix_port" type="text">
-                                            <div class="form-text">Puerto o nombre de la impresora en el sistema</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="matrixPaperSize">Tamaño de Papel</label>
-                                            <select class="form-select" id="matrixPaperSize"
-                                                name="printers.matrix.matrix_paper">
-                                                <option value="CARTA">CARTA</option>
-                                                <option value="MEDIA_CARTA">MEDIA CARTA</option>
-                                            </select>
-                                            <div class="form-text">Tipo de papel para la impresión</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="matrixDirectPrint"
-                                                    name="printers.matrix.matrix_direct" type="checkbox">
-                                                <label class="form-check-label" for="matrixDirectPrint">Impresión
-                                                    Directa</label>
-                                            </div>
-                                            <div class="form-text">Habilitar impresión directa al puerto</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="matrixOutputFile">Archivo de Salida</label>
-                                            <input class="form-control" id="matrixOutputFile"
-                                                name="printers.matrix.matrix_file" type="text"
-                                                value="docs/print_output.txt">
-                                            <div class="form-text">Archivo de salida si no es impresión directa</div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="matrixTemplate">Plantilla</label>
-                                            <input class="form-control" id="matrixTemplate"
-                                                name="printers.matrix.matrix_template" type="text">
-                                            <div class="form-text">Plantilla JSON a usar para el formato de impresión
-                                            </div>
-                                        </div>
-                                        <div class="mb-3">
-                                            <div class="form-check">
-                                                <input class="form-check-input" id="matrixUseEscp"
-                                                    name="printers.matrix.matrix_use_escp" type="checkbox">
-                                                <label class="form-check-label" for="matrixUseEscp">Usar ESC/P</label>
-                                            </div>
-                                            <div class="form-text">Usar comandos ESC/P para la impresión</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <!-- Impresora Fiscal -->
                                 <div class="card mb-4">
                                     <div class="card-header">
                                         <h4 class="mb-0">Impresora Fiscal</h4>
@@ -312,21 +136,21 @@
                                             <label class="form-label" for="fiscalTimeout">Timeout</label>
                                             <input class="form-control" id="fiscalTimeout"
                                                 name="printers.fiscal.fiscal_timeout" type="number">
-                                            <div class="mb-3">
-                                                <label class="form-label" for="fiscalBarcodeType">Tipo Código de
-                                                    Barras</label>
-                                                <select class="form-select" id="fiscalBarcodeType"
-                                                    name="printers.fiscal.fiscal_barcode_type">
-                                                    <option value="EAN13">EAN13 (Numérico, 12-13 dígitos)</option>
-                                                    <option value="ITF">ITF (Numérico)</option>
-                                                    <option value="CODE128">CODE128 (Alfanumérico)</option>
-                                                    <option value="CODE39">CODE39 (Alfanumérico)</option>
-                                                    <option value="QR">QR (2D)</option>
-                                                    <option value="PDF417">PDF417 (2D)</option>
-                                                </select>
-                                                <div class="form-text">Formato del código de barras en el pie del
-                                                    documento (Requiere soporte del modelo)</div>
-                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label" for="fiscalBarcodeType">Tipo Código de
+                                                Barras</label>
+                                            <select class="form-select" id="fiscalBarcodeType"
+                                                name="printers.fiscal.fiscal_barcode_type">
+                                                <option value="EAN13">EAN13 (Numérico, 12-13 dígitos)</option>
+                                                <option value="ITF">ITF (Numérico)</option>
+                                                <option value="CODE128">CODE128 (Alfanumérico)</option>
+                                                <option value="CODE39">CODE39 (Alfanumérico)</option>
+                                                <option value="QR">QR (2D)</option>
+                                                <option value="PDF417">PDF417 (2D)</option>
+                                            </select>
+                                            <div class="form-text">Formato del código de barras en el pie del
+                                                documento (Requiere soporte del modelo)</div>
                                         </div>
                                     </div>
                                 </div>

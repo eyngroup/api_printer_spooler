@@ -1,4 +1,4 @@
-# Proyecto -> API Rest | Spooler de Impresión | Proxy
+# Proyecto -> API Rest | Spooler Fiscal | Proxy
 
 ## En Memoria de Ian Abdiel Graterol Santana (2024)
 
@@ -8,77 +8,112 @@
 
 ## Visión General
 
-**Servidor API REST** para gestión avanzada de colas de impresión con soporte para:
+**API Printer Spooler** es un servidor API REST orientado exclusivamente a **impresión fiscal**.
 
-- **Impresoras Fiscales** (TFHKA, PNP, RIGAZSA [en desarrollo], BEMATECH [en desarrollo])
-- **Impresoras de Tickets** (POS, Comandos ESC-POS)
-- **Impresoras Matriciales** (EPSON, Comandos ESC/P)
+En esta rama se eliminó todo el soporte no fiscal. El sistema mantiene solo el flujo fiscal vía puerto serial, con operación en dos modos:
+
+- **SPOOLER**: procesa documentos y comandos directamente sobre la impresora fiscal conectada.
+- **PROXY**: reenvía la solicitud a otro spooler fiscal.
+
+## Alcance actual
+
+- **Drivers fiscales activos en runtime**: `TFHKA`, `PNP`
+- **Valores reservados en schema de configuración**: `RIGAZSA`, `BEMATECH`
+- **Operaciones disponibles**:
+  - Impresión de documentos fiscales
+  - Reporte X
+  - Reporte Z
+  - Envío de comandos fiscales directos
+  - Edición web de configuración
+  - Dashboard de estado
 
 ## Características Principales
 
-✅ Soporte multiplataforma (Windows/Linux [en desarrollo])
-
-✅ Gestión centralizada de colas de impresión
-
-✅ Protocolos de comunicación estandarizados
-
-✅ Sistema de plantillas configurables
+- Gestión centralizada de impresión fiscal
+- Comunicación serial mediante `pyserial`
+- Validación de configuración con JSON Schema
+- Dashboard web para estado del servicio y acciones fiscales
+- Modo proxy para topologías remotas
+- Plantilla fiscal configurable en `templates/template_fiscal_printer.json`
 
 ## Guía Rápida
 
-### Requisitos minimos
+### Requisitos mínimos
 
 - Python 3.10 (64-bit)
 - Entorno virtual recomendado
+- Acceso al puerto serial de la impresora fiscal
+- En Linux, entorno gráfico compatible con system tray y `python3-tk` si `tkinter` no está disponible
 
 ### Instalación
 
-<details>
-<summary>🖥️ Windows</summary>
-
-1. Instalar [Python 3.10 64-bit](https://www.python.org/ftp/python/3.10.0/python-3.10.0.exe)
 ```bash
-git clone https://github.com/eyngroup/api_printer_server.git
-cd api_printer_server
-python -m venv .venv
-.venv\Scripts\activate
-python.exe -m pip install --upgrade pip
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
-python setup.py build
 ```
-</details>
 
-<details>
-<summary>🐧 Linux</summary>
-  
-* En proyecto con la adecuación e implementación de los módulos suministrados en "controllers".
+En Windows PowerShell:
 
-</details>
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-### Documentación
+### Ejecución
+
+Con entorno tradicional:
+
+```bash
+python3 main.py
+```
+
+Si trabajas con `uv`:
+
+```bash
+uv run main.py
+```
+
+### Endpoints operativos principales
+
+- `GET /api/ping`
+- `GET /api/status`
+- `POST /api/printers`
+- `GET /api/report_x`
+- `GET /api/report_z`
+- `POST /api/command`
+- `POST /api/config`
+- `POST /api/auth/validate`
+
+## Documentación
 
 | Sección | Descripción |
 |---------|-------------|
-| [Proyecto](docs/project.md) | Diseño general y componentes |
-| [Configuración](config/config.md) | Parámetros del sistema |
-| [Plantillas](templates/templates.md) | Personalización de formatos |
+| [Proyecto](docs/project.md) | Arquitectura funcional y flujo fiscal |
+| [Configuración](config/config.md) | Estructura y opciones de `config/config.json` |
+| [Plantillas](templates/templates.md) | Campos y comportamiento del template fiscal |
+| [Checklist](docs/CHECKLIST.md) | Despliegue y verificación operativa |
+| [Memoria](docs/MEMORY.md) | Estado real del branch y continuidad técnica |
 
-### Desarrollo
+## Desarrollo
 
-<details>
-<summary>🛠️ Contribuciones</summary>
-
-1. Revisar [issues abiertos](https://github.com/eyngroup/repo/issues)
-2. Crear nuevo issue para propuestas
-3. Actualizar documentación relacionada
-</details>
+- Mantener el contrato **fiscal-only** en código, UI y documentación.
+- Si se agrega un nuevo modelo fiscal, actualizar driver, `printer_manager.py`, schema, template y docs.
+- Antes de desplegar, validar al menos:
+  - `/api/status`
+  - guardado de configuración
+  - impresión fiscal
+  - reporte X
+  - reporte Z
 
 ## Apoyo
 
 [![Un Café con PayPal](https://img.shields.io/badge/Cafe-PayPal-blue)](https://paypal.me/irongraterol)
 
 <summary>❤️ Si te ha sido útil este código, considera invitarme un café ☕ para apoyar el proyecto. ¡Gracias! 😊 </summary>
-
 
 ##
 Copyright © 2024, Iron Graterol

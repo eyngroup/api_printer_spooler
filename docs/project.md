@@ -1,216 +1,178 @@
-# Proyecto API y Spooler de Impresión
+# Proyecto API y Spooler Fiscal
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
 
-
 ## Introducción
 
-Proyecto que consiste en un **Servidor API REST** que actua como **Spooler de Impresoras** para la impresión de documentos fiscales y no fiscales:
-- Facturas de Venta
-- Notas de Crédito
-- Notas de Débito
-- Notas de Entrega
-- Recibos de Entrega
-- Tickets de Venta
+Proyecto basado en **Flask** que expone una **API REST** para operar un **spooler fiscal** o un **proxy fiscal**.
+
+Esta rama del repositorio está dedicada únicamente a impresión fiscal. El alcance funcional actual cubre:
+
+- Facturas
+- Notas de crédito
+- Notas de débito
+- Notas o documentos de entrega emitidos por la impresora fiscal
+- Reportes X y Z
+- Comandos fiscales directos
 
 ## Tecnologías Utilizadas
 
-- Python (flask, pywin32, pythonnet, pyserial, etc)
-- JSON
-- HTML, CSS, JS
-- Librerías DLL y Propias
+- Python 3.10
+- Flask y Flask-CORS
+- `pyserial` para comunicación serial con la impresora fiscal
+- `jsonschema` para validación de configuración
+- HTML, CSS y JavaScript para dashboard y editor de configuración
+- `watchdog`, `pystray` y `tkinter` para operación local del servicio
 
-## Uso
+## Contrato de Entrada
 
 ### Ejemplo de Solicitud
 
-El servidor API recibirá un json, que contendrá la siguiente estructura:
+La API recibe un JSON con la siguiente estructura general:
 
 ```json
 {
-  "operation_type": "invoice",           # TIPO DE OPERACIÓN (invoice, credit, debit, note)
-  "affected_document": {                 # DOCUMENTO AFECTADO (PARA NOTAS DE CRÉDITO/DÉBITO)
-    "affected_number": "00004-001-0002", # NÚMERO DEL DOCUMENTO AFECTADO
-    "affected_date": "2022-01-01",       # FECHA DEL DOCUMENTO AFECTADO
-    "affected_serial": "EOO9000001"      # SERIAL DEL DOCUMENTO AFECTADO
+  "operation_type": "invoice",
+  "affected_document": {
+    "affected_number": "00004-001-0002",
+    "affected_date": "2022-01-01",
+    "affected_serial": "EOO9000001"
   },
-  "customer": {                          # INFORMACIÓN DEL CLIENTE
-    "customer_vat": "V131348076",        # RIF, CI, NIT, NIF
+  "customer": {
+    "customer_vat": "V131348076",
     "customer_name": "NOMBRE DEL CLIENTE",
     "customer_address": "DIRECCION DEL CLIENTE CIUDAD DEL CLIENTE PAIS DEL CLIENTE",
     "customer_phone": "02916419691",
-    "customer_email": "cliente@example.com"  # CORREO DEL CLIENTE
+    "customer_email": "cliente@example.com"
   },
-  "document": {                          # INFORMACIÓN DEL DOCUMENTO
-    "document_number": "00004-001-0002", # NÚMERO DEL DOCUMENTO
-    "document_date": "2022-01-01",       # FECHA DEL DOCUMENTO
-    "document_name": "Shop/0001",        # NOMBRE DEL DOCUMENTO
-    "document_cashier": "JUANITO"        # CAJERO/VENDEDOR
+  "document": {
+    "document_number": "00004-001-0002",
+    "document_date": "2022-01-01",
+    "document_name": "Shop/0001",
+    "document_cashier": "JUANITO"
   },
-  "items": [                             # LISTA DE ITEMS
+  "items": [
     {
-      "item_ref": "60-2005",             # CODIGO DEL PRODUCTO
-      "item_name": "ACEITE REFRIGERANTE PAG-150 R134 AUTOM 8", # NOMBRE DEL PRODUCTO
-      "item_quantity": 1,                # CANTIDAD DEL ITEM
-      "item_price": 155.99,              # PRECIO DEL ITEM 
-      "item_tax": 16,                    # IMPUESTO DEL ITEM (0, 12, 16, 8, 22, 31)
-      "item_discount": 0,                # DESCUENTO DEL ITEM (Monto o Porcentaje)
-      "item_discount_type": "discount_percentage",  # TIPO DE DESCUENTO
-      "item_comment": "MARCA GENETRON"   # COMENTARIO DEL ITEM
+      "item_ref": "60-2005",
+      "item_name": "ACEITE REFRIGERANTE PAG-150 R134 AUTOM 8",
+      "item_quantity": 1,
+      "item_price": 155.99,
+      "item_tax": 16,
+      "item_discount": 0,
+      "item_discount_type": "discount_percentage",
+      "item_comment": "MARCA GENETRON"
     }
   ],
-  "payments": [                          # LISTA DE PAGOS
+  "payments": [
     {
-      "payment_method": "01",            # MÉTODO DE PAGO
-      "payment_name": "EFECTIVO",        # NOMBRE DEL MÉTODO DE PAGO
-      "payment_amount": 155.99           # MONTO DEL PAGO
+      "payment_method": "01",
+      "payment_name": "EFECTIVO",
+      "payment_amount": 155.99
     }
   ],
-  "delivery": {                          # INFORMACIÓN DE ENTREGA
-    "delivery_comments": [               # LISTA DE COMENTARIOS PARA ENTREGA
+  "delivery": {
+    "delivery_comments": [
       "COMENTARIO 1",
       "COMENTARIO 2"
     ],
-    "delivery_barcode": "150025-0002"    # CÓDIGO DE BARRAS O QR DE ENTREGA
+    "delivery_barcode": "150025-0002"
   },
-  "operation_metadata": {                # METADATOS DE LA OPERACIÓN
-    "terminal_id": "T001",               # IDENTIFICADOR DEL TERMINAL
-    "branch_code": "SUC001",             # CÓDIGO DE LA SUCURSAL
-    "operator_id": "OP123"               # IDENTIFICADOR DEL OPERADOR
-  }  
+  "operation_metadata": {
+    "terminal_id": "T001",
+    "branch_code": "SUC001",
+    "operator_id": "OP123"
+  }
 }
 ```
 
 ### Ejemplo de Respuesta
 
-La API devolverá una respuesta al usuario con la siguiente estructura:
-
 ```json
 {
-  "status": true,                        # ESTADO DE LA OPERACIÓN (true=éxito, false=error)
-  "message": "Documento procesado correctamente",  # MENSAJE DESCRIPTIVO
+  "status": true,
+  "message": "Documento procesado correctamente",
   "data": {
-    "document_date": "2025-01-09",       # FECHA DEL DOCUMENTO IMPRESO
-    "document_number": "00002515",       # NÚMERO DEL DOCUMENTO IMPRESO
-    "machine_serial": "Z1B1234567",      # NÚMERO DE SERIE DE LA IMPRESORA
-    "machine_report": "0015"             # NÚMERO DE REPORTE ASOCIADO A LA IMPRESORA
+    "document_date": "2025-01-09",
+    "document_number": "00002515",
+    "machine_serial": "Z1B1234567",
+    "machine_report": "0015"
   }
 }
 ```
 
-**Notas sobre la respuesta:**
+### Notas sobre la respuesta
 
-- Para impresoras fiscales: Los valores son obtenidos directamente de la impresora mediante comandos fiscales
-- Para impresoras no fiscales: Los valores son generados dinámicamente siguiendo un formato predefinido
-- El campo `message` contendrá detalles adicionales en caso de error
+- Los valores de `data` provienen de la impresora fiscal o del parser fiscal correspondiente.
+- `message` contiene detalles operativos o de error.
+- El comportamiento exacto puede variar según el driver fiscal activo.
 
-### Flujo de Procesos
+## Endpoints Principales
 
-El sistema puede operar en dos modos principales: **Spooler de Impresión** o **Servidor Proxy**. 
-A continuación se detalla cada modo:
+| Método | Ruta | Propósito |
+|--------|------|-----------|
+| `GET` | `/api/ping` | Verificación básica de disponibilidad |
+| `GET` | `/api/status` | Estado del servicio y de la impresora fiscal |
+| `POST` | `/api/printers` | Procesamiento de documento fiscal |
+| `GET` | `/api/report_x` | Emisión de reporte X |
+| `GET` | `/api/report_z` | Emisión de reporte Z |
+| `POST` | `/api/command` | Envío de comandos fiscales directos |
+| `POST` | `/api/config` | Guardado de configuración |
+| `POST` | `/api/auth/validate` | Validación del código de seguridad |
 
-#### 1. Modo Spooler de Impresión
+## Modos de Operación
 
-El servidor procesa directamente los documentos para impresión, soportando tres tipos de impresoras:
+### 1. Modo SPOOLER
 
-##### 1.1 Impresora Fiscal
-- **Conexión:** Puerto serial (COM)
-- **Modelos Soportados:**
-    - TFHKA
-    - PNP
-    - RIGAZSA (en desarrollo)
-    - BEMATECH (en desarrollo)
-- **Características:**
-    - Validación fiscal automática
-    - Generación de números de control
-    - Reportes X y Z
-    - Respuesta con datos fiscales reales
-    - **Dirección multilínea**: La dirección del cliente puede ocupar múltiples líneas (1-4) con word-wrap automático a 40 caracteres por línea. La asignación de índices (i00-i09) es dinámica según la configuración.
+Procesa directamente el documento sobre la impresora fiscal conectada al equipo.
 
-> **Nota sobre multilínea**: En impresoras TFHKA, los campos del encabezado usan índices dinámicos i00-i09. Mientras más líneas de dirección se configuren (`partner_address_lines`), menos espacio queda para teléfono, email y datos del documento.
->
-> **Footer**: El pie de página incluye línea divisoria (i00 con 30 guiones), email del operador (i08), tasa de cambio (i09) y delivery comments (i01-i07).
+- **Conexión**: puerto serial (`COM`, `/dev/ttyACM*`, `/dev/ttyUSB*`)
+- **Drivers activos en runtime**:
+  - `TFHKA`
+  - `PNP`
+- **Valores reservados en el schema**:
+  - `RIGAZSA`
+  - `BEMATECH`
 
-##### 1.2 Impresora de Ticket
+#### Capacidades fiscales relevantes
 
-- **Conexión:** Puerto USB
-- **Características:**
-    - Comandos ESC/POS
-    - Ancho máximo: 80mm
-    - Soporte para:
-        - Códigos de barras (1D/2D)
-        - Logos personalizados
-        - Formatos especiales
-- **Respuesta:** Generación de identificadores únicos
+- Validación fiscal y control de estado del equipo
+- Reportes X y Z
+- Interpretación de estados y errores por driver
+- Dirección multilínea para encabezado fiscal (`partner_address_lines`)
+- Footer fiscal extendido con comentarios de entrega, correo de operador y tasa de cambio cuando aplica
 
-##### 1.3 Impresora Matriz de Punto
+> En impresoras TFHKA, los campos del encabezado usan índices dinámicos `i00` a `i09`. Mientras más líneas de dirección se activen, menos espacio queda para teléfono, email y metadatos del documento.
 
-- **Conexión:** Puerto USB o LPT
-- **Modelos:** Compatible con EPSON (LX, FX)
-- **Características:**
-    - Comandos ESC/P
-    - Formatos de papel:
-        - CARTA
-        - MEDIA_CARTA
-    - Plantillas personalizables
-- **Respuesta:** Generación de identificadores únicos
+### 2. Modo PROXY
 
-#### 2. Modo Servidor Proxy
+Actúa como intermediario y reenvía la solicitud a otro spooler fiscal.
 
-Actúa como intermediario entre el cliente y otro servidor de impresión.
+- Recibe la petición del cliente
+- Valida formato general
+- Reenvía al `proxy_target`
+- Espera la respuesta del spooler remoto
+- Devuelve el resultado al cliente original
 
-- **Funcionamiento:**
-    1. Recibe solicitud del cliente
-    2. Valida formato JSON
-    3. Reenvía a servidor destino
-    4. Espera respuesta
-    5. Retransmite respuesta al cliente
+## Flujo de Procesamiento
 
-- **Configuración Requerida:**
-    - `proxy_enabled: true`
-    - URL válida en `proxy_target`
-    - Timeout configurable
-
-- **Ventajas:**
-    - Conexiones remotas
-    - Redundancia
-    - Centralización de equipos y servicios
+1. El cliente envía el documento a la API.
+2. El servidor valida el payload y carga la configuración activa.
+3. Si el modo es `PROXY`, la solicitud se reenvía.
+4. Si el modo es `SPOOLER`, `document_handler.py` resuelve la impresora fiscal activa.
+5. `printer_manager.py` instancia o reutiliza el driver fiscal correspondiente.
+6. El driver fiscal procesa el documento y devuelve el resultado.
+7. La API responde con estado, mensaje y datos fiscales relevantes.
 
 ## Diagrama de Arquitectura
 
 ```mermaid
 flowchart LR
-    A["__Cliente__"] -- Documento json ---> B["__ApiRest__"]
-    B -- Respuesta json ---> A
-    B -- Validar --> C["__Spooler__"]
-    C -- Impresora Fiscal ---o D(("__Respuesta__"))
-    C -- Impresora Matriz ---o D
-    C -- Impresora Ticket ---o D
-    D -- Error / Éxito ---> B
-    B -- Registros ---> E["__Log__"]
-    B <-- Parametros ---> F["Configuración"]
-
-    A@{ shape: rounded}
-    B@{ shape: diam}
-    C@{ shape: diam}
-    D@{ shape: circ}
-    E@{ shape: dbl-circ}
-    F@{ shape: card}
-
-    style A fill:#FFFFFF,stroke:#616161,color:#000000
-    style B fill:#FFFFFF,stroke:#616161,color:#000000
-    style C fill:#FFFFFF,stroke:#616161,color:#000000
-    style D fill:#FFFFFF,stroke:#616161,color:#000000
-    style E fill:#FFFFFF,stroke:#616161,color:#000000
-    style F fill:#FFFFFF,stroke:#616161,color:#000000
-    
-    linkStyle 0 stroke:#757575,fill:none
-    linkStyle 1 stroke:#757575,fill:none
-    linkStyle 2 stroke:#757575,fill:none
-    linkStyle 3 stroke:#757575,fill:none
-    linkStyle 4 stroke:#757575,fill:none
-    linkStyle 5 stroke:#757575,fill:none
-    linkStyle 6 stroke:#757575,fill:none
-    linkStyle 7 stroke:#757575,fill:none
-    linkStyle 8 stroke:#757575,fill:none
+    A["__Cliente__"] -- Documento json --> B["__API REST__"]
+    B -- Respuesta json --> A
+    B -- Configuración --> C["__Spooler / Proxy__"]
+    C -- Serial fiscal --> D["__Impresora Fiscal__"]
+    D -- Estado / datos fiscales --> C
+    C -- Resultado --> B
+    B -- Registros --> E["__Logs__"]
+    B <-- Config --> F["__config/config.json__"]
 ```

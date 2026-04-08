@@ -22,7 +22,6 @@ from handy.tools import get_base_path
 # Constantes
 VALID_SERVER_MODES = {"SPOOLER", "PROXY"}
 VALID_FISCAL_PRINTERS = {"TFHKA", "PNP", "RIGAZSA", "BEMATECH"}
-VALID_MATRIX_PAPER_TYPES = {"CARTA", "MEDIA_CARTA"}
 VALID_BARCODE_TYPES = {"QR", "BARCODE", "CODE128", "EAN13", "ITF", "CODE39", "PDF417"}
 
 CONFIG_SCHEMA = {
@@ -63,41 +62,8 @@ CONFIG_SCHEMA = {
                     },
                     "required": ["fiscal_enabled", "fiscal_name", "fiscal_port"],
                 },
-                "matrix": {
-                    "type": "object",
-                    "properties": {
-                        "matrix_enabled": {"type": "boolean"},
-                        "matrix_name": {"type": "string"},
-                        "matrix_port": {"type": "string"},
-                        "matrix_paper": {"type": "string", "enum": list(VALID_MATRIX_PAPER_TYPES)},
-                        "matrix_template": {"type": "string"},
-                        "matrix_file": {"type": "string"},
-                        "matrix_direct": {"type": "boolean"},
-                        "matrix_use_escp": {"type": "boolean"},
-                    },
-                    "required": ["matrix_enabled", "matrix_name", "matrix_port", "matrix_template"],
-                },
-                "ticket": {
-                    "type": "object",
-                    "properties": {
-                        "ticket_enabled": {"type": "boolean"},
-                        "ticket_name": {"type": "string"},
-                        "ticket_port": {"type": "string"},
-                        "ticket_paper": {"type": "string"},
-                        "ticket_template": {"type": "string"},
-                        "ticket_file": {"type": "string"},
-                        "ticket_direct": {"type": "boolean"},
-                        "ticket_use_escpos": {"type": "boolean"},
-                        "logo_enabled": {"type": "boolean"},
-                        "logo_width": {"type": "integer"},
-                        "logo_height": {"type": "integer"},
-                        "barcode_enabled": {"type": "boolean"},
-                        "barcode_type": {"type": "string", "enum": list(VALID_BARCODE_TYPES)},
-                    },
-                    "required": ["ticket_enabled", "ticket_name", "ticket_port", "ticket_template"],
-                },
             },
-            "required": ["fiscal", "matrix", "ticket"],
+            "required": ["fiscal"],
         },
         "logging": {
             "type": "object",

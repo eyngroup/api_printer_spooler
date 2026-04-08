@@ -1,269 +1,207 @@
 # Configuración del Sistema
 
-Este documento explica la estructura y opciones de configuración disponibles en el archivo `config.json`.
+Este documento describe el archivo `config/config.json` en su estado actual **fiscal-only**.
 
 ## Estructura General
 
-El archivo de configuración está dividido en las siguientes secciones principales:
+El archivo se organiza en cinco secciones:
 
-- Server
-- Proxy
-- Printers (Fiscal, Matrix, Ticket)
-- Logging
-- Security
+- `server`
+- `proxy`
+- `printers`
+- `logging`
+- `security`
 
-## Secciones Detalladas
-
-### Server
+## Ejemplo Completo
 
 ```json
 {
     "server": {
-        "server_mode": "SPOOLER",
-        "server_host": "0.0.0.0",
-        "server_debug": false,
-        "auto_browser": false,
         "allowed_origins": [
             "^http://localhost(:\\d+)?$",
-            "^https://.*\\.my-domain\\.com$"
-        ]
-    }
-}
-```
-#### Configuración del Servidor
-- `server_mode`: Modo de operación del servidor. Puede ser "SPOOLER" o "PROXY".
-- `server_host`: Dirección IP del servidor.
-- `server_port`: Puerto del servidor.
-- `server_debug`: Habilita el modo debug para desarrollo.
-- `auto_browser`: Abrir navegador automáticamente al iniciar.
-- `allowed_origins`: Lista de patrones Regex para dominios permitidos (CORS). Si se omite, se usan valores seguros por defecto.
-
-### Proxy
-
-```json
-{
+            "^http://127\\.0\\.0\\.1(:\\d+)?$",
+            "^http://\\[::1\\](:\\d+)?$",
+            "^http://192\\.168\\.\\d{1,3}\\.\\d{1,3}(:\\d+)?$",
+            "^http://10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(:\\d+)?$",
+            "^https://.*\\.odoo\\.com$",
+            "^https://sys\\.clidair\\.com$"
+        ],
+        "auto_browser": false,
+        "scan_serial_port": true,
+        "server_debug": true,
+        "server_host": "localhost",
+        "server_mode": "SPOOLER",
+        "server_port": 5051
+    },
     "proxy": {
         "proxy_enabled": false,
-        "proxy_target": "http://localhost:5001"
-    }
-}
-```
-#### Configuración del Proxy
-- `proxy_enabled`: Habilitar/deshabilitar modo proxy.
-- `proxy_target`: URL del servidor destino. Ejemplo: `Ejemplo: `URL_ADDRESS:5001`
-
-### Printers
-
-#### Impresora Fiscal
-
-```json
-{
-    "fiscal": {
-        "fiscal_enabled": true,
-        "fiscal_name": "TFHKA",
-        "fiscal_port": "COM9",
-        "fiscal_baudrate": 9600,
-        "fiscal_baudrate": 9600,
-        "fiscal_timeout": 3,
-        "fiscal_barcode_type": "CODE128"
-    }
-}
-```
-##### Impresora Fiscal
-- `fiscal_enabled`: Habilitar/deshabilitar impresora fiscal.
-- `fiscal_name`: Modelo de impresora (TFHKA, PNP, RIGAZSA*, BEMATECH*).
-- `fiscal_port`: Puerto serial.
-- `fiscal_baudrate`: Velocidad de comunicación serial.
-- `fiscal_timeout`: Tiempo de espera en segundos.
-- `fiscal_barcode_type`: Tipo de código de barras a imprimir en el pie del documento. Configura automáticamente el `Flag 43` de la impresora.
-
-> **Nota sobre Auto-Programación**: El sistema verificará al inicio si el `Flag 43` de la impresora coincide con el `fiscal_barcode_type` configurado. Si difieren, enviará automáticamente el comando de programación correspondiente (ej: `PJ43xx`) para ajustar la impresora. Las reglas de validación se encuentran en `hka_barcode_rules.json`.
-
-*Nota: Los modelos RIGAZSA y BEMATECH están en desarrollo y no disponibles actualmente.
-
-#### Impresora Matriz
-
-```json
-{
-    "matrix": {
-        "matrix_enabled": false,
-        "matrix_name": "EPSON LX-350",
-        "matrix_port": "LX-350",
-        "matrix_paper": "CARTA",
-        "matrix_template": "template_matriz_carta.json",
-        "matrix_file": "docs/print_output.txt",
-        "matrix_direct": false,
-        "matrix_use_escp": false
-    }
-}
-```
-##### Impresora Matriz
-- `matrix_enabled`: Habilitar/deshabilitar impresora matriz.
-- `matrix_name`: Nombre/modelo de la impresora. *USAR CONTROLADOR GENERICO PARA LAS IMPRESORAS*
-- `matrix_port`: Puerto de impresora, se usa el nombre de la impresora.
-- `matrix_paper`: Tipo de papel (CARTA, MEDIA_CARTA).
-- `matrix_template`: Plantilla a usar.
-- `matrix_file`: Archivo de salida si no es directa.
-- `matrix_direct`: Impresión directa al puerto.
-- `matrix_use_escp`: Usar comandos ESC/P.
-
-#### Impresora de Ticket
-
-```json
-{
-    "ticket": {
-        "ticket_enabled": false,
-        "ticket_name": "ROCCIO",
-        "ticket_port": "POS-80C",
-        "ticket_paper": "80mm",
-        "ticket_template": "template_ticket_simple.json",
-        "ticket_file": "docs/ticket_output.txt",
-        "ticket_direct": false,
-        "ticket_use_escpos": false,
-        "logo_enabled": false,
-        "logo_width": 300,
-        "logo_height": 100,
-        "barcode_enabled": false,
-        "barcode_type": "QR"
-    }
-}
-```
-##### Impresora de Ticket
-- `ticket_enabled`: Habilitar/deshabilitar impresora de tickets.
-- `ticket_name`: Nombre/modelo de la impresora.
-- `ticket_port`: Puerto de impresora, se usa el nombre de la impresora en Windows.
-- `ticket_paper`: Ancho del papel (58mm, 80mm).
-- `ticket_template`: Plantilla a usar.
-- `ticket_file`: Archivo de salida si no es directa.
-- `ticket_direct`: Impresión directa al puerto.
-- `ticket_use_escpos`: Usar comandos ESC/POS.
-##### Configuración de Logo
-- `logo_enabled`: Habilitar logo en tickets. Requiere un archivo logo.bmp en formato monocromático (1-bit) en la carpeta resources.
-- `logo_width`: Ancho del logo en píxeles. Debe mantener una proporción de 3:1 con el alto dependiendo de la imagen:
-  - Base:   300 píxeles
-  - Mínimo: 360 píxeles
-  - Normal: 480 píxeles (recomendado)
-  - Máximo: 720 píxeles
-- `logo_height`: Alto del logo en píxeles. Debe ser aproximadamente 1/3 del ancho. Valores recomendados:
-  - Base:   100 píxeles
-  - Mínimo: 120 píxeles
-  - Normal: 160 píxeles (recomendado)
-  - Máximo: 240 píxeles
-
-**Nota**: Para mantener la calidad de impresión, siempre escalar ambas dimensiones usando el mismo factor. Por ejemplo, para aumentar 25% usar: width=600, height=200.
-##### Configuración de Código de Barras
-- `barcode_enabled`: Habilitar códigos de barras.
-- `barcode_type`: Tipo de código (QR, BARCODE, CODE128).
-
-### Logging
-
-```json
-{
+        "proxy_target": "http://localhost:5000/api/printers"
+    },
+    "printers": {
+        "fiscal": {
+            "fiscal_barcode_type": "CODE128",
+            "fiscal_baudrate": 9600,
+            "fiscal_enabled": true,
+            "fiscal_name": "TFHKA",
+            "fiscal_port": "/dev/ttyACM0",
+            "fiscal_timeout": 2
+        }
+    },
     "logging": {
-        "log_output": false,
-        "log_file": "printer_service",
-        "log_level": "INFO",
-        "log_format": "%(asctime)s - %(levelname)s - %(message)s",
-        "log_days": 3
+        "log_days": 5,
+        "log_file": "printer_spooler",
+        "log_format": "\"%(asctime)s | %(levelname)s | %(message)s\"",
+        "log_level": "DEBUG",
+        "log_output": true
+    },
+    "security": {
+        "security_code": ""
     }
 }
 ```
-##### Configuración de Logs
-- `log_output`: Habilita la salida de logs en la consola.
-- `log_file`: Nombre del archivo de log, sin extensión.
-- `log_level`: Nivel de log, puede ser DEBUG, INFO, WARNING, ERROR o CRITICAL.
-- `log_format`: Formato de los logs. "%(asctime)s | %(levelname)s | [%(threadName)s] | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
-- `log_days`: Número de días que se mantienen los logs. Minimo 1 dia
 
-### Security
+## Secciones Detalladas
+
+### `server`
+
+Campos principales:
+
+- `server_mode`: modo de operación. Valores válidos: `SPOOLER`, `PROXY`.
+- `server_host`: host o IP donde escucha Flask.
+- `server_port`: puerto TCP del servicio.
+- `server_debug`: activa modo debug.
+- `auto_browser`: abre automáticamente el dashboard al iniciar.
+- `scan_serial_port`: intenta detectar y actualizar el puerto fiscal al iniciar.
+- `allowed_origins`: lista de expresiones regulares para CORS. Es una opción operativa usada por la API aunque no forme parte estricta del schema validado.
+
+### `proxy`
+
+Campos:
+
+- `proxy_enabled`: habilita lógica de reenvío.
+- `proxy_target`: URL absoluta del spooler remoto.
+
+Notas:
+
+- En modo `PROXY`, el servidor reenvía las solicitudes de impresión al `proxy_target`.
+- El endpoint destino habitual es `/api/printers`.
+
+### `printers`
+
+La rama fiscal-only mantiene una única subsección: `printers.fiscal`.
+
+```json
+{
+    "printers": {
+        "fiscal": {
+            "fiscal_enabled": true,
+            "fiscal_name": "TFHKA",
+            "fiscal_port": "COM3",
+            "fiscal_baudrate": 9600,
+            "fiscal_timeout": 2,
+            "fiscal_barcode_type": "CODE128"
+        }
+    }
+}
+```
+
+Campos:
+
+- `fiscal_enabled`: habilita o deshabilita la impresora fiscal.
+- `fiscal_name`: nombre del modelo fiscal.
+- `fiscal_port`: puerto serial.
+- `fiscal_baudrate`: velocidad serial.
+- `fiscal_timeout`: timeout en segundos.
+- `fiscal_barcode_type`: tipo de código de barras para el pie del documento fiscal.
+
+#### Modelos válidos en configuración
+
+Según el schema, se aceptan:
+
+- `TFHKA`
+- `PNP`
+- `RIGAZSA`
+- `BEMATECH`
+
+#### Modelos activos en runtime
+
+Los drivers operativos actuales de esta rama son:
+
+- `TFHKA`
+- `PNP`
+
+#### Tipos de código de barras válidos
+
+- `QR`
+- `BARCODE`
+- `CODE128`
+- `EAN13`
+- `ITF`
+- `CODE39`
+- `PDF417`
+
+#### Nota sobre `fiscal_barcode_type`
+
+En el flujo fiscal actual este valor se utiliza para alinear el formato del código de barras configurado con el comportamiento esperado del equipo y sus reglas auxiliares.
+
+### `logging`
+
+Campos:
+
+- `log_output`: muestra logs en consola.
+- `log_file`: nombre base del archivo de log.
+- `log_level`: uno de `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+- `log_format`: plantilla de formato.
+- `log_days`: días de retención.
+
+### `security`
 
 ```json
 {
     "security": {
-        "security_code": "1234"
+        "security_code": ""
     }
 }
 ```
-#### Configuración de Seguridad
-- `security_code`: Código de seguridad para operaciones protegidas.
 
-## Modos de Operación
+Campo:
 
-### Modo SPOOLER
+- `security_code`: campo conservado en la configuración por compatibilidad de estructura.
 
-- Procesa documentos directamente
-- Requiere configuración de al menos una impresora
-- Valida tipos de documentos y formato
+#### Comportamiento real de autenticación
 
-### Modo PROXY
+La validación del endpoint `POST /api/auth/validate` usa este orden:
 
-- Reenvía solicitudes a otro servidor
-- Requiere `proxy_enabled: true`
-- Necesita URL válida en `proxy_target`
+1. Variable de entorno `PRINTER_SECURITY_CODE`
+2. Fallback interno a `0205`
 
-## Configuración de Impresoras
+Actualmente **no toma el valor desde `config.json`** al validar la autenticación.
 
-### Impresora Fiscal
+## Recomendaciones Operativas
 
-- Soporta modelos TFHKA y PNP
-- Requiere configuración de puerto serial correcta
-- El timeout debe ajustarse según la velocidad de la impresora
+### Seguridad
 
-### Impresora Matriz
+- Definir `PRINTER_SECURITY_CODE` en el entorno del proceso.
+- Desactivar `server_debug` en producción.
+- Si el proxy atraviesa redes no confiables, usar transporte seguro.
 
-- Soporta impresión directa o a archivo
-- Comandos ESC/P opcionales para control avanzado
-- Plantillas específicas para formato carta
+### Impresión Fiscal
 
-### Impresora de Ticket
+- Verificar permisos sobre el puerto serial.
+- Ajustar `fiscal_timeout` según el modelo y el entorno.
+- Confirmar que `fiscal_name` coincida con el driver realmente soportado.
+- Mantener sincronizado `fiscal_barcode_type` con la configuración física esperada del equipo.
 
-- Soporta diferentes anchos de papel
-- Capacidad de imprimir logos y códigos QR
-- Comandos ESC/POS para mejor control
+### Red
 
-## Valores Permitidos
+- Si habrá acceso desde otros equipos, no usar `localhost` en `server_host`.
+- Abrir el puerto configurado en firewall.
+- En modo proxy, validar que `proxy_target` apunte al endpoint `/api/printers` del spooler remoto.
 
-### Server
+### Validación mínima después de cambios
 
-- `server_mode`: ["SPOOLER", "PROXY"]
-
-### Impresora Fiscal
-
-- `fiscal_name`: ["TFHKA", "PNP", "RIGAZSA"*, "BEMATECH"*]
-- `fiscal_barcode_type`: ["EAN13", "ITF", "CODE128", "CODE39", "QR", "PDF417"]
-  *En desarrollo
-
-### Impresora Matriz
-
-- `matrix_paper`: ["CARTA", "MEDIA_CARTA"]
-
-### Impresora de Ticket
-
-- `barcode_type`: ["QR", "BARCODE", "CODE128"]
-
-### Logging
-
-- `log_level`: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-- `log_format`: ["%(asctime)s, %(levelname)s, %(message)s", [%(threadName)s], %(filename)s:%(lineno)d, %(funcName)s"]
-
-## Recomendaciones
-
-1. **Seguridad**:
-    - Cambiar el código de seguridad predeterminado
-    - En producción, deshabilitar modo debug
-    - Usar HTTPS en modo proxy
-
-2. **Impresión**:
-    - Verificar permisos de puertos COM
-    - Probar plantillas antes de producción
-    - Ajustar timeouts según necesidad
-
-3. **Logging**:
-    - En producción, usar nivel INFO o superior
-    - Monitorear tamaño de logs
-    - Rotar logs regularmente
-
-4. **Red**:
-    - Verificar firewall para puertos usados
-    - En producción, limitar `server_host`
-    - Configurar proxy con URL completa
+- `GET /api/status`
+- `POST /api/config`
+- `POST /api/printers`
+- `GET /api/report_x`
+- `GET /api/report_z`

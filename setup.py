@@ -23,7 +23,6 @@ include_files = [
     ("LICENSE", "LICENSE"),
     ("README.md", "README.md"),
     ("resources/block.svg", "resources/block.svg"),
-    ("resources/logo.bmp", "resources/logo.bmp"),
     ("resources/printer_fiscal.ico", "resources/printer_fiscal.ico"),
 ]
 
@@ -44,7 +43,6 @@ build_options = {
         "flask_cors",
         "werkzeug",
         "jinja2",
-        "win32print",
         "logging",
         "json",
         "serial",

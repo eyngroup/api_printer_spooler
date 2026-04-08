@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Copyright © 2024, Iron Graterol
+Copyright 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
 
 Clase que contiene los comandos ESC/P, ESC/POS, TFHKA
@@ -9,131 +9,6 @@ Clase que contiene los comandos ESC/P, ESC/POS, TFHKA
 
 import ctypes
 from typing import Dict, Any
-
-
-class ESCPcmd:  # pylint: disable=R0903
-    """Clase que contiene los comandos ESC/P para impresoras matriciales"""
-
-    def __init__(self, use_escp=True):
-        self.use_escp: bool = use_escp
-
-        # Comandos básicos
-        self.CMD_INIT: bytes = self.command(b"\x1b@")  # Inicializar impresora
-        self.CMD_RESET: bytes = self.command(b"\x1b@")  # Reiniciar impresora
-        self.CMD_FORM_FEED: bytes = self.command(b"\x0c")  # Avanzar alimentador
-        self.CMD_CR: bytes = self.command(b"\x0d")  # Carriage return
-        self.CMD_LF: bytes = self.command(b"\x0a")  # Line feed
-        self.CMD_CR_LF: bytes = self.command(b"\x0d\x0a")  # Carriage return + Line feed
-
-        # Comandos de página
-        self.CMD_PAGE_LENGTH: bytes = self.command(b"\x1bC")  # Ajustar longitud de página en líneas
-        self.CMD_PAGE_ZERO: bytes = self.command(b"\x1b\x43\x00")  # Ajustar longitud de página a 0
-        self.CMD_MARGINS: bytes = self.command(b"\x1bQ")  # Set right and left margins
-
-        # Comandos de fuente y calidad
-        self.CMD_DRAFT: bytes = self.command(b"\x1bx0")  # Calidad draft
-        self.CMD_NLQ: bytes = self.command(b"\x1bx1")  # NLQ (Calidad Cercana a Carta)
-
-        # Comandos de alineación
-        self.CMD_ALIGN_LEFT: bytes = self.command(b"\x1ba\x00")  # Alineación a la izquierda
-        self.CMD_ALIGN_CENTER: bytes = self.command(b"\x1ba\x01")  # Alineación al centro
-        self.CMD_ALIGN_RIGHT: bytes = self.command(b"\x1ba\x02")  # Alineación a la derecha
-
-        # Comandos CPI (Caracteres por pulgada)
-        self.CMD_CPI_10: bytes = self.command(b"\x1bP")  # Usar 10 CPI
-        self.CMD_CPI_12: bytes = self.command(b"\x1bM")  # Usar 12 CPI
-        self.CMD_CPI_15: bytes = self.command(b"\x1bg")  # Usar 15 CPI
-        self.CMD_CPI_17: bytes = self.command(b"\x1bP\x1b\x0f")  # Usar 10 CPI + condensada
-        self.CMD_CPI_20: bytes = self.command(b"\x1bM\x1b\x0f")  # Usar 12 CPI + condensada
-        self.CMD_CONDENSED_ON: bytes = self.command(b"\x0f")  # ON fuente condensada
-        self.CMD_CONDENSED_OFF: bytes = self.command(b"\x12")  # OFF fuente condensada
-
-        # Comandos de tamaño comprimido
-        self.CMD_COMPRESSED_ON: bytes = self.command(b"\x1b\x0f")  # ON Impresión comprimida
-        self.CMD_COMPRESSED_OFF: bytes = self.command(b"\x1b\x12")  # OFF Impresión comprimida
-        self.CMD_SUPERSCRIPT_ON: bytes = self.command(b"\x1bS0")  # ON Superíndice
-        self.CMD_SUBSCRIPT_ON: bytes = self.command(b"\x1bS1")  # ON Subíndice
-        self.CMD_SCRIPT_OFF: bytes = self.command(b"\x1bT")  # OFF Superíndice/Subíndice
-
-        # Comandos de estilo
-        self.CMD_BOLD_ON: bytes = self.command(b"\x1bE")  # ON fuente en negrita
-        self.CMD_BOLD_OFF: bytes = self.command(b"\x1bF")  # OFF fuente en negrita
-        self.CMD_EXPANDED_ON: bytes = self.command(b"\x1bW\x01")  # ON fuente ampliada
-        self.CMD_EXPANDED_OFF: bytes = self.command(b"\x1bW\x00")  # OFF fuente ampliada
-        self.CMD_CURSIVE_ON: bytes = self.command(b"\x1b4")  # ON fuente cursiva
-        self.CMD_CURSIVE_OFF: bytes = self.command(b"\x1b5")  # OFF fuente cursiva
-        self.CMD_UNDERLINE_ON: bytes = self.command(b"\x1b-\x01")  # ON fuente subrayada
-        self.CMD_UNDERLINE_OFF: bytes = self.command(b"\x1b-\x00")  # OFF fuente subrayada
-
-        # Comandos de espaciado
-        self.CMD_LINE_SPACING_1_8: bytes = self.command(b"\x1b0")  # Interlineado de 1/8 de pulgada
-        self.CMD_LINE_SPACING_1_6: bytes = self.command(b"\x1b2")  # Interlineado de 1/6 pulgadas
-        self.CMD_LINE_SPACING_N_72: bytes = self.command(b"\x1bA")  # Espacio entre líneas de n/72 pulgadas
-        self.CMD_LINE_SPACING_N_216: bytes = self.command(b"\x1b3")  # n/216 pulgadas de espacio entre líneas
-        self.CMD_LINE_SPACING_TIGHT: bytes = self.command(b"\x1b3\x0c")  # Distancia entre líneas estrecha (12/216")
-        self.CMD_LINE_SPACING_NORMAL: bytes = self.command(b"\x1b3\x18")  # Interlineado normal (24/216")
-        self.CMD_LINE_SPACING_WIDE: bytes = self.command(b"\x1b3\x24")  # Amplia separación entre líneas (36/216")
-
-        # Comandos de caracteres
-        self.CMD_CHARSET_USA: bytes = self.command(b"\x1bR\x00")  # Seleccione el conjunto de caracteres de EE.UU.
-        self.CMD_CHARSET_SPAIN: bytes = self.command(b"\x1bR\x06")  # Seleccione el juego de caracteres español
-        self.CMD_CHARSET_PC850: bytes = self.command(b"\x1bt\x02")  # Select CP850 (multilingual)
-
-    def command(self, value: bytes) -> bytes:
-        """Retorna el comando si use_escp es True, sino retorna cadena vacía"""
-        return value if self.use_escp else b""
-
-
-class ESCPOScmd:  # pylint: disable=R0903
-    """Clase que contiene los comandos ESC/POS para impresoras térmicas"""
-
-    def __init__(self, use_escpos=True):
-        self.use_escpos = use_escpos
-
-        # Comandos básicos
-        self.CMD_INIT = self.command("\x1b\x40")  # Inicializar impresora
-        self.CMD_CHARSET = self.command("\x1b\x74\x12")  # character code table (PC850)
-        self.CMD_CUT = self.command("\x1d\x56\x41\x00")  # Cut paper
-        self.CMD_FEED = self.command("\x0a")  # Avanzar alimentador
-
-        # Comandos de fuente
-        self.CMD_FONT_A = self.command("\x1b\x4d\x00")  # Fuente A (12x24)
-        self.CMD_FONT_B = self.command("\x1b\x4d\x01")  # Fuente B (9x17)
-        self.CMD_FONT_NORMAL = self.command("\x1d\x21\x00")  # Tamaño normal
-        self.CMD_FONT_DOUBLE = self.command("\x1d\x21\x11")  # Doble altura y anchura
-
-        # Comandos de alineación
-        self.CMD_ALIGN_LEFT = self.command("\x1b\x61\x00")  # Alineación a la izquierda
-        self.CMD_ALIGN_CENTER = self.command("\x1b\x61\x01")  # Alineación al centro
-        self.CMD_ALIGN_RIGHT = self.command("\x1b\x61\x02")  # Alineación a la derecha
-
-        # Comandos de estilo
-        self.CMD_BOLD_ON = self.command("\x1b\x45\x01")  # ON fuente en negrita
-        self.CMD_BOLD_OFF = self.command("\x1b\x45\x00")  # OFF fuente en negrita
-        self.CMD_UNDERLINE_ON = self.command("\x1b\x2d\x01")  # ON fuente subrayada
-        self.CMD_UNDERLINE_OFF = self.command("\x1b\x2d\x00")  # OFF fuente subrayada
-        self.CMD_INVERSE_ON = self.command("\x1d\x42\x01")  # ON blanco sobre negro
-        self.CMD_INVERSE_OFF = self.command("\x1d\x42\x00")  # OFF blanco sobre negro
-
-        # Comandos de código de barras
-        self.CMD_BARCODE_HEIGHT = self.command("\x1d\x68\x50")  # Ajustar altura del código
-        self.CMD_BARCODE_WIDTH = self.command("\x1d\x77\x02")  # Ajustar anchura del código
-        self.CMD_BARCODE_FONT = self.command("\x1d\x66\x00")  # Ajustar fuente de código
-        self.CMD_BARCODE_TXT_OFF = self.command("\x1d\x48\x00")  # HRI caracteres del código OFF
-        self.CMD_BARCODE_TXT_ABV = self.command("\x1d\x48\x01")  # HRI caracteres del código arriba
-        self.CMD_BARCODE_TXT_BLW = self.command("\x1d\x48\x02")  # HRI caracteres del código abajo
-        self.CMD_BARCODE_TXT_BTH = self.command("\x1d\x48\x03")  # HRI tanto arriba como abajo
-        self.CMD_BARCODE_CODE128 = self.command("\x1d\x6b\x49")  # Formato de código de barras 128
-
-        # Comandos de código qr
-        self.CMD_QR_SIZE = self.command("\x1d\x28\x6b\x03\x00\x31\x43")  # Ajustar tamaño QR
-        self.CMD_QR_CORRECTION = self.command("\x1d\x28\x6b\x03\x00\x31\x45")  # Establecer corrección QR
-        self.CMD_QR_STORE = self.command("\x1d\x28\x6b")  # Almacenar datos QR
-        self.CMD_QR_PRINT = self.command("\x1d\x28\x6b\x03\x00\x31\x51\x30")  # Imprimir código QR
-
-    def command(self, value):
-        """Retorna el comando si use_escpos es True, sino retorna cadena vacía"""
-        return value if self.use_escpos else ""
 
 
 class HKAcmd:  # pylint: disable=R0903

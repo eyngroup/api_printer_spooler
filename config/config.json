@@ -28,31 +28,6 @@
             "fiscal_name": "TFHKA",
             "fiscal_port": "/dev/ttyACM0",
             "fiscal_timeout": 2
-        },
-        "matrix": {
-            "matrix_direct": false,
-            "matrix_enabled": false,
-            "matrix_file": "docs/print_output.txt",
-            "matrix_name": "LX-350",
-            "matrix_paper": "MEDIA_CARTA",
-            "matrix_port": "EPSON LX-350",
-            "matrix_template": "template_matriz_carta.json",
-            "matrix_use_escp": false
-        },
-        "ticket": {
-            "barcode_enabled": false,
-            "barcode_type": "BARCODE",
-            "logo_enabled": false,
-            "logo_height": 160,
-            "logo_width": 480,
-            "ticket_direct": false,
-            "ticket_enabled": false,
-            "ticket_file": "docs/ticket_output.txt",
-            "ticket_name": "PDF",
-            "ticket_paper": "80mm",
-            "ticket_port": "PDF",
-            "ticket_template": "template_ticket_simple.json",
-            "ticket_use_escpos": false
         }
     },
     "logging": {

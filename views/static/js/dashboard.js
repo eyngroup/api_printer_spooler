@@ -102,33 +102,16 @@ async function updateDashboard() {
         // Actualizar estado de impresoras
         const printers = data.config.printers || {};
 
-        // Actualizar cada impresora y su estado
-        const updatePrinter = (type, statusId, displayName) => {
-            const config = printers[type];
-            const enabled = config ? config[`${type}_enabled`] : false;
-            const name = config ? config[`${type}_name`] : '';
-
-            updatePrinterStatus(statusId, enabled);
-            updatePrinterName(statusId, displayName, name);
-        };
-
-        updatePrinter('matrix', 'matrixStatus', 'Impresora Matricial');
-        updatePrinter('ticket', 'ticketStatus', 'Impresora de Tickets');
-        updatePrinter('fiscal', 'fiscalStatus', 'Impresora Fiscal');
+        const fiscalConfig = printers.fiscal || {};
+        updatePrinterStatus('fiscalStatus', fiscalConfig.fiscal_enabled || false);
+        updatePrinterName('fiscalStatus', 'Impresora Fiscal', fiscalConfig.fiscal_name || '');
 
         // Actualizar configuración actual
         const serverConfig = data.config.server || {};
         const loggingConfig = data.config.logging || {};
 
         // Determinar el puerto activo de la impresora
-        let activePort = '--';
-        if (printers.matrix?.matrix_enabled) {
-            activePort = printers.matrix.matrix_port;
-        } else if (printers.ticket?.ticket_enabled) {
-            activePort = printers.ticket.ticket_port;
-        } else if (printers.fiscal?.fiscal_enabled) {
-            activePort = printers.fiscal.fiscal_port;
-        }
+        const activePort = fiscalConfig.fiscal_enabled ? fiscalConfig.fiscal_port : '--';
 
         // Actualizar campos de configuración
         const updateElement = (id, value) => {

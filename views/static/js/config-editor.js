@@ -18,7 +18,9 @@ async function loadConfiguration() {
         currentConfig = {
             server: data.config.server,
             proxy: data.config.proxy,
-            printers: data.config.printers,
+            printers: {
+                fiscal: data.config.printers?.fiscal || {}
+            },
             logging: data.config.logging,
             security: data.config.security
         };
@@ -50,39 +52,13 @@ function populateForm(config) {
 
     // Impresoras
     if (config.printers) {
-        // Ticket
-        if (config.printers.ticket) {
-            setFormValue('ticketEnabled', config.printers.ticket.ticket_enabled);
-            setFormValue('ticketName', config.printers.ticket.ticket_name);
-            setFormValue('ticketPrinterName', config.printers.ticket.ticket_port);
-            setFormValue('ticketPaperSize', config.printers.ticket.ticket_paper);
-            setFormValue('ticketTemplate', config.printers.ticket.ticket_template);
-            setFormValue('ticketBarcodeEnabled', config.printers.ticket.barcode_enabled);
-            setFormValue('ticketBarcodeType', config.printers.ticket.barcode_type);
-            setFormValue('ticketLogoEnabled', config.printers.ticket.logo_enabled);
-            setFormValue('ticketLogoWidth', config.printers.ticket.logo_width);
-            setFormValue('ticketLogoHeight', config.printers.ticket.logo_height);
-        }
-
-        // Matrix
-        if (config.printers.matrix) {
-            setFormValue('matrixEnabled', config.printers.matrix.matrix_enabled);
-            setFormValue('matrixName', config.printers.matrix.matrix_name);
-            setFormValue('matrixPrinterName', config.printers.matrix.matrix_port);
-            setFormValue('matrixDirectPrint', config.printers.matrix.matrix_direct);
-            setFormValue('matrixOutputFile', config.printers.matrix.matrix_file);
-            setFormValue('matrixPaperSize', config.printers.matrix.matrix_paper);
-            setFormValue('matrixTemplate', config.printers.matrix.matrix_template);
-            setFormValue('matrixUseEscp', config.printers.matrix.matrix_use_escp);
-        }
-
-        // Fiscal
         if (config.printers.fiscal) {
             setFormValue('fiscalEnabled', config.printers.fiscal.fiscal_enabled);
             setFormValue('fiscalName', config.printers.fiscal.fiscal_name);
             setFormValue('fiscalPort', config.printers.fiscal.fiscal_port);
             setFormValue('fiscalBaudrate', config.printers.fiscal.fiscal_baudrate);
             setFormValue('fiscalTimeout', config.printers.fiscal.fiscal_timeout);
+            setFormValue('fiscalBarcodeType', config.printers.fiscal.fiscal_barcode_type);
         }
     }
 
