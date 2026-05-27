@@ -22,6 +22,7 @@ from handy.tools import get_base_path
 from server.config_loader import ConfigManager, get_security_code
 from .handlers.document_handler import handle_documents, handle_reports, handle_fiscal_commands
 from .handlers.proxy_handler import ProxyHandler
+from .handlers.job_store import init_db
 from .auth import require_auth, create_session, cleanup_sessions
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,8 @@ def create_app(config):
 
     app.config.update(config)
     app.register_blueprint(api, url_prefix="/api")
+
+    init_db()
 
     if config.get("server", {}).get("server_mode") == "PROXY":
         server_state.proxy_handler = ProxyHandler(config)

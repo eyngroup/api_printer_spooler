@@ -21,7 +21,7 @@ from handy.tools import get_base_path
 
 # Constantes
 VALID_SERVER_MODES = {"SPOOLER", "PROXY"}
-VALID_FISCAL_PRINTERS = {"TFHKA", "PNP", "RIGAZSA", "BEMATECH"}
+VALID_FISCAL_PRINTERS = {"TFHKA", "PNP"}
 VALID_BARCODE_TYPES = {"QR", "BARCODE", "CODE128", "EAN13", "ITF", "CODE39", "PDF417"}
 
 CONFIG_SCHEMA = {
@@ -92,8 +92,11 @@ logger = logging.getLogger(__name__)
 
 
 def get_security_code() -> str:
-    """Obtiene el security code desde variable de entorno o fallback."""
-    return os.environ.get("PRINTER_SECURITY_CODE", "0205")
+    """Obtiene el security code: env var > config.json > fallback."""
+    if code := os.environ.get("PRINTER_SECURITY_CODE"):
+        return code
+    config_code = ConfigManager.get_config().get("security", {}).get("security_code", "")
+    return config_code if config_code else "0205"
 
 
 class ConfigReloader(FileSystemEventHandler):  # pylint: disable=R0903

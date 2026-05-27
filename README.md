@@ -17,8 +17,7 @@ En esta rama se eliminó todo el soporte no fiscal. El sistema mantiene solo el 
 
 ## Alcance actual
 
-- **Drivers fiscales activos en runtime**: `TFHKA`, `PNP`
-- **Valores reservados en schema de configuración**: `RIGAZSA`, `BEMATECH`
+- **Drivers fiscales soportados**: `TFHKA`, `PNP`
 - **Operaciones disponibles**:
   - Impresión de documentos fiscales
   - Reporte X

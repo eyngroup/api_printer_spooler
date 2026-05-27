@@ -4,6 +4,7 @@
 .vs/
 .vscode/
 .ruff_cache/
+.atl/
 dist/
 build/
 __pycache__/
@@ -12,6 +13,7 @@ logs/
 # Archivos
 .env
 *.log
+*.db
 
 # Documentación interna (no subir al repo)
 docs/MEMORY.md
@@ -23,3 +25,5 @@ docs/firewall.txt
 handy/commands.json
 handy/commands_factura.json
 handy/commands_credito.json
+handy/commands_debito.json
+handy/commands_config.json

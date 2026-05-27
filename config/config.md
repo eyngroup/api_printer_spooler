@@ -114,18 +114,7 @@ Campos:
 - `fiscal_timeout`: timeout en segundos.
 - `fiscal_barcode_type`: tipo de código de barras para el pie del documento fiscal.
 
-#### Modelos válidos en configuración
-
-Según el schema, se aceptan:
-
-- `TFHKA`
-- `PNP`
-- `RIGAZSA`
-- `BEMATECH`
-
-#### Modelos activos en runtime
-
-Los drivers operativos actuales de esta rama son:
+#### Modelos válidos
 
 - `TFHKA`
 - `PNP`

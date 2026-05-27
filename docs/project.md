@@ -126,12 +126,9 @@ La API recibe un JSON con la siguiente estructura general:
 Procesa directamente el documento sobre la impresora fiscal conectada al equipo.
 
 - **Conexión**: puerto serial (`COM`, `/dev/ttyACM*`, `/dev/ttyUSB*`)
-- **Drivers activos en runtime**:
+- **Drivers soportados**:
   - `TFHKA`
   - `PNP`
-- **Valores reservados en el schema**:
-  - `RIGAZSA`
-  - `BEMATECH`
 
 #### Capacidades fiscales relevantes
 
@@ -153,15 +150,41 @@ Actúa como intermediario y reenvía la solicitud a otro spooler fiscal.
 - Espera la respuesta del spooler remoto
 - Devuelve el resultado al cliente original
 
+## Capa de Idempotencia (Job Store)
+
+El spooler incorpora una capa de deduplicación que evita imprimir el mismo documento dos veces ante solicitudes repetidas de Odoo (doble clic, reintentos de red, pestañas múltiples).
+
+### Mecanismo
+
+- La clave de idempotencia es `(document_number, operation_type)`, donde `document_number` corresponde al ID interno del registro en Odoo.
+- Los trabajos se persisten en una base SQLite en `data/print_jobs.db`.
+- El acceso es atómico: `threading.Lock` + restricción `UNIQUE` en la tabla.
+
+### Estados de un trabajo
+
+| Estado | Significado | Acción del spooler |
+|---|---|---|
+| `processing` | En curso | Rechaza el duplicado con HTTP 409 |
+| `completed` | Exitoso | Retorna la respuesta cacheada sin tocar la impresora |
+| `failed` | Error previo | Autoriza el reintento y procesa nuevamente |
+
+### Alcance
+
+La idempotencia aplica únicamente a `POST /api/printers`. Los reportes X y Z no tienen `document_id` y no están cubiertos.
+
+---
+
 ## Flujo de Procesamiento
 
 1. El cliente envía el documento a la API.
 2. El servidor valida el payload y carga la configuración activa.
 3. Si el modo es `PROXY`, la solicitud se reenvía.
 4. Si el modo es `SPOOLER`, `document_handler.py` resuelve la impresora fiscal activa.
-5. `printer_manager.py` instancia o reutiliza el driver fiscal correspondiente.
-6. El driver fiscal procesa el documento y devuelve el resultado.
-7. La API responde con estado, mensaje y datos fiscales relevantes.
+5. **`job_store.py` evalúa la idempotencia**: si el documento ya fue procesado exitosamente, devuelve la respuesta cacheada y termina el flujo.
+6. `printer_manager.py` instancia o reutiliza el driver fiscal correspondiente.
+7. El driver fiscal procesa el documento y devuelve el resultado.
+8. `job_store.py` registra el resultado (`completed` o `failed`).
+9. La API responde con estado, mensaje y datos fiscales relevantes.
 
 ## Diagrama de Arquitectura
 

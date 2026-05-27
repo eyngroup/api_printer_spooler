@@ -15,6 +15,7 @@ from jsonschema import ValidationError
 
 from models.model_invoice import Invoice
 from .printer_manager import PrinterManager
+from .job_store import acquire_job, complete_job, fail_job
 from ..document_schema import validate_document
 
 HTTP_BAD_REQUEST = 400
@@ -139,6 +140,19 @@ def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int
         except Exception as e:
             return error_response(f"Error al validar reglas de negocio del documento: {str(e)}")
 
+        # Idempotency check — must happen before touching the serial port
+        acquire_result, cached_response = acquire_job(invoice.document_number, invoice.operation_type)
+
+        if acquire_result == "duplicate":
+            return jsonify(cached_response)
+
+        if acquire_result == "in_progress":
+            return (
+                jsonify({"status": False, "message": "Solicitud en curso, intente nuevamente en unos segundos"}),
+                409,
+            )
+
+        # acquire_result is 'new' or 'retry' — proceed
         printers_config = current_app.config.get("printers", {})  # Obtener configuración de impresoras
         printer, error_data = printer_instance(printers_config)
         if not printer:
@@ -147,26 +161,27 @@ def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int
                     message = f"Impresora no disponible - Estado: {error_data['state']}, Error: {error_data['error']}"
                 else:
                     message = error_data.get("message", "Error desconocido al obtener la impresora")
+                fail_job(invoice.document_number, invoice.operation_type, message)
                 return error_response(message, data=error_data)
+            fail_job(invoice.document_number, invoice.operation_type, "No hay impresoras habilitadas")
             return error_response("No hay impresoras habilitadas para procesar el documento")
 
         result = printer.print_document(data)  # Procesar el documento
         logger.debug("Documento result= %s", result)
 
         if result.get("status", False):
+            response_payload = {
+                "status": True,
+                "message": result.get("message", "Documento procesado correctamente"),
+                "data": result.get("data", {}),
+            }
+            complete_job(invoice.document_number, invoice.operation_type, response_payload)
             logger.info("Documento Origen: %s, impreso correctamente", invoice.document_number)
-            return jsonify(
-                {
-                    "status": True,
-                    "message": result.get("message", "Documento procesado correctamente"),
-                    "data": result.get("data", {}),
-                }
-            )
+            return jsonify(response_payload)
 
-        return error_response(
-            result.get("message", "Error desconocido al imprimir"),
-            data=result.get("data"),
-        )
+        error_msg = result.get("message", "Error desconocido al imprimir")
+        fail_job(invoice.document_number, invoice.operation_type, error_msg)
+        return error_response(error_msg, data=result.get("data"))
 
     except Exception as e:
         return error_response(f"Error interno del servidor: {str(e)}", HTTP_INTERNAL_ERROR)
@@ -278,7 +293,18 @@ def handle_fiscal_commands() -> Tuple[Response, int]:
             return error_response(message, data=error_data)
 
         if not printer.check_status():
-            return error_response("La impresora fiscal no está lista")
+            fiscal_name = printers_config.get("fiscal", {}).get("fiscal_name", "").strip().lower()
+            PrinterManager.remove_printer(fiscal_name)
+            printer, error_data = printer_instance(printers_config)
+            if not printer:
+                message = (
+                    error_data.get("message", "Error al reconectar con la impresora")
+                    if error_data
+                    else "No se pudo reconectar con la impresora fiscal"
+                )
+                return error_response(message, data=error_data)
+            if not printer.check_status():
+                return error_response("La impresora fiscal no está lista")
 
         results = []
         for cmd in commands:

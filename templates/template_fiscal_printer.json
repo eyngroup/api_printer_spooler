@@ -20,6 +20,6 @@
     "include_delivery_comments": false,
     "include_delivery_barcode": true,
     "include_operator_mail": true,
-    "include_exchange_rate": true
+    "include_exchange_rate": false
   }
 }

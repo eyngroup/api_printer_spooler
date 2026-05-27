@@ -12,7 +12,7 @@
         "auto_browser": false,
         "scan_serial_port": false,
         "server_debug": true,
-        "server_host": "localhost",
+        "server_host": "127.0.0.1",
         "server_mode": "SPOOLER",
         "server_port": 5051
     },
@@ -26,7 +26,7 @@
             "fiscal_baudrate": 9600,
             "fiscal_enabled": true,
             "fiscal_name": "TFHKA",
-            "fiscal_port": "/dev/ttyACM0",
+            "fiscal_port": "COM4",
             "fiscal_timeout": 2
         }
     },
@@ -34,7 +34,7 @@
         "log_days": 5,
         "log_file": "printer_spooler",
         "log_format": "\"%(asctime)s | %(levelname)s | %(message)s\"",
-        "log_level": "DEBUG",
+        "log_level": "INFO",
         "log_output": true
     },
     "security": {
