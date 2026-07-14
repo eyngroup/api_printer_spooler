@@ -1,3 +1,0 @@
- Session   Verificar sesión previa con información del API S…
-  Continue  opencode -s ses_295a94000ffekbBbwDNuHgWVdN
-

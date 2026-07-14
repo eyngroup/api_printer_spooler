@@ -96,6 +96,7 @@ def acquire_job(document_id: str, operation_type: str) -> Tuple[str, Optional[Di
                     document_id,
                     operation_type,
                 )
+                logger.debug("Job store: caché retornado %s/%s — %s", document_id, operation_type, cached)
                 return "duplicate", cached
 
             if existing["status"] == "processing":

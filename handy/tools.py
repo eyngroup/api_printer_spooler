@@ -38,7 +38,7 @@ def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFD", text)
     text = "".join([c for c in text if not unicodedata.combining(c)])
 
-    allowed_chars = r"[^a-zA-Z0-9\s\*\+\"\(\)\[\]\#@\'`|~{}:;?,\-_\^$!=%]"
+    allowed_chars = r"[^a-zA-Z0-9\s\*\+\"\(\)\[\]\#@\'`|~{}:;?,\-_\^$!=%\.]"
     text = re.sub(allowed_chars, "", text)
 
     text = text.encode("ascii", "ignore").decode("utf-8")
