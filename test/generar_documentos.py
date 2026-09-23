@@ -3,6 +3,7 @@ import random
 import string
 from datetime import datetime
 
+
 def random_string(length, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(length))
 

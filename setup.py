@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -7,9 +6,11 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 setup cxFreeze
 """
 
-import sys
 import os
-from cx_Freeze import setup, Executable
+import sys
+
+from cx_Freeze import Executable, setup
+
 from handy.version import __version__
 
 # Obtener la ruta base del proyecto
@@ -69,6 +70,9 @@ build_options = {
         "printers.printer_hka",
         "pystray",
         "tkinter",
+        "ttkbootstrap",
+        "views",
+        "views.main_window",
     ],
     "include_files": include_files,
     "include_msvcr": True,

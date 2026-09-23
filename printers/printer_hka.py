@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -12,8 +11,8 @@ import logging
 import os
 import time
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP, getcontext
-from typing import TYPE_CHECKING, Dict, Any
+from decimal import ROUND_HALF_UP, Decimal, getcontext
+from typing import TYPE_CHECKING, Any
 
 from controllers.pfhka import FiscalPrinterHka
 from printers.printer_base import BasePrinter, FiscalPrinterMixin
@@ -21,7 +20,7 @@ from printers.printer_commands import HKAcmd
 
 if TYPE_CHECKING:
     from controllers.pfhka import FiscalPrinterHka
-from handy.tools import get_base_path, normalize_text, normalize_date, normalize_number, format_multiline
+from handy.tools import format_multiline, get_base_path, normalize_date, normalize_number, normalize_text
 
 # Configuración del logging
 logger = logging.getLogger(__name__)
@@ -48,7 +47,7 @@ TAX_VALUES = {
 class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
     """Clase para manejar la impresión en impresoras fiscales the factory hka"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Inicializa la impresora fiscal y establece la conexión
         Args:
@@ -80,7 +79,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
     def _initialize_printer(self) -> None:
         """Crea la instancia del controlador de la impresora TFHKA"""
 
-    def format_status_message(self, status: Dict[str, Any]) -> tuple[str, str]:
+    def format_status_message(self, status: dict[str, Any]) -> tuple[str, str]:
         """
         Formatea el mensaje de status para logging/respuesta.
         TFHKA usa keys: 'status' y 'error'.
@@ -232,7 +231,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
                 # Actualizar el archivo JSON con el modelo y serial obtenidos
                 try:
                     template_path = os.path.join(get_base_path(), "templates", "template_fiscal_printer.json")
-                    with open(template_path, "r", encoding="utf-8") as f:
+                    with open(template_path, encoding="utf-8") as f:
                         template_data = json.load(f)
                     if "fiscal" not in template_data:
                         template_data["fiscal"] = {}
@@ -348,7 +347,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
             logger.error("Error al verificar estado de la impresora: %s", str(e))
             return False
 
-    def get_printer_status(self) -> Dict[str, Any]:
+    def get_printer_status(self) -> dict[str, Any]:
         """
         Obtiene el estado detallado de la impresora desde el propio metodo
         Returns:
@@ -376,7 +375,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
             logger.error("Error al generar reporte Z: %s", str(e))
             return False
 
-    def print_document(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def print_document(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Imprime un documento fiscal
         Args:
@@ -435,7 +434,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
             message_error = f"Falla durante la impresión del documento de tipo: {operation_type} [{str(e)}]"
             return {"status": False, "message": message_error, "data": None}
 
-    def _process_customer_data(self, data: Dict[str, Any], operation_type: str) -> None:
+    def _process_customer_data(self, data: dict[str, Any], operation_type: str) -> None:
         """Procesa y envía los datos del cliente a la impresora."""
         logger.debug("Procesando documento")
 
@@ -553,7 +552,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
             if not self.send_command(cmd):
                 raise RuntimeError(f"Error al procesar los datos del documento: {cmd}")
 
-    def _process_items(self, data: Dict[str, Any], operation_type: str) -> None:
+    def _process_items(self, data: dict[str, Any], operation_type: str) -> None:
         """Procesa y envía los ítems del documento a la impresora."""
         logger.debug("Procesando items")
 
@@ -608,7 +607,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
                     if not self.send_command(HKAcmd.ITEM_COMMENT.format(item_comment)):
                         raise RuntimeError(f"Error al procesar comentario: {item_comment}")
 
-    def _process_footer(self, data: Dict[str, Any], operation_type: str) -> None:
+    def _process_footer(self, data: dict[str, Any], operation_type: str) -> None:
         """Procesa el pie de página."""
         logger.debug("Procesando pie de página")
 
@@ -672,7 +671,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
                         self._flag_43,
                     )
 
-    def _process_payments(self, data: Dict[str, Any], operation_type: str) -> None:
+    def _process_payments(self, data: dict[str, Any], operation_type: str) -> None:
         """Procesa los métodos de pago del documento."""
         logger.debug("Procesando pagos")
 
@@ -709,7 +708,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
                 if not self.send_command(HKAcmd.IGTF_CLOSE):
                     raise RuntimeError("Error al ejecutar codigo de cierre con IGTF")
 
-    def _process_send_data(self, operation_type: str) -> Dict[str, Any]:
+    def _process_send_data(self, operation_type: str) -> dict[str, Any]:
         """Obtiene los datos fiscales finales después de la impresión."""
         logger.debug("Obteniendo datos fiscales finales")
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -8,12 +7,12 @@ Clase que maneja las solicitudes HTTP y las reenvía al servidor SPOOLER.
 """
 
 import logging
-from typing import Dict, Any, Tuple
+from typing import Any
 
 import requests
 from flask import request
-from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout
-
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import Timeout
 
 DEFAULT_TIMEOUT = 30  # segundos
 HTTP_BAD_REQUEST = 400
@@ -32,18 +31,18 @@ class ProxyHandler:  # pylint: disable=R0903
     Incluye manejo de errores y logging detallado de las operaciones.
     """
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
         """
         Inicializa el manejador de proxy con la configuración proporcionada.
         Args:
             config: Diccionario con la configuración del proxy.
                    Debe contener 'proxy_target' y 'proxy_enabled'.
         """
-        self.config: Dict[str, Any] = config
+        self.config: dict[str, Any] = config
         self.target_url: str = config["proxy"]["proxy_target"]
         self.enabled: bool = config["proxy"]["proxy_enabled"]
 
-    def handle_request(self) -> Tuple[Dict[str, Any], int]:
+    def handle_request(self) -> tuple[dict[str, Any], int]:
         """
         Maneja una solicitud HTTP y la reenvía al servidor SPOOLER.
         Returns:

@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
 """
 
-import time
-from typing import Any, Dict, List, Optional, Union
 import logging
+import time
+from typing import Any
+
 import serial
 
 # Configuración del logging
@@ -106,7 +106,7 @@ class FiscalPrinterHka:
             logging.error("Error en control CTS/RTS: %s", e)
             return False
 
-    def _read_status(self, command: str) -> Union[str, bool]:
+    def _read_status(self, command: str) -> str | bool:
         """
         Maneja comandos extendidos para leer el estado de la impresora.
         Args:
@@ -135,7 +135,7 @@ class FiscalPrinterHka:
             logging.debug("Error leyendo estado: %s", e)
             return False
 
-    def _clean_response(self, response: str, command: str) -> List[str]:
+    def _clean_response(self, response: str, command: str) -> list[str]:
         """
         Limpia y prepara la respuesta de comandos S1-S5,SV.
         Args:
@@ -156,7 +156,7 @@ class FiscalPrinterHka:
                 lines.append(clean)
         return lines
 
-    def _parse_status(self, sts1: int, sts2: int) -> Dict[str, Any]:
+    def _parse_status(self, sts1: int, sts2: int) -> dict[str, Any]:
         """
         Parsea los códigos de estado y error y los mapea a descripciones.
         Args:
@@ -222,7 +222,7 @@ class FiscalPrinterHka:
             "error": error_desc,
         }
 
-    def send_cmd(self, command: str, retries: int = 3) -> Union[bool, str]:
+    def send_cmd(self, command: str, retries: int = 3) -> bool | str:
         """
         Envía un comando y gestiona la respuesta.
         Args:
@@ -273,7 +273,7 @@ class FiscalPrinterHka:
             continue
         return False
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """
         Obtiene el estado actual de la impresora usando el comando ENQ.
         Returns:
@@ -304,7 +304,7 @@ class FiscalPrinterHka:
             logging.debug("Error ENQ: %s", e)
             return {"status_code": 0, "error_code": 137, "status": "Error", "error": str(e)}
 
-    def get_s1(self) -> Optional[Dict[str, str]]:
+    def get_s1(self) -> dict[str, str] | None:
         """
         Obtiene información fiscal y contadores usando el comando S1.
         Returns:
@@ -343,7 +343,7 @@ class FiscalPrinterHka:
             logging.error("Error leyendo estado S1 de la impresora: %s", e)
             return None
 
-    def get_s2(self) -> Optional[Dict[str, str]]:
+    def get_s2(self) -> dict[str, str] | None:
         """
         Obtiene el estado del documento fiscal en curso usando el comando S2.
         Returns:
@@ -383,7 +383,7 @@ class FiscalPrinterHka:
             logging.error("Error leyendo estado S2 del documento: %s", e)
             return None
 
-    def get_s3(self, flags_to_read: Optional[List[int]] = None) -> Optional[Dict[str, str]]:
+    def get_s3(self, flags_to_read: list[int] | None = None) -> dict[str, str] | None:
         """
         Comando S3, lee los impuestos y flags según la Tabla 72 del manual.
         La respuesta puede tener:
@@ -451,7 +451,7 @@ class FiscalPrinterHka:
             logging.error("Error leyendo estado S3 de la impresora: %s", str(e))
             return None
 
-    def get_s5(self) -> Optional[Dict[str, str]]:
+    def get_s5(self) -> dict[str, str] | None:
         """
         Obtiene el estado de la memoria fiscal usando el comando S5.
         Returns:
@@ -480,7 +480,7 @@ class FiscalPrinterHka:
             logging.error("Error leyendo estado S5 de la impresora: %s", e)
             return None
 
-    def get_sv(self) -> Optional[Dict[str, str]]:
+    def get_sv(self) -> dict[str, str] | None:
         """
         Lee el modelo de la impresora usando el comando SV.
         Returns:

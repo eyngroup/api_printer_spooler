@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -14,7 +13,7 @@ import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from handy.tools import get_base_path
 
@@ -59,7 +58,7 @@ def init_db() -> None:
     logger.info("Job store inicializado: %s", _DB_PATH)
 
 
-def acquire_job(document_id: str, operation_type: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+def acquire_job(document_id: str, operation_type: str) -> tuple[str, dict[str, Any] | None]:
     """
     Atomically claim a print job slot.
 
@@ -71,57 +70,56 @@ def acquire_job(document_id: str, operation_type: str) -> Tuple[str, Optional[Di
     """
     now = datetime.now().isoformat(timespec="seconds")
 
-    with _lock:
-        with _connect() as conn:
-            row = conn.execute(
-                "SELECT status, response FROM print_jobs WHERE document_id=? AND operation_type=?",
-                (document_id, operation_type),
-            ).fetchone()
+    with _lock, _connect() as conn:
+        row = conn.execute(
+            "SELECT status, response FROM print_jobs WHERE document_id=? AND operation_type=?",
+            (document_id, operation_type),
+        ).fetchone()
 
-            if row is None:
-                conn.execute(
-                    "INSERT INTO print_jobs (document_id, operation_type, status, created_at, updated_at)"
-                    " VALUES (?, ?, 'processing', ?, ?)",
-                    (document_id, operation_type, now, now),
-                )
-                logger.debug("Job store: nuevo trabajo %s/%s", document_id, operation_type)
-                return "new", None
-
-            existing = dict(row)
-
-            if existing["status"] == "completed":
-                cached = json.loads(existing["response"])
-                logger.info(
-                    "Job store: documento %s/%s ya procesado — retornando caché",
-                    document_id,
-                    operation_type,
-                )
-                logger.debug("Job store: caché retornado %s/%s — %s", document_id, operation_type, cached)
-                return "duplicate", cached
-
-            if existing["status"] == "processing":
-                logger.warning(
-                    "Job store: documento %s/%s en proceso — solicitud duplicada rechazada",
-                    document_id,
-                    operation_type,
-                )
-                return "in_progress", None
-
-            # status == 'failed' — allow retry
+        if row is None:
             conn.execute(
-                "UPDATE print_jobs SET status='processing', error_message=NULL, response=NULL, updated_at=?"
-                " WHERE document_id=? AND operation_type=?",
-                (now, document_id, operation_type),
+                "INSERT INTO print_jobs (document_id, operation_type, status, created_at, updated_at)"
+                " VALUES (?, ?, 'processing', ?, ?)",
+                (document_id, operation_type, now, now),
             )
+            logger.debug("Job store: nuevo trabajo %s/%s", document_id, operation_type)
+            return "new", None
+
+        existing = dict(row)
+
+        if existing["status"] == "completed":
+            cached = json.loads(existing["response"])
             logger.info(
-                "Job store: reintento autorizado para %s/%s",
+                "Job store: documento %s/%s ya procesado — retornando caché",
                 document_id,
                 operation_type,
             )
-            return "retry", None
+            logger.debug("Job store: caché retornado %s/%s — %s", document_id, operation_type, cached)
+            return "duplicate", cached
+
+        if existing["status"] == "processing":
+            logger.warning(
+                "Job store: documento %s/%s en proceso — solicitud duplicada rechazada",
+                document_id,
+                operation_type,
+            )
+            return "in_progress", None
+
+        # status == 'failed' — allow retry
+        conn.execute(
+            "UPDATE print_jobs SET status='processing', error_message=NULL, response=NULL, updated_at=?"
+            " WHERE document_id=? AND operation_type=?",
+            (now, document_id, operation_type),
+        )
+        logger.info(
+            "Job store: reintento autorizado para %s/%s",
+            document_id,
+            operation_type,
+        )
+        return "retry", None
 
 
-def complete_job(document_id: str, operation_type: str, response: Dict[str, Any]) -> None:
+def complete_job(document_id: str, operation_type: str, response: dict[str, Any]) -> None:
     """Mark a job as successfully completed and persist the response."""
     now = datetime.now().isoformat(timespec="seconds")
     with _connect() as conn:

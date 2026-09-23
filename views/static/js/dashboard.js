@@ -1,3 +1,7 @@
+// Dashboard de solo lectura: únicamente consulta /api/status y refleja el
+// estado del servidor y la impresora fiscal. Las acciones operativas
+// (reportes, comandos, configuración) viven en la app de escritorio nativa.
+
 // Variables globales
 let requestsChart = null;
 let requestData = {
@@ -10,51 +14,12 @@ let requestData = {
     }]
 };
 
-// Variables globales para el modal de seguridad
-let securityModal = null;
-let pendingAction = null;
-
 // Inicialización
 document.addEventListener('DOMContentLoaded', function () {
     initializeChart();
     updateDashboard();
     // Actualizar cada 5 segundos
     setInterval(updateDashboard, 5000);
-
-    // Inicializar modal de seguridad
-    securityModal = new bootstrap.Modal(document.getElementById('securityCodeModal'));
-
-    // Event listeners para botones de reporte
-    document.getElementById('printReportX').addEventListener('click', () => {
-        pendingAction = printReportX;
-        showSecurityModal('Imprimir Reporte X');
-    });
-
-    document.getElementById('printReportZ').addEventListener('click', () => {
-        pendingAction = printReportZ;
-        showSecurityModal('Imprimir Reporte Z');
-    });
-
-    document.getElementById('sendCommandsBtn').addEventListener('click', () => {
-        pendingAction = sendCommands;
-        showSecurityModal('Enviar Comandos a Impresora');
-    });
-
-    // Event listener para el botón de configuración
-    document.getElementById('configEditorBtn').addEventListener('click', () => {
-        pendingAction = openConfigEditor;
-        showSecurityModal('Acceder al Editor de Configuración');
-    });
-
-    // Event listener para el botón de confirmar código
-    document.getElementById('confirmSecurityCode').addEventListener('click', validateSecurityCode);
-
-    // Limpiar código cuando se cierra el modal
-    document.getElementById('securityCodeModal').addEventListener('hidden.bs.modal', () => {
-        document.getElementById('securityCode').value = '';
-        document.getElementById('securityCode').classList.remove('is-invalid');
-        document.getElementById('securityCodeModalLabel').textContent = 'Código de Seguridad';
-    });
 });
 
 // Inicializar gráfico
@@ -230,111 +195,4 @@ function updateChart(requestsPerMinute) {
     }
 
     requestsChart.update();
-}
-
-// Mostrar modal de seguridad
-function showSecurityModal(action) {
-    document.getElementById('securityCode').classList.remove('is-invalid');
-    document.getElementById('securityCodeModalLabel').textContent = action;
-    securityModal.show();
-}
-
-// Validar código de seguridad
-async function validateSecurityCode() {
-    const securityCode = document.getElementById('securityCode').value;
-    const securityInput = document.getElementById('securityCode');
-
-    try {
-        const response = await fetch('/api/auth/validate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ security_code: securityCode })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            securityModal.hide();
-            if (pendingAction) {
-                pendingAction();
-                pendingAction = null;
-            }
-        } else {
-            securityInput.classList.add('is-invalid');
-            showNotification('Error', data.message || 'Código de seguridad incorrecto', 'error');
-        }
-    } catch (error) {
-        console.error('Error validando código:', error);
-        showNotification('Error', 'Error al validar el código de seguridad', 'error');
-    }
-}
-
-// Abrir editor de configuración
-function openConfigEditor() {
-    window.location.href = '/config-editor.html';
-}
-
-// Imprimir Reporte X
-async function printReportX() {
-    try {
-        const response = await fetch('/api/report_x', {
-            method: 'GET'
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            showNotification('Éxito', 'Reporte X enviado a la impresora', 'success');
-        } else {
-            throw new Error(data.message || 'Error al imprimir reporte X');
-        }
-    } catch (error) {
-        console.error('Error imprimiendo reporte X:', error);
-        showNotification('Error', error.message, 'error');
-    }
-}
-
-// Imprimir Reporte Z
-async function printReportZ() {
-    try {
-        const response = await fetch('/api/report_z', {
-            method: 'GET'
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            showNotification('Éxito', 'Reporte Z enviado a la impresora', 'success');
-        } else {
-            throw new Error(data.message || 'Error al imprimir reporte Z');
-        }
-    } catch (error) {
-        console.error('Error imprimiendo reporte Z:', error);
-        showNotification('Error', error.message, 'error');
-    }
-}
-
-// Enviar Comandos Personalizados a la Impresora
-async function sendCommands() {
-    try {
-        const response = await fetch('/api/command', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}) // Al enviar vacío, el backend cargará handy/commands.json
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            showNotification('Éxito', 'Comandos enviados a la impresora', 'success');
-            console.log('Resultados de los comandos:', data.data);
-        } else {
-            throw new Error(data.message || 'Error al enviar comandos');
-        }
-    } catch (error) {
-        console.error('Error enviando comandos:', error);
-        showNotification('Error', error.message, 'error');
-    }
 }

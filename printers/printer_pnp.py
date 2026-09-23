@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -8,17 +7,15 @@ Clase para el manejo de la impresora fiscal PNP
 """
 
 import datetime
-import time
-import json
 import logging
-import os
-from decimal import Decimal, ROUND_HALF_UP, getcontext
-from typing import Any, Dict, Union
+import time
+from decimal import ROUND_HALF_UP, Decimal, getcontext
+from typing import Any
 
 from controllers.pfpnp import FiscalPrinterPnp
+from handy.tools import format_time, normalize_date, normalize_number, normalize_text
 from printers.printer_base import BasePrinter, FiscalPrinterMixin
 from printers.printer_commands import PNPcmd
-from handy.tools import get_base_path, normalize_text, normalize_date, normalize_number, format_time
 
 # Configuración del logging
 logger = logging.getLogger(__name__)
@@ -27,7 +24,7 @@ logger = logging.getLogger(__name__)
 class PnpPrinter(FiscalPrinterMixin, BasePrinter):
     """Clase para manejar la impresión en impresoras fiscales PNP"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Inicializa la impresora fiscal y establece la conexión
         Args:
@@ -53,7 +50,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
     def _initialize_printer(self) -> None:
         """Crea la instancia del controlador de la impresora PNP"""
 
-    def format_status_message(self, status: Dict[str, Any]) -> tuple[str, str]:
+    def format_status_message(self, status: dict[str, Any]) -> tuple[str, str]:
         """
         Formatea el mensaje de status para logging/respuesta.
         PNP usa keys: 'status' y 'error'.
@@ -70,7 +67,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             logger.error("Error al inicializar la impresora PNP: %s", str(e))
             raise
 
-    def _format_number(self, value: Union[float, int, str], field_type: str) -> str:
+    def _format_number(self, value: float | int | str, field_type: str) -> str:
         """
         Formatea un número como string según el tipo de campo para la impresora PNP.
         Los números se formatean con punto decimal y el número de decimales depende del tipo.
@@ -226,7 +223,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             logger.error("Error al verificar estado de la impresora: %s", str(e))
             return False
 
-    def get_printer_status(self) -> Dict[str, Any]:
+    def get_printer_status(self) -> dict[str, Any]:
         """
         Obtiene el estado detallado de la impresora
         Returns:
@@ -294,7 +291,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             logger.error("Error al generar reporte Z: %s", str(e))
             return False
 
-    def print_document(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def print_document(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Imprime un documento fiscal
         Args:
@@ -339,7 +336,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             message_error = f"Falla durante la impresión del documento de tipo: {operation_type} [{str(e)}]"
             return {"status": False, "message": message_error, "data": None}
 
-    def _process_customer_data(self, data: Dict[str, Any]) -> None:
+    def _process_customer_data(self, data: dict[str, Any]) -> None:
         """Procesa y envía los datos del cliente a la impresora."""
         logger.debug("Procesando datos del documento")
         customer = data.get("customer", {})
@@ -428,7 +425,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                 if not resp:
                     raise RuntimeError("Error en datos de documento NO fiscal")
 
-    def _process_items(self, data: Dict[str, Any]) -> None:
+    def _process_items(self, data: dict[str, Any]) -> None:
         """Procesa y envía los ítems del documento a la impresora."""
         logger.debug("Procesando items")
 
@@ -467,7 +464,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                     if not resp:
                         raise RuntimeError(f"Error al procesar comentario fiscal: {item_comment}")
 
-    def _process_footer(self, data: Dict[str, Any]) -> None:
+    def _process_footer(self, data: dict[str, Any]) -> None:
         """Procesa el pie de página."""
         logger.debug("Procesando pie de página")
         delivery_comments = data.get("delivery", {}).get("delivery_comments", [])
@@ -498,7 +495,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             if not resp:
                 raise RuntimeError(f"Error al procesar barcode: {delivery_barcode}")
 
-    def _process_payments(self, data: Dict[str, Any]) -> None:
+    def _process_payments(self, data: dict[str, Any]) -> None:
         """Procesa los métodos de pago del documento."""
         logger.debug("Procesando pagos")
         payments = data.get("payments", [])
@@ -527,7 +524,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             if not self.send_command(PNPcmd.CLOSE_TOTAL):
                 raise RuntimeError("Error al cerrar documento fiscal")
 
-    def _process_send_data(self) -> Dict[str, Any]:
+    def _process_send_data(self) -> dict[str, Any]:
         """Obtiene los datos finales después de la impresión."""
         logger.debug("Obteniendo datos de los contadores finales %s", self._type_doc)
         try:

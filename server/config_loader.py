@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -11,7 +10,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 from jsonschema import validate
 from watchdog.events import FileSystemEventHandler
@@ -126,7 +125,7 @@ class ConfigManager:
         return cls._instance
 
     @classmethod
-    def get_config(cls) -> Dict[str, Any]:
+    def get_config(cls) -> dict[str, Any]:
         """Obtiene la configuración cargada (singleton)"""
         if cls._config is None:
             cls.reload_config()
@@ -136,7 +135,7 @@ class ConfigManager:
     def reload_config(cls) -> None:
         """Recarga la configuración desde disco con validación"""
         try:
-            with open(cls._config_path, "r", encoding="utf-8") as f:
+            with open(cls._config_path, encoding="utf-8") as f:
                 new_config = json.load(f)
 
             validate(new_config, CONFIG_SCHEMA)

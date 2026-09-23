@@ -10,6 +10,9 @@ build/
 __pycache__/
 logs/
 
+# Archivos de Claude Code (no subir al repo)
+CLAUDE.md
+
 # Archivos
 .env
 *.log
@@ -22,7 +25,6 @@ docs/REFACTOR_PLAN.md
 docs/firewall.txt
 
 # Comandos de prueba manual (no subir al repo)
-handy/commands.json
 handy/commands_factura.json
 handy/commands_credito.json
 handy/commands_debito.json

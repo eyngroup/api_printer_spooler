@@ -23,8 +23,8 @@ En esta rama se eliminó todo el soporte no fiscal. El sistema mantiene solo el 
   - Reporte X
   - Reporte Z
   - Envío de comandos fiscales directos
-  - Edición web de configuración
-  - Dashboard de estado
+  - Configuración y comandos desde la aplicación de escritorio nativa (ttkbootstrap)
+  - Dashboard web de solo lectura (estado del servidor y de la impresora)
 
 ## Características Principales
 
@@ -84,8 +84,8 @@ uv run main.py
 - `GET /api/report_x`
 - `GET /api/report_z`
 - `POST /api/command`
-- `POST /api/config`
-- `POST /api/auth/validate`
+
+La configuración del sistema (`config.json`, plantilla fiscal) y el envío manual de comandos/reportes se gestionan desde la aplicación de escritorio nativa, no vía HTTP.
 
 ## Documentación
 

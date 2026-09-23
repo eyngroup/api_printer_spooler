@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -8,13 +7,12 @@ Clases que manejar el modelo de facturas. Contiene reglas de negocio.
 """
 
 from datetime import datetime
-from typing import Dict, Optional
 
 
 class InvoiceItem:
     """Clase que representa un ítem de un documento."""
 
-    def __init__(self, data: Dict):
+    def __init__(self, data: dict):
         self.ref = data.get("item_ref", "")
         self.name = data.get("item_name", "")
         self.quantity = data.get("item_quantity", 0)
@@ -27,7 +25,7 @@ class InvoiceItem:
     # Valores permitidos de impuesto (flexible para agregar si hay cambios)
     ALLOWED_TAX_VALUES = [0, 8, 16, 31, 12]
 
-    def validate(self) -> Optional[str]:
+    def validate(self) -> str | None:
         """Validar reglas de negocio del item"""
 
         if self.tax not in self.ALLOWED_TAX_VALUES:  # Validación de impuesto
@@ -68,12 +66,12 @@ class InvoiceItem:
 class Payment:  # pylint: disable=R0903
     """Modelo para representar un pago en un documento"""
 
-    def __init__(self, data: Dict):
+    def __init__(self, data: dict):
         self.method = data.get("payment_method", "")
         self.name = data.get("payment_name", "")
         self.amount = data.get("payment_amount", 0)
 
-    def validate(self) -> Optional[str]:
+    def validate(self) -> str | None:
         """Validar reglas de negocio del pago"""
         try:
             payment_code = int(self.method)
@@ -88,7 +86,7 @@ class Payment:  # pylint: disable=R0903
 class Invoice:
     """Modelo para representar una factura"""
 
-    def __init__(self, data: Dict):
+    def __init__(self, data: dict):
         self.operation_type = data.get("operation_type", "")  # Datos de operación
 
         self.affected_document = data.get("affected_document", {})  # Documento afectado
@@ -115,7 +113,7 @@ class Invoice:
 
         self.metadata = data.get("operation_metadata", {})  # Datos de operación
 
-    def validate(self) -> Optional[str]:
+    def validate(self) -> str | None:
         """Valida reglas de negocio del documento"""
         if self.operation_type in ["credit", "debit"]:  # Validar documento afectado
             if not self.affected_document:

@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
 """
 
-from typing import Any, Dict, Optional, Union
 import logging
+from typing import Any
+
 import serial
 
 # Configuración del logging
@@ -168,7 +168,7 @@ class FiscalPrinterPnp:
             logger.debug("Error enviando comando: %s", e)
             return []
 
-    def status_if(self, tipo: str) -> Union[Dict[str, str], bytes, bool]:
+    def status_if(self, tipo: str) -> dict[str, str] | bytes | bool:
         """
         Obtiene el estado de la impresora fiscal usando el comando 8|tipo.
         Args:
@@ -192,7 +192,7 @@ class FiscalPrinterPnp:
                 logger.debug("Error formateando respuesta: %s", e)
         return response
 
-    def get_status(self) -> Optional[Dict[str, Any]]:
+    def get_status(self) -> dict[str, Any] | None:
         """
         Obtiene el estado de la impresora fiscal usando el comando 8|V
         Returns:
@@ -230,7 +230,7 @@ class FiscalPrinterPnp:
             logger.debug("Error leyendo estado de la impresora: %s", e)
             return None
 
-    def get_counters(self) -> Optional[Dict[str, Any]]:
+    def get_counters(self) -> dict[str, Any] | None:
         """
         Obtiene información fiscal y contadores usando el comando 8|N
         - Campo 1: Estado de impresora (0000)
@@ -302,7 +302,7 @@ class FiscalPrinterPnp:
             logger.debug("Error leyendo contadores de la impresora: %s", e)
             return None
 
-    def get_version(self) -> Optional[Dict[str, str]]:
+    def get_version(self) -> dict[str, str] | None:
         """
         Obtiene la información de la version de la impresora.
         Returns:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -8,7 +7,7 @@ Clase Singleton para manejar las instancias de impresoras.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +18,11 @@ class PrinterManager:
     Asegura que solo exista una instancia de cada tipo de impresora.
     """
 
-    _instances: Dict[str, Any] = {}
+    _instances: dict[str, Any] = {}
     _FISCAL_PRINTERS = {"tfhka", "pnp"}  # Tipos de impresoras fiscales
 
     @classmethod
-    def get_printer(cls, printer_type: str, printer_config: Dict[str, Any]) -> Optional[Any]:
+    def get_printer(cls, printer_type: str, printer_config: dict[str, Any]) -> Any | None:
         """
         Obtiene una instancia de impresora del tipo especificado.
         Args:

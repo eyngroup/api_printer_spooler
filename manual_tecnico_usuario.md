@@ -27,41 +27,42 @@ Dado que el Servidor API de Impresión Fiscal es un programa ejecutable, no hay 
     *   Luego, copie este acceso directo en la carpeta "Inicio" de Windows. (Puede acceder a ella escribiendo `shell:startup` en el diálogo "Ejecutar" de Windows - Tecla Windows + R).
     *   (Espacio para captura de pantalla mostrando cómo agregar al inicio)
 
-## 4. Primeros Pasos: Accediendo a la Interfaz Web
+## 4. Primeros Pasos: El Panel de Control de Escritorio
 
-Una vez que el Servidor API de Impresión Fiscal está en ejecución, puede acceder a su interfaz web para ver el estado y realizar configuraciones:
+El Servidor API de Impresión Fiscal se administra desde su propio **panel de control de escritorio** (no desde el navegador). Al iniciar el programa, la ventana del panel aparece automáticamente; también puede reabrirla en cualquier momento desde el icono de la bandeja del sistema:
 
-1.  **Abrir el Navegador Web:** Abra su navegador web preferido (Google Chrome, Firefox, Edge, etc.).
-2.  **Ingresar la Dirección:** En la barra de direcciones, escriba la dirección del servidor. Por defecto, suele ser `http://localhost:5051` (o la dirección y puerto que le haya indicado su proveedor o que haya configurado).
-    *   (Espacio para captura de pantalla del navegador con la URL)
-3.  **Dashboard Principal:** Al acceder, verá el Dashboard de Estado, que le proporciona una vista general del funcionamiento del servidor y la impresora.
-    *   (Espacio para captura de pantalla del Dashboard)
+1.  **Icono de la bandeja del sistema:** Haga clic derecho (o doble clic izquierdo) sobre el icono del programa en la bandeja del sistema.
+2.  **"Abrir Panel":** Seleccione esta opción del menú para mostrar la ventana principal.
+    *   (Espacio para captura de pantalla del menú de la bandeja)
+3.  **Panel Principal:** La ventana muestra pestañas para Consola/Logs, Configuración del Servidor y Configuración Fiscal.
+    *   (Espacio para captura de pantalla del Panel Principal)
 
+Adicionalmente, existe una página web de **solo lectura** para monitoreo remoto — ver sección 6.
 
+## 6. Interfaz de Usuario: Panel de Control y Dashboard Web
 
-## 6. Interfaz de Usuario: Dashboard y Editor de Configuración
-*   **Dashboard (`status.html`):**
-    *   Visualización del estado del servidor y la impresora.
-    *   Acciones rápidas: Imprimir Reporte X, Imprimir Reporte Z (mencionar solicitud de código de seguridad).
-    *   (Espacio para captura de pantalla del Dashboard)
-*   **Editor de Configuración (`config-editor.html`):**
-    *   Acceso y navegación.
-    *   **Configuración del Servidor:**
-        *   Host, Puerto, Modo Debug, Modo Servidor (API/PROXY).
-        *   (Espacio para captura de pantalla de la sección Servidor)
-    *   **Configuración del Proxy:**
-        *   Habilitar Proxy, URL Destino.
-        *   (Espacio para captura de pantalla de la sección Proxy)
-    *   **Configuración de Impresoras (Fiscal):**
-        *   Habilitar, Escaneo de puerto, Nombre (Modelo), Puerto, Velocidad (Baudrate), Timeout.
-        *   (Espacio para captura de pantalla de la sección Impresoras)
-    *   **Configuración de Logging:**
-        *   Salida a Consola, Archivo de Log, Nivel de Log, Formato, Días de Retención.
-        *   (Espacio para captura de pantalla de la sección Logging)
-    *   **Configuración de Seguridad:**
-        *   Código de Seguridad.
-        *   (Espacio para captura de pantalla de la sección Seguridad)
-    *   Cómo guardar los cambios.
+*   **Panel de Control (aplicación de escritorio):**
+    *   **Pestaña Consola / Logs:**
+        *   Visualización en vivo del archivo de log del día.
+        *   Acciones rápidas: Imprimir Reporte X, Imprimir Reporte Z.
+        *   Envío de comandos fiscales directos (para uso técnico).
+        *   (Espacio para captura de pantalla de la pestaña Consola)
+    *   **Pestaña Configuración del Servidor:**
+        *   Host, Puerto, Modo Debug, Modo Servidor (SPOOLER/PROXY), orígenes permitidos.
+        *   Proxy: Habilitar Proxy, URL Destino.
+        *   Impresora Fiscal: Habilitar, Modelo, Puerto (con escaneo automático), Velocidad (Baudrate), Timeout.
+        *   Logging: Salida a Consola, Archivo de Log, Nivel de Log, Formato, Días de Retención.
+        *   Seguridad: Código de Seguridad.
+        *   (Espacio para captura de pantalla de la pestaña Configuración del Servidor)
+        *   Botón "Guardar Configuración del Servidor" aplica los cambios sin reiniciar el programa.
+    *   **Pestaña Configuración Fiscal:**
+        *   Datos de la impresora (modelo, serial, nombre de nota) y formato del documento (qué campos incluir en el encabezado y pie fiscal).
+        *   (Espacio para captura de pantalla de la pestaña Configuración Fiscal)
+        *   Botón "Guardar Plantilla Fiscal" aplica los cambios de inmediato.
+*   **Dashboard Web (`http://localhost:5051`, solo lectura):**
+    *   Muestra el estado del servidor y de la impresora fiscal, útil para monitoreo remoto.
+    *   No permite realizar acciones (reportes, comandos, configuración) — esas se hacen únicamente desde el Panel de Control.
+    *   (Espacio para captura de pantalla del Dashboard Web)
 
 ## 7. Opciones Generales y Funcionalidades
 
@@ -69,8 +70,8 @@ El Servidor API de Impresión Fiscal ofrece varias funcionalidades clave para la
 
 *   **Impresión de Documentos Fiscales:** Su función principal es procesar las solicitudes de su sistema de facturación para imprimir Facturas, Notas de Crédito y Notas de Débito.
 *   **Impresión de Reportes Fiscales:**
-    *   **Reporte X:** Este reporte proporciona un corte parcial de las ventas y operaciones realizadas por la impresora fiscal desde el último Reporte Z. Es útil para arqueos de caja durante el día. Puede solicitarlo desde el Dashboard (requerirá un código de seguridad).
-    *   **Reporte Z:** Este es un reporte de cierre diario que totaliza todas las operaciones realizadas por la impresora fiscal y usualmente reinicia los acumuladores para el siguiente día fiscal. Es un documento fiscal importante y obligatorio en muchas jurisdicciones. Puede solicitarlo desde el Dashboard (requerirá un código de seguridad).
+    *   **Reporte X:** Este reporte proporciona un corte parcial de las ventas y operaciones realizadas por la impresora fiscal desde el último Reporte Z. Es útil para arqueos de caja durante el día. Puede solicitarlo desde la pestaña Consola del Panel de Control.
+    *   **Reporte Z:** Este es un reporte de cierre diario que totaliza todas las operaciones realizadas por la impresora fiscal y usualmente reinicia los acumuladores para el siguiente día fiscal. Es un documento fiscal importante y obligatorio en muchas jurisdicciones. Puede solicitarlo desde la pestaña Consola del Panel de Control.
     *   (Espacio para captura de pantalla de los botones de Reporte X y Z)
 *   **Modos de Operación (Configurable por el administrador del sistema):**
     *   **Modo API (Predeterminado):** En este modo, el servidor se conecta directamente a la impresora fiscal conectada a su equipo y gestiona todo el proceso de impresión.
@@ -83,15 +84,18 @@ Aquí hay algunas situaciones comunes y cómo abordarlas:
 *   **La impresora no imprime o muestra un error:**
     *   **Verifique la conexión física:** Asegúrese de que la impresora fiscal esté encendida y correctamente conectada al computador (usualmente por cable serial o USB según el modelo).
     *   **Papel y Tinta/Cinta:** Verifique que la impresora tenga papel y que la cinta (si aplica) esté en buen estado.
-    *   **Estado en el Dashboard:** Revise el Dashboard del Servidor API. Puede indicar si hay un problema de comunicación con la impresora.
+    *   **Estado en el Panel de Control:** Revise la pestaña Consola del Panel de Control (o el Dashboard Web). Puede indicar si hay un problema de comunicación con la impresora.
     *   **Mensajes de Error del Sistema de Facturación:** Su sistema de facturación (POS/ERP) puede mostrar mensajes de error más específicos devueltos por el Servidor API. Estos mensajes suelen ser informativos (ej. "Impresora Offline", "Error Fiscal: Comando no válido").
     *   (Espacio para captura de pantalla de un mensaje de error típico)
 *   **¿Cómo sé qué error ocurrió?**
     *   **Logs del Servidor API:** El Servidor API de Impresión Fiscal genera archivos de registro (logs) que almacenan información detallada sobre cada operación y cualquier error que ocurra. Estos logs se encuentran en una carpeta llamada `logs` (dentro de la carpeta donde está el ejecutable). Su personal técnico puede revisar estos archivos para un diagnóstico más profundo. El nombre del archivo suele incluir la fecha (ej. `api_fiscal_AAAA-MM-DD.log`).
     *   **Ayuda Visual del Cliente (Sistema de Facturación):** Como se mencionó, su sistema de facturación a menudo interpretará la respuesta del API y le mostrará un mensaje de error más amigable o un código de error que puede ayudar a identificar el problema.
-*   **El Dashboard no carga o no se puede acceder:**
+*   **El Panel de Control no aparece:**
+    *   Asegúrese de que el Servidor API de Impresión Fiscal esté en ejecución (verifique el icono en la bandeja del sistema) y seleccione "Abrir Panel" desde su menú.
+*   **El Dashboard Web no carga o no se puede acceder:**
     *   Asegúrese de que el Servidor API de Impresión Fiscal esté en ejecución (verifique el icono en la bandeja del sistema).
     *   Verifique que está usando la dirección y puerto correctos en el navegador (ej. `http://localhost:5051`).
+    *   Recuerde que el Dashboard Web es solo de monitoreo; los reportes, comandos y configuración se hacen desde el Panel de Control.
     *   Consulte con su soporte técnico si el problema persiste.
 
 (Esta sección puede expandirse con más preguntas y respuestas específicas a medida que se identifiquen problemas comunes).

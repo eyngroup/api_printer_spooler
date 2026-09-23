@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -9,7 +8,6 @@ Test run proxy
 
 import json
 import os
-
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -21,7 +19,7 @@ def load_proxy_config():
     """Carga la configuración para el servidor proxy"""
     # Cargar configuración base
     config_path = os.path.join(os.path.dirname(__file__), "..", "config", "config.json")
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         proxy_config = json.load(f)
 
     # Modificar para modo proxy

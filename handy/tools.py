@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -7,14 +6,12 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Utilidades para el manejo de rutas, textos, numeros y fechas
 """
 
-import re
-from datetime import datetime
-import sys
 import os
+import re
+import sys
 import textwrap
-from typing import List
-
 import unicodedata
+from datetime import datetime
 
 
 def get_base_path():
@@ -38,7 +35,7 @@ def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFD", text)
     text = "".join([c for c in text if not unicodedata.combining(c)])
 
-    allowed_chars = r"[^a-zA-Z0-9\s\*\+\"\(\)\[\]\#@\'`|~{}:;?,\-_\^$!=%\.]"
+    allowed_chars = r"[^a-zA-Z0-9\s\*\+\"\(\)\[\]\#@\'`|~{}:;?,\-_\^$!=%\.&]"
     text = re.sub(allowed_chars, "", text)
 
     text = text.encode("ascii", "ignore").decode("utf-8")
@@ -123,7 +120,7 @@ def format_time(time_str: str) -> str:
         return "Hora inválida"
 
 
-def format_multiline(text: str, width: int, prefix: str = "") -> List[str]:
+def format_multiline(text: str, width: int, prefix: str = "") -> list[str]:
     """
     Formatea texto largo en múltiples líneas
     Args:

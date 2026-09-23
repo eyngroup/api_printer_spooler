@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -10,17 +9,19 @@ Creado en memoria de mi amado hijo Ian
 import glob
 import logging
 import os
+import threading
 import webbrowser
 from datetime import datetime, timedelta
 from logging.config import dictConfig
 from logging.handlers import TimedRotatingFileHandler
 
-from handy.version import __version__
+from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path
 from handy.tray_system import TrayManager
-from handy.serial_scan import get_serial_scanner
+from handy.version import __version__
 from server.config_loader import ConfigManager
 from server.server_api import create_app
+from views.main_window import MainWindow
 
 
 def autodetect_serial_port(config: dict) -> None:
@@ -101,8 +102,12 @@ def main():
 
     app = create_app(config)  # Crear y configurar flask
 
-    # Iniciar el system tray
-    tray = TrayManager(app, base_path)
+    # Ventana principal (Consola/Logs, Configuración del Servidor, Configuración Fiscal).
+    # Vive en el hilo principal: Tkinter/ttkbootstrap requiere su mainloop() ahí.
+    window = MainWindow(flask_app=app)
+
+    # Iniciar el system tray (corre en su propio hilo daemon)
+    tray = TrayManager(app, base_path, main_window=window)
     tray.run()
 
     server_host = config.get("server", {}).get("server_host", "0.0.0.0")
@@ -115,9 +120,16 @@ def main():
     if config.get("server", {}).get("auto_browser", False):  # Iniciar el navegador
         webbrowser.open(f"http://{server_host}:{server_port}")
 
-    app.run(
-        host=server_host, port=server_port, debug=server_debug, passthrough_errors=True, use_reloader=False
-    )  # Iniciar el servidor
+    def run_flask() -> None:
+        app.run(
+            host=server_host, port=server_port, debug=server_debug, passthrough_errors=True, use_reloader=False
+        )
+
+    # Flask pasa a un hilo daemon: el hilo principal queda libre para el mainloop de la GUI.
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    window.mainloop()  # Bloquea el hilo principal hasta que se solicite salir desde la bandeja
 
 
 def cleanup_old_logs(log_dir: str, max_days: int) -> None:

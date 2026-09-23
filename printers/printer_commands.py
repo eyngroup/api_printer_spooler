@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -8,7 +7,7 @@ Clase que contiene los comandos ESC/P, ESC/POS, TFHKA
 """
 
 import ctypes
-from typing import Dict, Any
+from typing import Any
 
 
 class HKAcmd:  # pylint: disable=R0903
@@ -155,7 +154,7 @@ class PNPcmd:  # pylint: disable=R0903
     }
 
     @staticmethod
-    def parse_status(error_code: str, status_code: str) -> Dict[str, Any]:
+    def parse_status(error_code: str, status_code: str) -> dict[str, Any]:
         """
         Analiza los códigos de estado de la impresora y retorna las descripciones de error
         Args:

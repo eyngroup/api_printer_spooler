@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -7,23 +6,20 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Punto de entrada principal del servidor.
 """
 
-import logging
 import json
-from datetime import datetime
-import time
-import threading
+import logging
 import os
 import re
+from datetime import datetime
 
-from flask import Flask, request, jsonify, Blueprint, current_app, render_template, make_response, send_file
+from flask import Blueprint, Flask, current_app, jsonify, render_template, request, send_file
 from flask_cors import CORS
 
 from handy.tools import get_base_path
-from server.config_loader import ConfigManager, get_security_code
-from .handlers.document_handler import handle_documents, handle_reports, handle_fiscal_commands
-from .handlers.proxy_handler import ProxyHandler
+
+from .handlers.document_handler import handle_documents, handle_fiscal_commands, handle_reports
 from .handlers.job_store import init_db
-from .auth import require_auth, create_session, cleanup_sessions
+from .handlers.proxy_handler import ProxyHandler
 
 logger = logging.getLogger(__name__)
 
@@ -134,25 +130,10 @@ def create_app(config):
             errors=server_state.error_log[-10:],  # Últimos 10 errores
         )
 
-    @app.route("/config-editor.html")
-    @require_auth
-    def config_editor():
-        """Ruta para el editor de configuración"""
-        return render_template("config-editor.html")
-
     @app.route("/block")
     def block():
         memorial_path = os.path.join(get_base_path(), "resources", "block.svg")
         return send_file(memorial_path, mimetype="image/svg+xml")
-
-    # Limpiar sesiones expiradas cada minuto
-    def cleanup_task():
-        while True:
-            time.sleep(60)
-            cleanup_sessions()
-
-    cleanup_thread = threading.Thread(target=cleanup_task, daemon=True)
-    cleanup_thread.start()
 
     return app
 
@@ -169,7 +150,7 @@ def ping():
     logger.info("Recibida solicitud de conexión")
     try:
         template_path = os.path.join(get_base_path(), "templates", "template_fiscal_printer.json")
-        with open(template_path, "r", encoding="utf-8") as f:
+        with open(template_path, encoding="utf-8") as f:
             template_data = json.load(f)
         serial = template_data.get("fiscal", {}).get("serial", "unknown")
         return jsonify({"status": "success", "message": serial})
@@ -253,66 +234,3 @@ def fiscal_command():
     return handle_fiscal_commands()
 
 
-@api.route("/config", methods=["POST"])
-def save_config():
-    """Guarda la configuración en el archivo config.json usando ConfigManager"""
-    try:
-        logger.info("Recibida solicitud para guardar configuración")
-
-        new_config = request.get_json()
-        if not new_config:
-            raise ValueError("No se recibió configuración para guardar")
-
-        required_sections = ["server", "proxy", "printers", "logging", "security"]
-        for section in required_sections:  # Validar la estructura básica de la configuración
-            if section not in new_config:
-                raise ValueError(f"Falta la sección {section} en la configuración")
-
-        ConfigManager.save_config(new_config)  # Guardar la configuración
-        ConfigManager.reload_config()  # Recargar la configuración
-        current_app.config.update(new_config)  # Actualizar la configuración
-
-        if new_config.get("server", {}).get("server_mode") == "PROXY":
-            server_state.proxy_handler = ProxyHandler(new_config)
-            logger.info(
-                "Modo PROXY reconfigurado. Target URL: %s",
-                new_config.get("proxy", {}).get("proxy_target"),
-            )
-
-        return jsonify({"status": "success", "message": "Configuración guardada correctamente"})
-
-    except Exception as e:
-        logger.error("Error al guardar la configuración: %s", str(e))
-        return (
-            jsonify(
-                {
-                    "status": "error",
-                    "message": f"Error al guardar la configuración: {str(e)}",
-                }
-            ),
-            500,
-        )
-
-
-@api.route("/auth/validate", methods=["POST"])
-def validate_security_code():
-    """Valida el código de seguridad y crea una sesión"""
-    try:
-        data = request.get_json()
-        if not data or "security_code" not in data:
-            return jsonify({"status": "error", "message": "Código no proporcionado"}), 400
-
-        config = current_app.config
-        if not config or "security" not in config:
-            return jsonify({"status": "error", "message": "Error de configuración"}), 500
-
-        if data["security_code"] == get_security_code():
-            token = create_session()
-            response = make_response(jsonify({"status": "success", "message": "Código válido"}))
-            response.set_cookie("auth_token", token, httponly=True, samesite="Strict", max_age=1800)
-            return response
-        return jsonify({"status": "error", "message": "Código de seguridad incorrecto"}), 401
-
-    except Exception as e:
-        logger.error("Error en validación de código: %s", str(e))
-        return jsonify({"status": "error", "message": f"Error en validación: {str(e)}"}), 500

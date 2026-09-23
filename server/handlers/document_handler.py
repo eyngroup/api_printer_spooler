@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -8,15 +7,16 @@ Document Handler Module, responsable de la gestión de las operaciones relaciona
 """
 
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Any
 
-from flask import jsonify, request, current_app, Response
+from flask import Response, current_app, jsonify, request
 from jsonschema import ValidationError
 
 from models.model_invoice import Invoice
-from .printer_manager import PrinterManager
-from .job_store import acquire_job, complete_job, fail_job
+
 from ..document_schema import validate_document
+from .job_store import acquire_job, complete_job, fail_job
+from .printer_manager import PrinterManager
 
 HTTP_BAD_REQUEST = 400
 HTTP_INTERNAL_ERROR = 500
@@ -24,7 +24,7 @@ HTTP_INTERNAL_ERROR = 500
 logger = logging.getLogger(__name__)
 
 
-def find_value(dictionary: Dict[str, Any], key: str) -> Optional[Any]:
+def find_value(dictionary: dict[str, Any], key: str) -> Any | None:
     """
     Busca recursivamente un valor en un diccionario anidado.
     Args:
@@ -44,7 +44,7 @@ def find_value(dictionary: Dict[str, Any], key: str) -> Optional[Any]:
     return None
 
 
-def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any = None) -> Tuple[Response, int]:
+def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any = None) -> tuple[Response, int]:
     """
     Crea una respuesta de error estandarizada.
     Args:
@@ -62,8 +62,8 @@ def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any 
 
 
 def printer_instance(
-    printer_config: Dict[str, Any],
-) -> Tuple[Optional[Any], Optional[Dict[str, Any]]]:
+    printer_config: dict[str, Any],
+) -> tuple[Any | None, dict[str, Any] | None]:
     """
     Crea una instancia de la impresora según la configuración.
     Args:
@@ -101,7 +101,7 @@ def printer_instance(
         return None, {"message": str(e)}
 
 
-def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int]:
+def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de documentos.
     Esta función procesa la solicitud de impresión, valida los datos recibidos,
@@ -187,7 +187,7 @@ def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int
         return error_response(f"Error interno del servidor: {str(e)}", HTTP_INTERNAL_ERROR)
 
 
-def handle_reports(report_type: str) -> Tuple[Response, int]:
+def handle_reports(report_type: str) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de reportes fiscales.
     Args:
@@ -239,17 +239,17 @@ def handle_reports(report_type: str) -> Tuple[Response, int]:
         return error_response(f"Error al imprimir reporte {report_type}: {str(e)}", HTTP_INTERNAL_ERROR)
 
 
-def handle_report_x() -> Tuple[Response, int]:
+def handle_report_x() -> tuple[Response, int]:
     """Maneja la impresión del reporte X"""
     return handle_reports("X")
 
 
-def handle_report_z() -> Tuple[Response, int]:
+def handle_report_z() -> tuple[Response, int]:
     """Maneja la impresión del reporte Z"""
     return handle_reports("Z")
 
 
-def handle_fiscal_commands() -> Tuple[Response, int]:
+def handle_fiscal_commands() -> tuple[Response, int]:
     """
     Maneja el envío de comandos directos a la impresora fiscal.
     Esperar payload: {"commands": ["CMD1", "CMD2"]}
@@ -257,20 +257,6 @@ def handle_fiscal_commands() -> Tuple[Response, int]:
     try:
         data = request.get_json(silent=True) or {}
         commands = data.get("commands")
-
-        # Fallback a leer de handy/commands.json si no se proveen comandos
-        if not commands:
-            from handy.tools import get_base_path
-            import os
-            import json
-
-            file_path = os.path.join(get_base_path(), "handy", "commands.json")
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    file_data = json.load(f)
-                    commands = file_data.get("commands", [])
-            except Exception as e:
-                return error_response(f"No hay comandos en payload y falló lectura de {file_path}: {e}")
 
         if not isinstance(commands, list) or not commands:
             return error_response("'commands' debe ser una lista no vacía")

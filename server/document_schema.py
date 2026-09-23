@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -7,9 +6,9 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Define el esquema JSON para la validación de documentos.
 """
 
-from typing import Dict, Any
+from typing import Any
 
-from jsonschema import validate, ValidationError
+from jsonschema import ValidationError, validate
 
 # Constantes para valores permitidos
 VALID_OPERATION_TYPES = {"invoice", "credit", "debit", "note"}
@@ -102,7 +101,7 @@ DOCUMENT_SCHEMA = {
 }
 
 
-def validate_document(document: Dict[str, Any]) -> None:
+def validate_document(document: dict[str, Any]) -> None:
     """
     Valida un documento contra el esquema definido.
     Args:

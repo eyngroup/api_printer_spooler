@@ -116,8 +116,8 @@ La API recibe un JSON con la siguiente estructura general:
 | `GET` | `/api/report_x` | Emisión de reporte X |
 | `GET` | `/api/report_z` | Emisión de reporte Z |
 | `POST` | `/api/command` | Envío de comandos fiscales directos |
-| `POST` | `/api/config` | Guardado de configuración |
-| `POST` | `/api/auth/validate` | Validación del código de seguridad |
+
+La configuración (`config.json` y `template_fiscal_printer.json`), el envío manual de comandos fiscales y la impresión de reportes X/Z se gestionan desde la aplicación de escritorio nativa (ttkbootstrap), no vía HTTP. `GET /` sigue disponible como dashboard web de solo lectura (estado del servidor y de la impresora).
 
 ## Modos de Operación
 

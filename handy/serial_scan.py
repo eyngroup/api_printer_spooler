@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -7,10 +6,10 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Módulo para escanear puertos seriales en diferentes sistemas operativos.
 """
 
-import sys
 import glob
-from typing import List, Dict
 import logging
+import sys
+
 import serial
 from serial.tools import list_ports
 
@@ -27,7 +26,7 @@ class WindowsSerialScanner:
     COMMON_BAUDRATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
 
     @staticmethod
-    def scan_ports() -> List[Dict[str, str]]:
+    def scan_ports() -> list[dict[str, str]]:
         """Escanea los puertos COM disponibles en Windows.
 
         Returns:
@@ -70,7 +69,7 @@ class WindowsSerialScanner:
             return False
 
     @staticmethod
-    def test_baudrates(port_comm: str) -> List[int]:
+    def test_baudrates(port_comm: str) -> list[int]:
         """Prueba diferentes velocidades en el puerto.
 
         Args:
@@ -142,7 +141,7 @@ class LinuxSerialScanner:  # pylint: disable=R0903
             return False
 
     @staticmethod
-    def scan_ports() -> List[Dict[str, str]]:
+    def scan_ports() -> list[dict[str, str]]:
         """Escanea los puertos seriales disponibles en Linux.
 
         Returns:

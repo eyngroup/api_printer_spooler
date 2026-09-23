@@ -10,3 +10,4 @@ jsonschema
 watchdog
 cx_Freeze
 pystray
+ttkbootstrap
