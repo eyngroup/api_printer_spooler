@@ -17,6 +17,7 @@ dependencies = [
     "cx-freeze",
     "pystray",
     "pygobject; sys_platform == 'linux'",
+    "ttkbootstrap>=2.2.3",
 ]
 
 [tool.black]

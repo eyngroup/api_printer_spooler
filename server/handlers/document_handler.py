@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
@@ -8,14 +7,15 @@ Document Handler Module, responsable de la gestión de las operaciones relaciona
 """
 
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Any
 
-from flask import jsonify, request, current_app, Response
+from flask import Response, current_app, jsonify, request
 from jsonschema import ValidationError
 
 from models.model_invoice import Invoice
-from .printer_manager import PrinterManager
-from ..document_schema import validate_document
+from server.document_schema import validate_document
+from server.handlers.job_store import acquire_job, complete_job, fail_job
+from server.handlers.printer_manager import PrinterManager
 
 HTTP_BAD_REQUEST = 400
 HTTP_INTERNAL_ERROR = 500
@@ -31,14 +31,14 @@ PRINTER_FISCAL_TYPES = {
 logger = logging.getLogger(__name__)
 
 
-def find_value(dictionary: Dict[str, Any], key: str) -> Optional[Any]:
+def find_value(dictionary: dict[str, Any], key: str) -> Any | None:
     """
     Busca recursivamente un valor en un diccionario anidado.
     Args:
         dictionary: Diccionario en el que buscar.
         key: Clave a buscar.
     Returns:
-        Optional[Any]: Valor encontrado o None si no existe.
+        Any | None: Valor encontrado o None si no existe.
     """
     if key in dictionary:
         return dictionary[key]
@@ -51,7 +51,7 @@ def find_value(dictionary: Dict[str, Any], key: str) -> Optional[Any]:
     return None
 
 
-def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any = None) -> Tuple[Response, int]:
+def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any = None) -> tuple[Response, int]:
     """
     Crea una respuesta de error estandarizada.
     Args:
@@ -59,7 +59,7 @@ def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any 
         status_code: Código HTTP de error.
         data: Datos adicionales opcionales.
     Returns:
-        Tuple[Response, int]: Respuesta JSON y código de estado.
+        tuple[Response, int]: Respuesta JSON y código de estado.
     """
     if data:
         logger.error("%s - %s", message, data)
@@ -69,14 +69,14 @@ def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any 
 
 
 def printer_instance(
-    printer_config: Dict[str, Any],
-) -> Tuple[Optional[Any], Optional[Dict[str, Any]]]:
+    printer_config: dict[str, Any],
+) -> tuple[Any | None, dict[str, Any] | None]:
     """
     Crea una instancia de la impresora según la configuración.
     Args:
         printer_config: Configuración de impresoras.
     Returns:
-        Tuple[Optional[Any], Optional[Dict[str, Any]]]:
+        tuple[Any | None, dict[str, Any] | None]:
             - Instancia de la impresora o None si no hay impresora disponible
             - Diccionario con información del error si ocurrió uno, None si no hay error
     """
@@ -87,10 +87,9 @@ def printer_instance(
 
         if printer_fiscal_enabled:
             printer_fiscal_name = find_value(printer_config, "fiscal_name").strip().lower()
+            fiscal_config = printer_config.get("fiscal", {})
             try:
-                printer = PrinterManager.get_printer(
-                    printer_fiscal_name, find_value(printer_config, PRINTER_TYPE_FISCAL)
-                )
+                printer = PrinterManager.get_printer(printer_fiscal_name, fiscal_config)
                 return printer, None
             except ValueError as e:
                 error_msg = str(e)
@@ -121,15 +120,11 @@ def printer_instance(
         return None, {"message": str(e)}
 
 
-def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int]:
+def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de documentos.
     Esta función procesa la solicitud de impresión, valida los datos recibidos,
-    selecciona la impresora apropiada y ejecuta la impresión del documento.
-    Args:
-        proxy_handler: Manejador de proxy opcional para reenviar la solicitud.
-    Returns:
-        Tuple[Response, int]: Respuesta JSON y código de estado HTTP.
+    verifica reglas de negocio, aplica idempotencia y envía el documento a la impresora correspondiente.
     """
     if proxy_handler:
         return proxy_handler.handle_request()
@@ -160,6 +155,19 @@ def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int
         except Exception as e:
             return error_response(f"Error al validar reglas de negocio del documento: {str(e)}")
 
+        # Idempotency check — must happen before touching the serial port
+        acquire_result, cached_response = acquire_job(invoice.document_number, invoice.operation_type)
+
+        if acquire_result == "duplicate":
+            return jsonify(cached_response)
+
+        if acquire_result == "in_progress":
+            return (
+                jsonify({"status": False, "message": "Solicitud en curso, intente nuevamente en unos segundos"}),
+                409,
+            )
+
+        # acquire_result is 'new' or 'retry' — proceed
         printers_config = current_app.config.get("printers", {})  # Obtener configuración de impresoras
         printer, error_data = printer_instance(printers_config)
         if not printer:
@@ -168,38 +176,39 @@ def handle_documents(proxy_handler: Optional[Any] = None) -> Tuple[Response, int
                     message = f"Impresora no disponible - Estado: {error_data['state']}, Error: {error_data['error']}"
                 else:
                     message = error_data.get("message", "Error desconocido al obtener la impresora")
+                fail_job(invoice.document_number, invoice.operation_type, message)
                 return error_response(message, data=error_data)
+            fail_job(invoice.document_number, invoice.operation_type, "No hay impresoras habilitadas")
             return error_response("No hay impresoras habilitadas para procesar el documento")
 
         result = printer.print_document(data)  # Procesar el documento
         logger.debug("Documento result= %s", result)
 
         if result.get("status", False):
+            response_payload = {
+                "status": True,
+                "message": result.get("message", "Documento procesado correctamente"),
+                "data": result.get("data", {}),
+            }
+            complete_job(invoice.document_number, invoice.operation_type, response_payload)
             logger.info("Documento Origen: %s, impreso correctamente", invoice.document_number)
-            return jsonify(
-                {
-                    "status": True,
-                    "message": result.get("message", "Documento procesado correctamente"),
-                    "data": result.get("data", {}),
-                }
-            )
+            return jsonify(response_payload)
 
-        return error_response(
-            result.get("message", "Error desconocido al imprimir"),
-            data=result.get("data"),
-        )
+        error_msg = result.get("message", "Error desconocido al imprimir")
+        fail_job(invoice.document_number, invoice.operation_type, error_msg)
+        return error_response(error_msg, data=result.get("data"))
 
     except Exception as e:
         return error_response(f"Error interno del servidor: {str(e)}", HTTP_INTERNAL_ERROR)
 
 
-def handle_reports(report_type: str) -> Tuple[Response, int]:
+def handle_reports(report_type: str) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de reportes fiscales.
     Args:
         report_type: Tipo de reporte ('X' o 'Z')
     Returns:
-        Tuple[Response, int]: Respuesta JSON y código de estado HTTP
+        tuple[Response, int]: Respuesta JSON y código de estado HTTP
     """
     try:
         logger.info("Recibida solicitud de reporte %s", report_type)
@@ -210,8 +219,6 @@ def handle_reports(report_type: str) -> Tuple[Response, int]:
         if not fiscal_config or not fiscal_config.get("fiscal_enabled", False):
             return error_response("Impresora fiscal no está habilitada")
 
-        # Obtener instancia de la impresora usando PrinterManager
-        # printer_name = fiscal_config.get("fiscal_name", "").lower()  # pylint: disable=W0612
         printer, error_data = printer_instance(printers_config)
 
         if not printer:
@@ -245,17 +252,17 @@ def handle_reports(report_type: str) -> Tuple[Response, int]:
         return error_response(f"Error al imprimir reporte {report_type}: {str(e)}", HTTP_INTERNAL_ERROR)
 
 
-def handle_report_x() -> Tuple[Response, int]:
+def handle_report_x() -> tuple[Response, int]:
     """Maneja la impresión del reporte X"""
     return handle_reports("X")
 
 
-def handle_report_z() -> Tuple[Response, int]:
+def handle_report_z() -> tuple[Response, int]:
     """Maneja la impresión del reporte Z"""
     return handle_reports("Z")
 
 
-def handle_fiscal_commands() -> Tuple[Response, int]:
+def handle_fiscal_commands() -> tuple[Response, int]:
     """
     Maneja el envío de comandos directos a la impresora fiscal.
     Esperar payload: {"commands": ["CMD1", "CMD2"]}
@@ -263,20 +270,6 @@ def handle_fiscal_commands() -> Tuple[Response, int]:
     try:
         data = request.get_json(silent=True) or {}
         commands = data.get("commands")
-
-        # Fallback a leer de handy/commands.json si no se proveen comandos
-        if not commands:
-            from handy.tools import get_base_path
-            import os
-            import json
-
-            file_path = os.path.join(get_base_path(), "handy", "commands.json")
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    file_data = json.load(f)
-                    commands = file_data.get("commands", [])
-            except Exception as e:
-                return error_response(f"No hay comandos en payload y falló lectura de {file_path}: {e}")
 
         if not isinstance(commands, list) or not commands:
             return error_response("'commands' debe ser una lista no vacía")
@@ -299,7 +292,18 @@ def handle_fiscal_commands() -> Tuple[Response, int]:
             return error_response(message, data=error_data)
 
         if not printer.check_status():
-            return error_response("La impresora fiscal no está lista")
+            fiscal_name = printers_config.get("fiscal", {}).get("fiscal_name", "").strip().lower()
+            PrinterManager.remove_printer(fiscal_name)
+            printer, error_data = printer_instance(printers_config)
+            if not printer:
+                message = (
+                    error_data.get("message", "Error al reconectar con la impresora")
+                    if error_data
+                    else "No se pudo reconectar con la impresora fiscal"
+                )
+                return error_response(message, data=error_data)
+            if not printer.check_status():
+                return error_response("La impresora fiscal no está lista")
 
         results = []
         for cmd in commands:

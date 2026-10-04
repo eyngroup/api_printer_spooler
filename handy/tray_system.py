@@ -241,23 +241,31 @@ class LogViewer:
 class TrayManager:
     """Gestiona el ícono y menú en la bandeja del sistema."""
 
-    def __init__(self, app, base_path: str) -> None:
+    def __init__(self, app, base_path: str, main_window=None) -> None:
         """Inicializa el administrador de la bandeja del sistema.
         Args:
             app: Instancia de la aplicación Flask
             base_path: Ruta base de la aplicación
+            main_window: Instancia de views.main_window.MainWindow opcional.
         """
         self.app = app
         self.logger: logging.Logger = logging.getLogger(__name__)
         self.base_path: str = base_path
         self.icon: pystray.Icon | None = None
-        self.log_viewer: LogViewer = LogViewer(os.path.join(get_base_path(), "logs"))
+        self.main_window = main_window
+        self.log_viewer: LogViewer | None = None if main_window else LogViewer(os.path.join(get_base_path(), "logs"))
 
     def create_menu(self) -> pystray.Menu:
         """Crea el menú contextual del ícono.
         Returns:
             Menu configurado para el ícono de la bandeja
         """
+        if self.main_window:
+            return pystray.Menu(
+                pystray.MenuItem("Abrir Panel", self.show_panel, default=True),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Salir", self.stop),
+            )
         return pystray.Menu(
             pystray.MenuItem("Ver Logs", self.show_logs, default=True),
             pystray.MenuItem("Ver Estado", self.show_status),
@@ -265,20 +273,18 @@ class TrayManager:
             pystray.MenuItem("Salir", self.stop),
         )
 
+    def show_panel(self) -> None:
+        """Solicita mostrar la ventana principal (Consola, Configuración, Fiscal)."""
+        if self.main_window:
+            self.main_window.request_show()
+
     def show_logs(self) -> None:
-        """Muestra la ventana de logs.
-        Args:
-            icon: Ícono de la bandeja
-            item: Ítem del menú seleccionado
-        """
-        self.log_viewer.show()
+        """Muestra la ventana de logs (modo fallback sin MainWindow)."""
+        if self.log_viewer:
+            self.log_viewer.show()
 
     def show_status(self) -> None:
-        """Abre el navegador con la página de estado.
-        Args:
-            icon: Ícono de la bandeja
-            item: Ítem del menú seleccionado
-        """
+        """Abre el navegador con la página de estado."""
         try:
             import webbrowser
 
@@ -289,19 +295,17 @@ class TrayManager:
             port = config.get("server", {}).get("server_port", 5050)
             webbrowser.open(f"http://{host}:{port}")
         except Exception as e:
-            logger.error("Error al mostrar estado: %s", str(e))
+            self.logger.error("Error al mostrar estado: %s", str(e))
 
     def stop(self) -> None:
-        """Detiene la aplicación y limpia los recursos.
-        Args:
-            icon: Ícono de la bandeja
-            item: Ítem del menú seleccionado
-        """
+        """Detiene la aplicación y limpia los recursos."""
         try:
             if self.icon:
                 self.icon.stop()
 
-            if self.log_viewer:
+            if self.main_window:
+                self.main_window.request_quit()
+            elif self.log_viewer:
                 self.log_viewer.destroy()
 
             if self.app:
@@ -316,7 +320,7 @@ class TrayManager:
 
             os._exit(0)
         except Exception as e:
-            logger.error("Error al detener la aplicación: %s", str(e))
+            self.logger.error("Error al detener la aplicación: %s", str(e))
             os._exit(1)
 
     def _run_icon(self) -> None:

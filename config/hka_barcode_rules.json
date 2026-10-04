@@ -151,6 +151,44 @@
             "fixed": false
         }
     },
+    "PP9-PLUS": {
+        "00": {
+            "mode": "EAN13",
+            "type": "numeric",
+            "limit": 12,
+            "fixed": false
+        },
+        "01": {
+            "mode": "ITF",
+            "type": "numeric",
+            "limit": 32,
+            "fixed": false
+        },
+        "02": {
+            "mode": "CODE128",
+            "type": "text",
+            "limit": 32,
+            "fixed": false
+        },
+        "03": {
+            "mode": "CODE39",
+            "type": "text",
+            "limit": 32,
+            "fixed": false
+        },
+        "04": {
+            "mode": "QR",
+            "type": "text",
+            "limit": 122,
+            "fixed": false
+        },
+        "05": {
+            "mode": "PDF417",
+            "type": "text",
+            "limit": 122,
+            "fixed": false
+        }
+    },
     "SRP_350": {
         "00": {
             "mode": "EAN13",

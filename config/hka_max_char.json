@@ -31,6 +31,14 @@
     "comment": 40,
     "product": 120
   },
+  "PP9-PLUS": {
+    "header": 40,
+    "footer": 40,
+    "vat": 38,
+    "partner": 34,
+    "comment": 40,
+    "product": 120
+  },
   "SRP_280": {
     "header": 40,
     "footer": 40,
