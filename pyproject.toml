@@ -15,7 +15,8 @@ dependencies = [
     "jsonschema",
     "watchdog",
     "cx-freeze",
-    "pystray"
+    "pystray",
+    "pygobject; sys_platform == 'linux'",
 ]
 
 [tool.black]

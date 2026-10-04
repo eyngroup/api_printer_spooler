@@ -319,18 +319,51 @@ class TrayManager:
             logger.error("Error al detener la aplicación: %s", str(e))
             os._exit(1)
 
+    def _run_icon(self) -> None:
+        """Ejecuta el loop del system tray en un hilo protegido."""
+        try:
+            if self.icon:
+                self.icon.run()
+        except Exception as e:
+            self.logger.warning(
+                "No se pudo mantener activo el icono del system tray (%s). Continuando en segundo plano.",
+                e,
+            )
+            self.icon = None
+
     def run(self) -> None:
-        """Inicia el ícono en la bandeja del sistema."""
+        """Inicia el ícono en la bandeja del sistema si el entorno lo soporta."""
         try:
             icon_path = os.path.join(get_base_path(), "resources", "printer_fiscal.ico")
             if not os.path.exists(icon_path):
-                logger.error("No se pudo encontrar el ícono en: %s", icon_path)
+                self.logger.error("No se pudo encontrar el ícono en: %s", icon_path)
                 return
+
+            # Verificación defensiva para backend X11 en Linux sin gestor de bandeja
+            backend_mod = getattr(pystray.Icon, "__module__", "")
+            if "xorg" in backend_mod:
+                try:
+                    import Xlib.display
+                    import Xlib.X
+
+                    display = Xlib.display.Display()
+                    screen = display.screen()
+                    atom = display.intern_atom(f"_NET_SYSTEM_TRAY_S{screen.root.screen_number}")
+                    owner = display.get_selection_owner(atom)
+                    if owner == Xlib.X.NONE:
+                        self.logger.warning(
+                            "Entorno gráfico sin administrador de bandeja XEmbed activo (_NET_SYSTEM_TRAY_S). "
+                            "El servidor continuará sin icono en la barra de tareas."
+                        )
+                        return
+                except Exception as e:
+                    self.logger.debug("Error verificando gestor X11 de bandeja: %s", e)
 
             image = Image.open(icon_path)
             self.icon = pystray.Icon("API Printer Server", image, "API Printer Server", self.create_menu())
 
-            threading.Thread(target=self.icon.run, daemon=True).start()
-            logger.info("System tray iniciado correctamente")
+            threading.Thread(target=self._run_icon, daemon=True).start()
+            self.logger.info("System tray iniciado correctamente")
         except Exception as e:
-            logger.error("Error al iniciar system tray: %s", str(e))
+            self.logger.warning("No se pudo iniciar el system tray: %s. Continuando en segundo plano.", str(e))
+
