@@ -1,25 +1,124 @@
-# Directorios
+# ---------------------------------------------------------------------------
+# AI assistants / local dev tools
+# ---------------------------------------------------------------------------
+CLAUDE.md
+VISION.md
+.atl/
+.claude/
+.code/
+.cursor/
+.copilot/
+.github/copilot/
+.aider*
+.aider.conf.yml
+.gemini/
+.openai/
+.llm/
+.ai/
+.scratch/
+tmp/
+temp/
+
+# ---------------------------------------------------------------------------
+# Python / packaging
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.py[oc]
+*$py.class
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+build/
+dist/
+wheels/
+*.egg
+*.whl
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+pytestdebug.log
+
+# ---------------------------------------------------------------------------
+# Virtual environments / tooling
+# ---------------------------------------------------------------------------
+venv/
 .venv/
+env/
+ENV/
+.conda/
+site-packages/
+
+# ---------------------------------------------------------------------------
+# Local environment / secrets
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
+
+# ---------------------------------------------------------------------------
+# Build / generated / vendor snapshots
+# ---------------------------------------------------------------------------
+*.orig
+*.rej
+*.tmp
+*.temp
+coverage.xml
+
+# ---------------------------------------------------------------------------
+# IDE / editors
+# ---------------------------------------------------------------------------
+.vscode/
 .idea/
 .vs/
-.vscode/
-.ruff_cache/
-dist/
-build/
-__pycache__/
-logs/
+*.swp
+*.swo
+*~
 
-# Archivos
-.env
+# ---------------------------------------------------------------------------
+# OS files
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Application runtime / database / logs (api_printer_spooler)
+# ---------------------------------------------------------------------------
 *.log
+logs/
+*.pid
+*.sock
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+*.sql
+*.bak
 
-# Documentación interna (no subir al repo)
+# ---------------------------------------------------------------------------
+# Project-specific internal docs & test scripts
+# ---------------------------------------------------------------------------
 docs/MEMORY.md
 docs/CHECKLIST.md
 docs/REFACTOR_PLAN.md
 docs/firewall.txt
-
-# Comandos de prueba manual (no subir al repo)
-handy/commands.json
 handy/commands_factura.json
 handy/commands_credito.json
+handy/commands_debito.json
+handy/commands_config.json
