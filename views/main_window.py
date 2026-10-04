@@ -154,9 +154,25 @@ class MainWindow:
         )
         self._set_window_icon()
 
+        # Barra superior con título y alternador de tema
+        top_bar = tb.Frame(self.root)
+        top_bar.pack(fill=tbc.X, padx=10, pady=(8, 2))
+
+        tb.Label(top_bar, text="API Printer Spooler", font=("Segoe UI", 12, "bold")).pack(side=tbc.LEFT)
+
+        self._is_dark_theme = True
+        self.theme_btn = tb.Button(
+            top_bar,
+            text="☀️ Tema Claro",
+            command=self._toggle_theme,
+            bootstyle="secondary-outline",
+            padding=(8, 3),
+        )
+        self.theme_btn.pack(side=tbc.RIGHT)
+
         self.notebook = tb.Notebook(self.root)
         notebook = self.notebook
-        notebook.pack(fill=tbc.BOTH, expand=tbc.YES, padx=10, pady=10)
+        notebook.pack(fill=tbc.BOTH, expand=tbc.YES, padx=10, pady=5)
 
         # 1. Consola / Logs
         self.console_tab = tb.Frame(notebook)
@@ -222,6 +238,17 @@ class MainWindow:
                     self._icon_photo_ref = photo
         except Exception as e:
             logger.warning("No se pudo establecer el ícono de la ventana: %s", str(e))
+
+    def _toggle_theme(self) -> None:
+        """Alterna entre tema oscuro (darkly) y claro (bootstrap-light)."""
+        if self._is_dark_theme:
+            self.root.style.theme_use("bootstrap-light")
+            self.theme_btn.config(text="🌙 Tema Oscuro", bootstyle="primary-outline")
+            self._is_dark_theme = False
+        else:
+            self.root.style.theme_use("darkly")
+            self.theme_btn.config(text="☀️ Tema Claro", bootstyle="secondary-outline")
+            self._is_dark_theme = True
 
     def _build_lock_overlay(self, parent, title: str, content) -> None:
         lock_frame = tb.Frame(parent)
@@ -584,7 +611,7 @@ class MainWindow:
 
         port_row = tb.Frame(hw_box)
         port_row.pack(fill=tbc.X, pady=3)
-        tb.Label(port_row, text="Puerto", width=18).pack(side=tbc.LEFT)
+        tb.Label(port_row, text="Puerto", width=22).pack(side=tbc.LEFT)
         self.fv["fiscal_port"] = tb.StringVar(value=fiscal_cfg.get("fiscal_port", ""))
         self.fiscal_port_combo = tb.Combobox(port_row, textvariable=self.fv["fiscal_port"])
         self.fiscal_port_combo.pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES, padx=(0, 5))
