@@ -4,9 +4,7 @@ Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
 
 Ventana principal de escritorio (ttkbootstrap): consola de logs, configuración
-del servidor, configuración fiscal y envío de comandos directos a la impresora.
-Reemplaza el editor de configuración web (config-editor.html) y el visor de
-logs de Tkinter clásico (LogViewer en handy/tray_system.py).
+del servidor, impresoras (fiscal, ticket, matriz) y envío de comandos/reportes.
 """
 
 import json
@@ -37,9 +35,6 @@ from server.config_loader import (
 
 logger = logging.getLogger(__name__)
 
-# La plantilla fiscal no tiene jsonschema propio hoy (a diferencia de config.json).
-# Se define aquí para que la GUI sea la única vía de edición y no permita guardar
-# valores fuera de rango (p.ej. partner_address_lines fuera de 1-3).
 FISCAL_TEMPLATE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -76,7 +71,6 @@ FISCAL_TEMPLATE_SCHEMA = {
     "required": ["fiscal", "format"],
 }
 
-# (clave, etiqueta) — orden en que se dibujan los checkboxes de formato
 FORMAT_FLAGS = [
     ("include_partner_address", "Incluir dirección del cliente"),
     ("include_partner_phone", "Incluir teléfono del cliente"),
@@ -95,49 +89,67 @@ FORMAT_FLAGS = [
     ("include_exchange_rate", "Incluir tasa de cambio"),
 ]
 
+TICKET_FORMAT_FLAGS = [
+    ("show_customer_address", "Mostrar dirección del cliente"),
+    ("show_customer_phone", "Mostrar teléfono del cliente"),
+    ("show_customer_email", "Mostrar email del cliente"),
+    ("show_document_number", "Mostrar número de documento"),
+    ("show_document_reference", "Mostrar referencia del documento"),
+    ("show_document_date", "Mostrar fecha del documento"),
+    ("show_document_name", "Mostrar nombre del documento"),
+    ("show_document_cashier", "Mostrar cajero"),
+    ("show_items_header", "Mostrar encabezado de ítems"),
+    ("combine_item_ref", "Combinar referencia de ítem"),
+    ("show_subtotal", "Mostrar subtotal"),
+    ("show_delivery_comments", "Mostrar comentarios de entrega"),
+]
 
-def _template_path() -> str:
+MATRIX_FORMAT_FLAGS = [
+    ("show_items_comment", "Mostrar comentarios de ítems"),
+    ("show_payments", "Mostrar detalle de pagos"),
+    ("show_delivery_comment", "Mostrar comentarios de entrega"),
+]
+
+
+def _fiscal_template_path() -> str:
     return os.path.join(get_base_path(), "templates", "template_fiscal_printer.json")
 
 
-def _load_template() -> dict[str, Any]:
+def _ticket_template_path() -> str:
+    return os.path.join(get_base_path(), "templates", "template_ticket_simple.json")
+
+
+def _matrix_template_path() -> str:
+    return os.path.join(get_base_path(), "templates", "template_matriz_carta.json")
+
+
+def _load_json_file(path: str) -> dict[str, Any]:
     try:
-        with open(_template_path(), encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        logger.warning("No se pudo cargar template_fiscal_printer.json: %s", str(e))
-        return {"fiscal": {}, "format": {}}
+        logger.warning("No se pudo cargar %s: %s", path, str(e))
+        return {}
+
+
+def _save_json_file(path: str, data: dict[str, Any]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 class MainWindow:
-    """Ventana principal de la aplicación de escritorio (Consola, Servidor, Fiscal)."""
+    """Ventana principal de la aplicación de escritorio (Consola, Servidor, Impresoras, Comandos)."""
 
     def __init__(self, flask_app=None):
-        """
-        Args:
-            flask_app: instancia Flask opcional. Cuando se provee (Fase 2), al guardar
-                la configuración del servidor también se actualiza current_app.config
-                para que el proceso en curso use los valores nuevos sin reiniciar.
-        """
         self.flask_app = flask_app
         self._current_log_path = None
-
-        # Cola thread-safe: pystray corre en su propio hilo y nunca debe tocar
-        # widgets Tk directamente. request_show()/request_hide()/request_quit()
-        # son las únicas formas seguras de pedirle algo a la ventana desde fuera
-        # del hilo principal (ver handy/tray_system.py).
         self._ui_queue: queue.Queue[str] = queue.Queue()
-
-        # Funciones "relock" registradas por _build_lock_overlay — hide() las
-        # invoca para que las pestañas protegidas vuelvan a pedir el código
-        # cada vez que la ventana se oculta (cerrar a bandeja o minimizar).
-        # Sin esto, el código solo se pide una vez por ejecución del programa.
         self._relock_callbacks: list[Any] = []
 
         self.root = tb.Window(
             title="API Printer Spooler",
             themename="darkly",
-            size=(950, 700),
+            size=(980, 720),
             on_close=self._on_close,
         )
         self._set_window_icon()
@@ -146,42 +158,57 @@ class MainWindow:
         notebook = self.notebook
         notebook.pack(fill=tbc.BOTH, expand=tbc.YES, padx=10, pady=10)
 
+        # 1. Consola / Logs
         self.console_tab = tb.Frame(notebook)
         notebook.add(self.console_tab, text="Consola / Logs")
 
-        # Configuración del Servidor y Configuración Fiscal quedan detrás de un
-        # candado (código de seguridad) — ver _build_lock_overlay. El contenido
-        # real se construye igual que antes, solo que no se empaqueta hasta
-        # desbloquear la pestaña.
+        # 2. Configuración del Servidor
         server_container = tb.Frame(notebook)
         notebook.add(server_container, text="Configuración del Servidor")
         self.server_scroll = tb.ScrolledFrame(server_container, autohide=True)
 
+        # 3. Impresora Fiscal
         fiscal_container = tb.Frame(notebook)
-        notebook.add(fiscal_container, text="Configuración Fiscal")
+        notebook.add(fiscal_container, text="Impresora Fiscal")
         self.fiscal_scroll = tb.ScrolledFrame(fiscal_container, autohide=True)
 
+        # 4. Impresora Ticket
+        ticket_container = tb.Frame(notebook)
+        notebook.add(ticket_container, text="Impresora Ticket")
+        self.ticket_scroll = tb.ScrolledFrame(ticket_container, autohide=True)
+
+        # 5. Impresora Matrix
+        matrix_container = tb.Frame(notebook)
+        notebook.add(matrix_container, text="Impresora Matrix")
+        self.matrix_scroll = tb.ScrolledFrame(matrix_container, autohide=True)
+
+        # 6. Comandos
+        commands_container = tb.Frame(notebook)
+        notebook.add(commands_container, text="Comandos")
+        self.commands_scroll = tb.ScrolledFrame(commands_container, autohide=True)
+
+        # Construcción de pestañas
         self._build_console_tab()
         self._build_server_tab(self.server_scroll)
         self._build_fiscal_tab(self.fiscal_scroll)
+        self._build_ticket_tab(self.ticket_scroll)
+        self._build_matrix_tab(self.matrix_scroll)
+        self._build_commands_tab(self.commands_scroll)
 
+        # Bloqueo de seguridad en pestañas de configuración
         self._build_lock_overlay(server_container, "Configuración del Servidor", self.server_scroll.container)
-        self._build_lock_overlay(fiscal_container, "Configuración Fiscal", self.fiscal_scroll.container)
+        self._build_lock_overlay(fiscal_container, "Impresora Fiscal", self.fiscal_scroll.container)
+        self._build_lock_overlay(ticket_container, "Impresora Ticket", self.ticket_scroll.container)
+        self._build_lock_overlay(matrix_container, "Impresora Matrix", self.matrix_scroll.container)
+        self._build_lock_overlay(commands_container, "Comandos", self.commands_scroll.container)
 
         self._schedule_log_tail()
         self._poll_ui_queue()
 
-        # Minimizar (icono de Windows, no el botón X) debe ocultar por completo,
-        # igual que "Cerrar" — la app vive en la bandeja del sistema, nunca debe
-        # dejar un ícono en la barra de tareas.
         self.root.bind("<Unmap>", self._on_minimize)
-
-        # Arranca oculta: solo se muestra vía el ícono de la bandeja (TrayManager),
-        # igual que el comportamiento previo de LogViewer.
         self.root.withdraw()
 
     def _set_window_icon(self) -> None:
-        """Ícono de la ventana/exe (printer_fiscal.ico en Windows, .png en otros)."""
         try:
             if sys.platform.startswith("win"):
                 icon_path = os.path.join(get_base_path(), "resources", "printer_fiscal.ico")
@@ -192,13 +219,11 @@ class MainWindow:
                 if os.path.exists(icon_path):
                     photo = tb.PhotoImage(file=icon_path)
                     self.root.iconphoto(True, photo)
-                    self._icon_photo_ref = photo  # evita garbage collection de la imagen
+                    self._icon_photo_ref = photo
         except Exception as e:
             logger.warning("No se pudo establecer el ícono de la ventana: %s", str(e))
 
     def _build_lock_overlay(self, parent, title: str, content) -> None:
-        """Pantalla de candado que cubre `content` hasta que se ingrese el código
-        de seguridad correcto. `content` no se empaqueta hasta desbloquear."""
         lock_frame = tb.Frame(parent)
 
         center = tb.Frame(lock_frame)
@@ -211,7 +236,7 @@ class MainWindow:
         entry = tb.Entry(center, textvariable=code_var, show="*", width=24)
         entry.pack(pady=(0, 10))
 
-        def unlock(event=None) -> None:  # pylint: disable=unused-argument
+        def unlock(event=None) -> None:
             if code_var.get() == get_security_code():
                 lock_frame.pack_forget()
                 content.pack(fill=tbc.BOTH, expand=tbc.YES)
@@ -220,283 +245,185 @@ class MainWindow:
                 Messagebox.show_error("Código de seguridad incorrecto.", title)
                 code_var.set("")
 
+        entry.bind("<Return>", unlock)
+        tb.Button(center, text="Desbloquear", command=unlock, bootstyle="primary").pack()
+
         def relock() -> None:
-            """Vuelve a cubrir `content` con el candado. Se llama cada vez que la
-            ventana se oculta, para que el desbloqueo no sea válido "para siempre"
-            durante toda la ejecución del programa."""
             content.pack_forget()
             lock_frame.pack(fill=tbc.BOTH, expand=tbc.YES)
             code_var.set("")
 
-        entry.bind("<Return>", unlock)
-        tb.Button(center, text="Desbloquear", command=unlock, bootstyle="success").pack()
-
-        lock_frame.pack(fill=tbc.BOTH, expand=tbc.YES)
         self._relock_callbacks.append(relock)
+        relock()
 
     # ------------------------------------------------------------------
-    # Ciclo de vida de la ventana
+    # Ciclo de vida y cola de eventos UI (thread-safe)
     # ------------------------------------------------------------------
+    def request_show(self) -> None:
+        self._ui_queue.put("show")
+
+    def request_hide(self) -> None:
+        self._ui_queue.put("hide")
+
+    def request_quit(self) -> None:
+        self._ui_queue.put("quit")
+
     def show(self) -> None:
-        """Muestra la ventana. Solo seguro de llamar desde el hilo de Tk
-        (callbacks de widgets, o el propio _poll_ui_queue). Código externo
-        (p.ej. TrayManager) debe usar request_show()."""
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
 
     def hide(self) -> None:
-        """Oculta la ventana sin destruirla. Mismas reglas de hilo que show().
-        Re-bloquea las pestañas protegidas: el código de seguridad solo vale
-        mientras la ventana está a la vista, no "para siempre" durante toda la
-        ejecución del programa."""
-        for relock in self._relock_callbacks:
-            relock()
-        self.notebook.select(0)  # volver a "Consola / Logs" al ocultar
         self.root.withdraw()
+        for callback in self._relock_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                logger.debug("Error en callback de relock: %s", str(e))
 
-    def _on_close(self) -> bool:
-        """Callback del botón X (WM_DELETE_WINDOW). ttkbootstrap destruye la ventana
-        después de este callback A MENOS que retorne exactamente False — por eso
-        el return es obligatorio, no cosmético: sin él, cerrar la ventana mata
-        toda la app (Flask incluido) en vez de solo ocultarla a la bandeja."""
-        self.hide()
-        return False
-
-    def _on_minimize(self, event) -> None:
-        """La app vive en la bandeja del sistema: minimizar (el botón _ de Windows,
-        no el X) no debe dejar un ícono en la barra de tareas. Se intercepta el
-        evento de iconificación y se oculta por completo (mismo efecto que Cerrar)."""
-        if event.widget is self.root and self.root.state() == "iconic":
-            self.root.withdraw()
-
-    def request_show(self) -> None:
-        """Thread-safe: encola una petición para mostrar la ventana. Usar desde
-        el hilo de pystray (TrayManager) o desde el hilo de Flask."""
-        self._ui_queue.put("show")
-
-    def request_hide(self) -> None:
-        """Thread-safe: encola una petición para ocultar la ventana."""
-        self._ui_queue.put("hide")
-
-    def request_quit(self) -> None:
-        """Thread-safe: encola una petición para terminar el mainloop de Tk."""
-        self._ui_queue.put("quit")
+    def mainloop(self) -> None:
+        self.root.mainloop()
 
     def _poll_ui_queue(self) -> None:
-        """Corre en el hilo de Tk vía root.after: procesa peticiones encoladas
-        desde otros hilos sin tocar widgets fuera de este hilo."""
         try:
             while True:
-                task = self._ui_queue.get_nowait()
-                if task == "show":
+                msg = self._ui_queue.get_nowait()
+                if msg == "show":
                     self.show()
-                elif task == "hide":
+                elif msg == "hide":
                     self.hide()
-                elif task == "quit":
-                    self.root.quit()
+                elif msg == "quit":
+                    self._quit_application()
                     return
         except queue.Empty:
             pass
         self.root.after(100, self._poll_ui_queue)
 
-    def mainloop(self) -> None:
-        self.root.mainloop()
+    def _on_close(self) -> None:
+        self.hide()
+
+    def _on_minimize(self, event) -> None:
+        if event.widget == self.root and self.root.state() == "iconic":
+            self.hide()
+
+    def _quit_application(self) -> None:
+        try:
+            self.root.destroy()
+        except Exception as e:
+            logger.debug("Error destruyendo root: %s", str(e))
+        os._exit(0)
 
     # ------------------------------------------------------------------
-    # Pestaña 1: Consola / Logs + Comandos Fiscales
+    # 1. Pestaña: Consola / Logs
     # ------------------------------------------------------------------
     def _build_console_tab(self) -> None:
-        frame = self.console_tab
+        controls = tb.Frame(self.console_tab)
+        controls.pack(fill=tbc.X, padx=5, pady=5)
 
-        status_bar = tb.Frame(frame)
-        status_bar.pack(fill=tbc.X, padx=5, pady=(5, 0))
+        tb.Label(controls, text="Nivel de log:").pack(side=tbc.LEFT, padx=(0, 5))
+        self.log_level_filter = tb.StringVar(value="TODOS")
+        level_combo = tb.Combobox(
+            controls,
+            textvariable=self.log_level_filter,
+            values=["TODOS", "DEBUG", "INFO", "WARNING", "ERROR"],
+            state="readonly",
+            width=10,
+        )
+        level_combo.pack(side=tbc.LEFT, padx=(0, 10))
+        level_combo.bind("<<ComboboxSelected>>", lambda e: self._filter_logs())
 
-        self.status_label = tb.Label(status_bar, text="Modo: -- | Impresora: --")
-        self.status_label.pack(side=tbc.LEFT, padx=5)
+        self.auto_scroll = tb.BooleanVar(value=True)
+        tb.Checkbutton(
+            controls, text="Auto-scroll", variable=self.auto_scroll, bootstyle="round-toggle"
+        ).pack(side=tbc.LEFT, padx=5)
 
-        tb.Button(status_bar, text="Actualizar", command=self._update_status_and_logs, bootstyle="info").pack(
+        tb.Button(controls, text="Limpiar vista", command=self._clear_console, bootstyle="secondary").pack(
             side=tbc.RIGHT, padx=5
         )
-        tb.Button(status_bar, text="Copiar Logs", command=self._copy_logs, bootstyle="secondary").pack(
+        tb.Button(controls, text="Copiar logs", command=self._copy_logs, bootstyle="info").pack(
             side=tbc.RIGHT, padx=5
         )
 
-        self.log_text = tb.ScrolledText(frame, height=20, autohide=True)
-        self.log_text.pack(fill=tbc.BOTH, expand=tbc.YES, padx=5, pady=5)
-        self.log_text.text.config(state="disabled")
+        self.console_text = tb.Text(self.console_tab, wrap="none", font=("Consolas", 9))
+        self.console_text.pack(fill=tbc.BOTH, expand=tbc.YES, padx=5, pady=(0, 5))
 
-        # Reportes Fiscales y Comandos Fiscales Directos viven en la pestaña
-        # "Configuración Fiscal" (protegida por código de seguridad).
-        dashboard_row = tb.Frame(frame)
-        dashboard_row.pack(fill=tbc.X, padx=5, pady=5)
-        tb.Button(dashboard_row, text="Abrir Dashboard Web", command=self._open_dashboard, bootstyle="info").pack(
-            side=tbc.LEFT
-        )
-
-    def _open_dashboard(self) -> None:
-        config = ConfigManager.get_config()
-        server_cfg = config.get("server", {})
-        host = server_cfg.get("server_host", "127.0.0.1")
-        if host == "0.0.0.0":
-            host = "localhost"
-        port = server_cfg.get("server_port", 5051)
-        webbrowser.open(f"http://{host}:{port}/")
-
-    def _update_status_and_logs(self) -> None:
-        self._update_status_label()
-        self._tail_log(force=True)
-
-    def _update_status_label(self) -> None:
-        try:
-            config = ConfigManager.get_config()
-            server_mode = config.get("server", {}).get("server_mode", "--")
-            fiscal = config.get("printers", {}).get("fiscal", {})
-            fiscal_name = fiscal.get("fiscal_name", "--") if fiscal.get("fiscal_enabled") else "Deshabilitada"
-            self.status_label.config(text=f"Modo: {server_mode} | Impresora: {fiscal_name}")
-        except Exception as e:
-            logger.error("Error actualizando estado en consola: %s", str(e))
+        self.console_text.tag_config("DEBUG", foreground="#6c757d")
+        self.console_text.tag_config("INFO", foreground="#20c997")
+        self.console_text.tag_config("WARNING", foreground="#ffc107")
+        self.console_text.tag_config("ERROR", foreground="#dc3545")
+        self.console_text.tag_config("DEFAULT", foreground="#f8f9fa")
 
     def _schedule_log_tail(self) -> None:
-        self._update_status_label()
-        self._tail_log()
-        self.root.after(3000, self._schedule_log_tail)
+        self._tail_current_log()
+        self.root.after(1000, self._schedule_log_tail)
 
-    def _tail_log(self, force: bool = False) -> None:
+    def _tail_current_log(self) -> None:
+        config = ConfigManager.get_config()
+        log_cfg = config.get("logging", {})
+        log_file_base = log_cfg.get("log_file", "printer_service")
+        today = datetime.now().strftime("%Y%m%d")
+        log_path = os.path.join(get_base_path(), "logs", f"{log_file_base}-{today}.log")
+
+        if not os.path.exists(log_path):
+            return
+
+        if self._current_log_path != log_path:
+            self._current_log_path = log_path
+            self._log_file_pos = 0
+            self.console_text.delete("1.0", tbc.END)
+
         try:
-            config = ConfigManager.get_config()
-            log_dir = os.path.join(get_base_path(), "logs")
-            log_file_name = config.get("logging", {}).get("log_file", "printer_spooler")
-            current_date = datetime.now().strftime("%Y%m%d")
-            log_path = os.path.join(log_dir, f"{log_file_name}-{current_date}.log")
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                f.seek(self._log_file_pos)
+                new_chunk = f.read()
+                self._log_file_pos = f.tell()
 
-            if not os.path.exists(log_path):
-                return
-
-            # Releer completo si se forzó o si rotó el archivo (cambio de fecha)
-            if force or log_path != self._current_log_path:
-                self._current_log_path = log_path
-                with open(log_path, encoding="utf-8") as f:
-                    content = f.read()
-                self.log_text.text.config(state="normal")
-                self.log_text.text.delete("1.0", tbc.END)
-                self.log_text.text.insert(tbc.END, content)
-                self.log_text.text.see(tbc.END)
-                self.log_text.text.config(state="disabled")
+            if new_chunk:
+                for line in new_chunk.splitlines(keepends=True):
+                    self._append_log_line(line)
+                if self.auto_scroll.get():
+                    self.console_text.see(tbc.END)
         except Exception as e:
-            logger.error("Error actualizando consola de logs: %s", str(e))
+            logger.debug("Error leyendo log: %s", str(e))
+
+    def _append_log_line(self, line: str) -> None:
+        filter_level = self.log_level_filter.get()
+        tag = "DEFAULT"
+        for level in ("ERROR", "WARNING", "INFO", "DEBUG"):
+            if f"| {level} |" in line or f" {level} " in line:
+                tag = level
+                break
+
+        if filter_level != "TODOS" and tag != filter_level and tag != "DEFAULT":
+            return
+
+        clean_line = line.replace('"', "").rstrip("\r\n") + "\n"
+        self.console_text.insert(tbc.END, clean_line, tag)
+
+    def _filter_logs(self) -> None:
+        self.console_text.delete("1.0", tbc.END)
+        self._log_file_pos = 0
+        self._tail_current_log()
+
+    def _clear_console(self) -> None:
+        self.console_text.delete("1.0", tbc.END)
 
     def _copy_logs(self) -> None:
         try:
-            content = self.log_text.text.get("1.0", tbc.END)
+            content = self.console_text.get("1.0", tbc.END)
             self.root.clipboard_clear()
             self.root.clipboard_append(content)
+            Messagebox.show_info("Logs copiados al portapapeles.", "Consola")
         except Exception as e:
             logger.error("Error al copiar logs: %s", str(e))
 
-    @staticmethod
-    def _get_ready_fiscal_printer():
-        """Obtiene la impresora fiscal activa y lista para operar, o lanza ValueError
-        con un mensaje apto para mostrar directamente en un Messagebox."""
-        # Import diferido: evita que main_window dependa de pyserial al solo abrir la GUI
-        from server.handlers.printer_manager import PrinterManager
-
-        config = ConfigManager.get_config()
-        fiscal_config = config.get("printers", {}).get("fiscal", {})
-
-        if not fiscal_config.get("fiscal_enabled", False):
-            raise ValueError("La impresora fiscal no está habilitada en la configuración.")
-
-        try:
-            printer = PrinterManager.get_printer(fiscal_config.get("fiscal_name", "").strip().lower(), fiscal_config)
-        except Exception as e:
-            raise ValueError(f"No se pudo obtener la impresora fiscal: {e}") from e
-
-        if not printer.check_status():
-            raise ValueError("La impresora fiscal no está lista.")
-
-        return printer
-
-    @staticmethod
-    def _confirm(message: str, title: str) -> bool:
-        """Diálogo de confirmación con botones fijos en español (no depende del
-        locale del sistema, a diferencia de los botones localizados por defecto)."""
-        result = Messagebox.yesno(message, title, buttons=["No", "Sí"], localize=False)
-        return result == "Sí"
-
-    def _print_report(self, report_type: str) -> None:
-        title = f"Reporte {report_type}"
-        if not self._confirm(
-            f"¿Está seguro que desea imprimir el {title}? Esta acción es irreversible sobre la impresora fiscal.",
-            title,
-        ):
-            return
-        try:
-            printer = self._get_ready_fiscal_printer()
-        except ValueError as e:
-            Messagebox.show_error(str(e), title)
-            return
-
-        method_name = f"report_{report_type.lower()}"
-        if not hasattr(printer, method_name):
-            Messagebox.show_error(f"Esta impresora no soporta reportes {report_type}.", title)
-            return
-
-        try:
-            result = getattr(printer, method_name)()
-        except Exception as e:
-            Messagebox.show_error(f"Error al imprimir {title.lower()}: {e}", title)
-            return
-
-        if result:
-            Messagebox.show_info(f"{title} impreso correctamente.", title)
-        else:
-            Messagebox.show_error(f"Error al imprimir {title.lower()}.", title)
-
-    def _send_commands(self) -> None:
-        raw = self.commands_text.get("1.0", tbc.END).strip()
-        if not raw:
-            Messagebox.show_warning("El JSON de comandos está vacío.", "Comandos")
-            return
-
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as e:
-            Messagebox.show_error(f"JSON inválido: {e}", "Comandos")
-            return
-
-        commands = payload.get("commands") if isinstance(payload, dict) else payload
-        if not isinstance(commands, list) or not commands:
-            Messagebox.show_error("'commands' debe ser una lista no vacía.", "Comandos")
-            return
-
-        if not self._confirm(
-            f"¿Está seguro que desea enviar {len(commands)} comando(s) a la impresora fiscal? "
-            "Esta acción es irreversible.",
-            "Comandos",
-        ):
-            return
-
-        try:
-            printer = self._get_ready_fiscal_printer()
-        except ValueError as e:
-            Messagebox.show_error(str(e), "Comandos")
-            return
-
-        results = [{"command": cmd, "success": printer.send_command(cmd)} for cmd in commands]
-        summary = "\n".join(f"{r['command']}: {'OK' if r['success'] else 'FALLÓ'}" for r in results)
-        Messagebox.show_info(summary, "Resultado de comandos")
-
     # ------------------------------------------------------------------
-    # Pestaña 2: Configuración del Servidor (config.json)
+    # 2. Pestaña: Configuración del Servidor (config.json)
     # ------------------------------------------------------------------
     def _build_server_tab(self, parent) -> None:
         config = ConfigManager.get_config()
         server_cfg = config.get("server", {})
         proxy_cfg = config.get("proxy", {})
-        fiscal_cfg = config.get("printers", {}).get("fiscal", {})
-        ticket_cfg = config.get("printers", {}).get("ticket", {})
-        matrix_cfg = config.get("printers", {}).get("matrix", {})
         logging_cfg = config.get("logging", {})
         security_cfg = config.get("security", {})
 
@@ -505,27 +432,25 @@ class MainWindow:
         # --- Servidor ---
         box = tb.LabelFrame(parent, text="Servidor", padding=10)
         box.pack(fill=tbc.X, padx=10, pady=10)
-
-        self._add_entry(box, "Host", "server_host", server_cfg.get("server_host", "127.0.0.1"))
-        self._add_entry(box, "Puerto", "server_port", server_cfg.get("server_port", 5051))
-        self._add_combobox(box, "Modo", "server_mode", sorted(VALID_SERVER_MODES), server_cfg.get("server_mode", "SPOOLER"))
-        self._add_checkbox(box, "Modo Debug", "server_debug", server_cfg.get("server_debug", False))
+        self._add_entry(self.sv, box, "Host", "server_host", server_cfg.get("server_host", "127.0.0.1"))
+        self._add_entry(self.sv, box, "Puerto", "server_port", server_cfg.get("server_port", 5051))
+        self._add_combobox(self.sv, box, "Modo", "server_mode", sorted(VALID_SERVER_MODES), server_cfg.get("server_mode", "SPOOLER"))
+        self._add_checkbox(self.sv, box, "Modo Debug", "server_debug", server_cfg.get("server_debug", False))
         self._add_checkbox(
-            box, "Auto-detectar puerto serial al iniciar", "scan_serial_port", server_cfg.get("scan_serial_port", False)
+            self.sv, box, "Auto-detectar puerto serial al iniciar", "scan_serial_port", server_cfg.get("scan_serial_port", False)
         )
-        self._add_checkbox(box, "Abrir navegador al iniciar", "auto_browser", server_cfg.get("auto_browser", False))
+        self._add_checkbox(self.sv, box, "Abrir navegador al iniciar", "auto_browser", server_cfg.get("auto_browser", False))
 
-        # --- Orígenes permitidos (CORS) ---
+        # --- CORS ---
         origins_box = tb.LabelFrame(parent, text="Orígenes Permitidos (CORS)", padding=10)
         origins_box.pack(fill=tbc.X, padx=10, pady=10)
-
         tb.Label(
             origins_box,
-            text="Patrones regex de orígenes autorizados a llamar la API (Odoo, otros sistemas remotos).",
+            text="Patrones regex de orígenes autorizados a llamar la API (Odoo, sistemas remotos).",
             wraplength=800,
         ).pack(anchor=tbc.W)
 
-        self.origins_listbox = tb.Listbox(origins_box, height=6)
+        self.origins_listbox = tb.Listbox(origins_box, height=5)
         self.origins_listbox.pack(fill=tbc.X, pady=5)
         for origin in server_cfg.get("allowed_origins", []):
             self.origins_listbox.insert(tbc.END, origin)
@@ -534,165 +459,49 @@ class MainWindow:
         origin_entry_frame.pack(fill=tbc.X)
         self.new_origin_entry = tb.Entry(origin_entry_frame)
         self.new_origin_entry.pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES, padx=(0, 5))
-        tb.Button(
-            origin_entry_frame, text="Agregar", command=self._add_origin, bootstyle="success", padding=(10, 6)
-        ).pack(side=tbc.LEFT, padx=2)
-        tb.Button(
-            origin_entry_frame,
-            text="Quitar seleccionado",
-            command=self._remove_origin,
-            bootstyle="danger",
-            padding=(10, 6),
-        ).pack(side=tbc.LEFT, padx=2)
+        tb.Button(origin_entry_frame, text="Agregar", command=self._add_origin, bootstyle="success").pack(
+            side=tbc.LEFT, padx=2
+        )
+        tb.Button(origin_entry_frame, text="Quitar", command=self._remove_origin, bootstyle="danger").pack(
+            side=tbc.LEFT, padx=2
+        )
 
         # --- Proxy ---
         proxy_box = tb.LabelFrame(parent, text="Proxy", padding=10)
         proxy_box.pack(fill=tbc.X, padx=10, pady=10)
-        self._add_checkbox(proxy_box, "Habilitar Proxy", "proxy_enabled", proxy_cfg.get("proxy_enabled", False))
-        self._add_entry(proxy_box, "URL Destino", "proxy_target", proxy_cfg.get("proxy_target", ""))
-
-        # --- Impresora Fiscal ---
-        fiscal_box = tb.LabelFrame(parent, text="Impresora Fiscal", padding=10)
-        fiscal_box.pack(fill=tbc.X, padx=10, pady=10)
-        self._add_checkbox(fiscal_box, "Habilitada", "fiscal_enabled", fiscal_cfg.get("fiscal_enabled", False))
-        self._add_combobox(
-            fiscal_box, "Modelo", "fiscal_name", sorted(VALID_FISCAL_PRINTERS), fiscal_cfg.get("fiscal_name", "TFHKA")
-        )
-
-        port_row = tb.Frame(fiscal_box)
-        port_row.pack(fill=tbc.X, pady=3)
-        tb.Label(port_row, text="Puerto", width=18).pack(side=tbc.LEFT)
-        self.sv["fiscal_port"] = tb.StringVar(value=fiscal_cfg.get("fiscal_port", ""))
-        self.fiscal_port_combo = tb.Combobox(port_row, textvariable=self.sv["fiscal_port"])
-        self.fiscal_port_combo.pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES, padx=(0, 5))
-        tb.Button(port_row, text="Escanear Puertos", command=self._scan_serial_ports, bootstyle="info").pack(
-            side=tbc.LEFT
-        )
-
-        self._add_entry(fiscal_box, "Baudrate", "fiscal_baudrate", fiscal_cfg.get("fiscal_baudrate", 9600))
-        self._add_entry(fiscal_box, "Timeout (s)", "fiscal_timeout", fiscal_cfg.get("fiscal_timeout", 2))
-        self._add_combobox(
-            fiscal_box,
-            "Tipo de Código de Barras",
-            "fiscal_barcode_type",
-            sorted(VALID_BARCODE_TYPES),
-            fiscal_cfg.get("fiscal_barcode_type", "CODE128"),
-        )
-
-        # --- Impresora Ticket ---
-        ticket_box = tb.LabelFrame(parent, text="Impresora Ticket", padding=10)
-        ticket_box.pack(fill=tbc.X, padx=10, pady=10)
-        self._add_checkbox(ticket_box, "Habilitada", "ticket_enabled", ticket_cfg.get("ticket_enabled", False))
-        self._add_entry(ticket_box, "Nombre", "ticket_name", ticket_cfg.get("ticket_name", "PDF"))
-        self._add_entry(ticket_box, "Puerto / Destino", "ticket_port", ticket_cfg.get("ticket_port", "PDF"))
-        self._add_combobox(
-            ticket_box, "Papel", "ticket_paper", ["80mm", "58mm"], ticket_cfg.get("ticket_paper", "80mm")
-        )
-        self._add_entry(
-            ticket_box, "Plantilla", "ticket_template", ticket_cfg.get("ticket_template", "template_ticket_simple.json")
-        )
-        self._add_entry(
-            ticket_box, "Archivo de Salida", "ticket_file", ticket_cfg.get("ticket_file", "docs/ticket_output.txt")
-        )
-        self._add_checkbox(ticket_box, "Impresión Directa", "ticket_direct", ticket_cfg.get("ticket_direct", False))
-        self._add_checkbox(ticket_box, "Usar ESC/POS", "ticket_use_escpos", ticket_cfg.get("ticket_use_escpos", False))
-        self._add_checkbox(
-            ticket_box, "Código de Barras Habilitado", "barcode_enabled", ticket_cfg.get("barcode_enabled", False)
-        )
-        self._add_combobox(
-            ticket_box,
-            "Tipo de Código de Barras",
-            "barcode_type",
-            sorted(VALID_BARCODE_TYPES),
-            ticket_cfg.get("barcode_type", "BARCODE"),
-        )
-        self._add_checkbox(ticket_box, "Logo Habilitado", "logo_enabled", ticket_cfg.get("logo_enabled", False))
-        self._add_entry(ticket_box, "Ancho de Logo", "logo_width", ticket_cfg.get("logo_width", 480))
-        self._add_entry(ticket_box, "Alto de Logo", "logo_height", ticket_cfg.get("logo_height", 160))
-
-        # --- Impresora Matriz de Puntos ---
-        matrix_box = tb.LabelFrame(parent, text="Impresora Matriz de Puntos", padding=10)
-        matrix_box.pack(fill=tbc.X, padx=10, pady=10)
-        self._add_checkbox(matrix_box, "Habilitada", "matrix_enabled", matrix_cfg.get("matrix_enabled", False))
-        self._add_entry(matrix_box, "Nombre", "matrix_name", matrix_cfg.get("matrix_name", "LX-350"))
-        self._add_entry(matrix_box, "Puerto / Destino", "matrix_port", matrix_cfg.get("matrix_port", "EPSON LX-350"))
-        self._add_combobox(
-            matrix_box,
-            "Papel",
-            "matrix_paper",
-            sorted(VALID_MATRIX_PAPER_TYPES),
-            matrix_cfg.get("matrix_paper", "MEDIA_CARTA"),
-        )
-        self._add_entry(
-            matrix_box, "Plantilla", "matrix_template", matrix_cfg.get("matrix_template", "template_matriz_carta.json")
-        )
-        self._add_entry(
-            matrix_box, "Archivo de Salida", "matrix_file", matrix_cfg.get("matrix_file", "docs/print_output.txt")
-        )
-        self._add_checkbox(matrix_box, "Impresión Directa", "matrix_direct", matrix_cfg.get("matrix_direct", False))
-        self._add_checkbox(matrix_box, "Usar ESC/P", "matrix_use_escp", matrix_cfg.get("matrix_use_escp", False))
+        self._add_checkbox(self.sv, proxy_box, "Habilitar Proxy", "proxy_enabled", proxy_cfg.get("proxy_enabled", False))
+        self._add_entry(self.sv, proxy_box, "URL Destino", "proxy_target", proxy_cfg.get("proxy_target", ""))
 
         # --- Logging ---
         logging_box = tb.LabelFrame(parent, text="Logging", padding=10)
         logging_box.pack(fill=tbc.X, padx=10, pady=10)
-        self._add_checkbox(logging_box, "Mostrar logs en consola", "log_output", logging_cfg.get("log_output", True))
-        self._add_entry(logging_box, "Nombre de archivo", "log_file", logging_cfg.get("log_file", "printer_spooler"))
+        self._add_checkbox(self.sv, logging_box, "Mostrar logs en consola", "log_output", logging_cfg.get("log_output", True))
+        self._add_entry(self.sv, logging_box, "Nombre de archivo", "log_file", logging_cfg.get("log_file", "printer_spooler"))
         self._add_combobox(
+            self.sv,
             logging_box,
             "Nivel",
             "log_level",
             ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             logging_cfg.get("log_level", "INFO"),
         )
-        self._add_entry(logging_box, "Formato", "log_format", logging_cfg.get("log_format", "%(asctime)s | %(levelname)s | %(message)s"))
-        self._add_entry(logging_box, "Días de retención", "log_days", logging_cfg.get("log_days", 7))
+        self._add_entry(self.sv, logging_box, "Formato", "log_format", logging_cfg.get("log_format", "%(asctime)s | %(levelname)s | %(message)s"))
+        self._add_entry(self.sv, logging_box, "Días de retención", "log_days", logging_cfg.get("log_days", 7))
 
         # --- Seguridad ---
         security_box = tb.LabelFrame(parent, text="Seguridad", padding=10)
         security_box.pack(fill=tbc.X, padx=10, pady=10)
-        self._add_entry(security_box, "Código de seguridad", "security_code", security_cfg.get("security_code", ""), show="*")
+        self._add_entry(self.sv, security_box, "Código de seguridad", "security_code", security_cfg.get("security_code", ""), show="*")
 
         # --- Guardar ---
         save_row = tb.Frame(parent)
         save_row.pack(fill=tbc.X, padx=10, pady=15)
-        tb.Button(save_row, text="Guardar Configuración del Servidor", command=self._save_server_config, bootstyle="success").pack(
-            side=tbc.LEFT
-        )
-
-    def _scan_serial_ports(self) -> None:
-        try:
-            scanner = get_serial_scanner()
-            ports = scanner.scan_ports()
-            values = [p["port"] for p in ports]
-            self.fiscal_port_combo["values"] = values
-            if not values:
-                Messagebox.show_info("No se encontraron puertos seriales disponibles.", "Escaneo de Puertos")
-        except Exception as e:
-            Messagebox.show_error(f"Error escaneando puertos: {e}", "Escaneo de Puertos")
-
-    def _add_entry(self, parent, label: str, key: str, value: Any, show: str = None) -> None:
-        row = tb.Frame(parent)
-        row.pack(fill=tbc.X, pady=3)
-        tb.Label(row, text=label, width=18).pack(side=tbc.LEFT)
-        var = tb.StringVar(value=str(value) if value is not None else "")
-        self.sv[key] = var
-        entry_kwargs = {"show": show} if show else {}
-        tb.Entry(row, textvariable=var, **entry_kwargs).pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES)
-
-    def _add_checkbox(self, parent, label: str, key: str, value: bool) -> None:
-        var = tb.BooleanVar(value=bool(value))
-        self.sv[key] = var
-        tb.Checkbutton(parent, text=label, variable=var, bootstyle="round-toggle").pack(anchor=tbc.W, pady=3)
-
-    def _add_combobox(self, parent, label: str, key: str, values: list[str], value: Any) -> None:
-        row = tb.Frame(parent)
-        row.pack(fill=tbc.X, pady=3)
-        tb.Label(row, text=label, width=18).pack(side=tbc.LEFT)
-        var = tb.StringVar(value=str(value) if value is not None else "")
-        self.sv[key] = var
-        tb.Combobox(row, textvariable=var, values=values, state="readonly").pack(
-            side=tbc.LEFT, fill=tbc.X, expand=tbc.YES
-        )
+        tb.Button(
+            save_row,
+            text="Guardar Configuración del Servidor",
+            command=self._save_server_config,
+            bootstyle="success",
+        ).pack(side=tbc.LEFT)
 
     def _add_origin(self) -> None:
         value = self.new_origin_entry.get().strip()
@@ -706,66 +515,31 @@ class MainWindow:
             self.origins_listbox.delete(index)
 
     def _save_server_config(self) -> None:
+        config = ConfigManager.get_config()
         try:
-            new_config = {
-                "server": {
-                    "allowed_origins": list(self.origins_listbox.get(0, tbc.END)),
-                    "auto_browser": self.sv["auto_browser"].get(),
-                    "scan_serial_port": self.sv["scan_serial_port"].get(),
-                    "server_debug": self.sv["server_debug"].get(),
-                    "server_host": self.sv["server_host"].get(),
-                    "server_mode": self.sv["server_mode"].get(),
-                    "server_port": int(self.sv["server_port"].get()),
-                },
-                "proxy": {
-                    "proxy_enabled": self.sv["proxy_enabled"].get(),
-                    "proxy_target": self.sv["proxy_target"].get(),
-                },
-                "printers": {
-                    "fiscal": {
-                        "fiscal_enabled": self.sv["fiscal_enabled"].get(),
-                        "fiscal_name": self.sv["fiscal_name"].get(),
-                        "fiscal_port": self.sv["fiscal_port"].get(),
-                        "fiscal_baudrate": int(self.sv["fiscal_baudrate"].get()),
-                        "fiscal_timeout": int(self.sv["fiscal_timeout"].get()),
-                        "fiscal_barcode_type": self.sv["fiscal_barcode_type"].get(),
-                    },
-                    "ticket": {
-                        "ticket_enabled": self.sv["ticket_enabled"].get(),
-                        "ticket_name": self.sv["ticket_name"].get(),
-                        "ticket_port": self.sv["ticket_port"].get(),
-                        "ticket_paper": self.sv["ticket_paper"].get(),
-                        "ticket_template": self.sv["ticket_template"].get(),
-                        "ticket_file": self.sv["ticket_file"].get(),
-                        "ticket_direct": self.sv["ticket_direct"].get(),
-                        "ticket_use_escpos": self.sv["ticket_use_escpos"].get(),
-                        "barcode_enabled": self.sv["barcode_enabled"].get(),
-                        "barcode_type": self.sv["barcode_type"].get(),
-                        "logo_enabled": self.sv["logo_enabled"].get(),
-                        "logo_width": int(self.sv["logo_width"].get()),
-                        "logo_height": int(self.sv["logo_height"].get()),
-                    },
-                    "matrix": {
-                        "matrix_enabled": self.sv["matrix_enabled"].get(),
-                        "matrix_name": self.sv["matrix_name"].get(),
-                        "matrix_port": self.sv["matrix_port"].get(),
-                        "matrix_paper": self.sv["matrix_paper"].get(),
-                        "matrix_template": self.sv["matrix_template"].get(),
-                        "matrix_file": self.sv["matrix_file"].get(),
-                        "matrix_direct": self.sv["matrix_direct"].get(),
-                        "matrix_use_escp": self.sv["matrix_use_escp"].get(),
-                    },
-                },
-                "logging": {
-                    "log_output": self.sv["log_output"].get(),
-                    "log_file": self.sv["log_file"].get(),
-                    "log_level": self.sv["log_level"].get(),
-                    "log_format": self.sv["log_format"].get(),
-                    "log_days": int(self.sv["log_days"].get()),
-                },
-                "security": {
-                    "security_code": self.sv["security_code"].get(),
-                },
+            new_config = json.loads(json.dumps(config))
+            new_config["server"] = {
+                "allowed_origins": list(self.origins_listbox.get(0, tbc.END)),
+                "auto_browser": self.sv["auto_browser"].get(),
+                "scan_serial_port": self.sv["scan_serial_port"].get(),
+                "server_debug": self.sv["server_debug"].get(),
+                "server_host": self.sv["server_host"].get(),
+                "server_mode": self.sv["server_mode"].get(),
+                "server_port": int(self.sv["server_port"].get()),
+            }
+            new_config["proxy"] = {
+                "proxy_enabled": self.sv["proxy_enabled"].get(),
+                "proxy_target": self.sv["proxy_target"].get(),
+            }
+            new_config["logging"] = {
+                "log_output": self.sv["log_output"].get(),
+                "log_file": self.sv["log_file"].get(),
+                "log_level": self.sv["log_level"].get(),
+                "log_format": self.sv["log_format"].get(),
+                "log_days": int(self.sv["log_days"].get()),
+            }
+            new_config["security"] = {
+                "security_code": self.sv["security_code"].get(),
             }
         except (ValueError, KeyError) as e:
             Messagebox.show_error(f"Valor inválido en el formulario: {e}", "Configuración del Servidor")
@@ -789,21 +563,52 @@ class MainWindow:
         Messagebox.show_info("Configuración del servidor guardada correctamente.", "Configuración del Servidor")
 
     # ------------------------------------------------------------------
-    # Pestaña 3: Configuración Fiscal (template_fiscal_printer.json)
+    # 3. Pestaña: Impresora Fiscal
     # ------------------------------------------------------------------
     def _build_fiscal_tab(self, parent) -> None:
-        template = _load_template()
-        fiscal = template.get("fiscal", {})
+        config = ConfigManager.get_config()
+        fiscal_cfg = config.get("printers", {}).get("fiscal", {})
+        template = _load_json_file(_fiscal_template_path())
+        fiscal_tmpl = template.get("fiscal", {})
         fmt = template.get("format", {})
 
         self.fv: dict[str, tb.Variable] = {}
 
-        info_box = tb.LabelFrame(parent, text="Datos de la Impresora", padding=10)
-        info_box.pack(fill=tbc.X, padx=10, pady=10)
-        self._add_fiscal_entry(info_box, "Modelo", "model", fiscal.get("model", ""))
-        self._add_fiscal_entry(info_box, "Serial", "serial", fiscal.get("serial", ""))
-        self._add_fiscal_entry(info_box, "Nombre de Nota", "name_note", fiscal.get("name_note", ""))
+        # --- Hardware Fiscal ---
+        hw_box = tb.LabelFrame(parent, text="Configuración del Dispositivo Fiscal (config.json)", padding=10)
+        hw_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_checkbox(self.fv, hw_box, "Impresora Fiscal Habilitada", "fiscal_enabled", fiscal_cfg.get("fiscal_enabled", False))
+        self._add_combobox(
+            self.fv, hw_box, "Modelo", "fiscal_name", sorted(VALID_FISCAL_PRINTERS), fiscal_cfg.get("fiscal_name", "TFHKA")
+        )
 
+        port_row = tb.Frame(hw_box)
+        port_row.pack(fill=tbc.X, pady=3)
+        tb.Label(port_row, text="Puerto", width=18).pack(side=tbc.LEFT)
+        self.fv["fiscal_port"] = tb.StringVar(value=fiscal_cfg.get("fiscal_port", ""))
+        self.fiscal_port_combo = tb.Combobox(port_row, textvariable=self.fv["fiscal_port"])
+        self.fiscal_port_combo.pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES, padx=(0, 5))
+        tb.Button(port_row, text="Escanear Puertos", command=self._scan_fiscal_ports, bootstyle="info").pack(side=tbc.LEFT)
+
+        self._add_entry(self.fv, hw_box, "Baudrate", "fiscal_baudrate", fiscal_cfg.get("fiscal_baudrate", 9600))
+        self._add_entry(self.fv, hw_box, "Timeout (s)", "fiscal_timeout", fiscal_cfg.get("fiscal_timeout", 2))
+        self._add_combobox(
+            self.fv,
+            hw_box,
+            "Código de Barras",
+            "fiscal_barcode_type",
+            sorted(VALID_BARCODE_TYPES),
+            fiscal_cfg.get("fiscal_barcode_type", "CODE128"),
+        )
+
+        # --- Datos de la Impresora ---
+        info_box = tb.LabelFrame(parent, text="Datos de la Impresora (Plantilla)", padding=10)
+        info_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_entry(self.fv, info_box, "Modelo plantilla", "model", fiscal_tmpl.get("model", ""))
+        self._add_entry(self.fv, info_box, "Serial", "serial", fiscal_tmpl.get("serial", ""))
+        self._add_entry(self.fv, info_box, "Nombre de Nota", "name_note", fiscal_tmpl.get("name_note", ""))
+
+        # --- Formato del Documento ---
         format_box = tb.LabelFrame(parent, text="Formato del Documento", padding=10)
         format_box.pack(fill=tbc.X, padx=10, pady=10)
 
@@ -830,68 +635,62 @@ class MainWindow:
                 row=row, column=col, sticky=tbc.W, padx=10, pady=4
             )
 
-        # --- Reportes Fiscales y Comandos Fiscales Directos ---
-        # Viven aquí (no en Consola) porque esta pestaña ya está protegida por
-        # código de seguridad y estas acciones son sensibles/irreversibles.
-        reports_frame = tb.LabelFrame(parent, text="Reportes Fiscales", bootstyle="secondary", padding=10)
-        reports_frame.pack(fill=tbc.X, padx=10, pady=10)
-        reports_btn_row = tb.Frame(reports_frame)
-        reports_btn_row.pack(fill=tbc.X)
-        tb.Button(
-            reports_btn_row, text="Imprimir Reporte X", command=lambda: self._print_report("X"), bootstyle="primary"
-        ).pack(side=tbc.LEFT, padx=(0, 5))
-        tb.Button(
-            reports_btn_row, text="Imprimir Reporte Z", command=lambda: self._print_report("Z"), bootstyle="primary"
-        ).pack(side=tbc.LEFT)
-
-        cmd_frame = tb.LabelFrame(parent, text="Comandos Fiscales Directos", bootstyle="secondary", padding=10)
-        cmd_frame.pack(fill=tbc.X, padx=10, pady=10)
-
-        tb.Label(
-            cmd_frame,
-            text='Pega un JSON con la forma {"commands": ["CMD1", "CMD2"]} y presiona Enviar. '
-            "Ya no se lee handy/commands.json automáticamente.",
-            wraplength=800,
-        ).pack(anchor=tbc.W, pady=(0, 5))
-
-        self.commands_text = tb.Text(cmd_frame, height=14)
-        self.commands_text.pack(fill=tbc.X, pady=5)
-        self.commands_text.insert("1.0", '{\n    "commands": [\n        "S1",\n        "I0X"\n    ]\n}')
-
-        cmd_btn_frame = tb.Frame(cmd_frame)
-        cmd_btn_frame.pack(fill=tbc.X, pady=(0, 5))
-        tb.Button(cmd_btn_frame, text="Enviar Comandos", command=self._send_commands, bootstyle="warning").pack(
-            side=tbc.LEFT
-        )
-
         save_row = tb.Frame(parent)
         save_row.pack(fill=tbc.X, padx=10, pady=15)
-        tb.Button(save_row, text="Guardar Plantilla Fiscal", command=self._save_fiscal_template, bootstyle="success").pack(
-            side=tbc.LEFT
-        )
+        tb.Button(
+            save_row,
+            text="Guardar Configuración Fiscal",
+            command=self._save_fiscal_config,
+            bootstyle="success",
+        ).pack(side=tbc.LEFT)
 
-    def _add_fiscal_entry(self, parent, label: str, key: str, value: Any) -> None:
-        row = tb.Frame(parent)
-        row.pack(fill=tbc.X, pady=3)
-        tb.Label(row, text=label, width=18).pack(side=tbc.LEFT)
-        var = tb.StringVar(value=str(value) if value is not None else "")
-        self.fv[key] = var
-        tb.Entry(row, textvariable=var).pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES)
+    def _scan_fiscal_ports(self) -> None:
+        try:
+            scanner = get_serial_scanner()
+            ports = scanner.scan_ports()
+            values = [p["port"] for p in ports]
+            self.fiscal_port_combo["values"] = values
+            if not values:
+                Messagebox.show_info("No se encontraron puertos seriales disponibles.", "Escaneo de Puertos")
+        except Exception as e:
+            Messagebox.show_error(f"Error escaneando puertos: {e}", "Escaneo de Puertos")
 
     def _update_address_lines_note(self) -> None:
         try:
             lines = self.fv["partner_address_lines"].get()
         except Exception:
             lines = 1
-        remaining = 9 - lines  # TFHKA usa índices i00-i09; más líneas de dirección dejan menos espacio
+        remaining = 9 - lines
         self.address_lines_note.config(
             text=(
                 f"Con {lines} línea(s) de dirección activa(s), quedan aproximadamente {remaining} índices "
-                "(i00-i09) disponibles para teléfono, email y metadatos del documento en impresoras TFHKA."
+                "(i00-i09) disponibles para teléfono, email y metadatos en impresoras TFHKA."
             )
         )
 
-    def _save_fiscal_template(self) -> None:
+    def _save_fiscal_config(self) -> None:
+        config = ConfigManager.get_config()
+        try:
+            new_config = json.loads(json.dumps(config))
+            new_config["printers"]["fiscal"] = {
+                "fiscal_enabled": self.fv["fiscal_enabled"].get(),
+                "fiscal_name": self.fv["fiscal_name"].get(),
+                "fiscal_port": self.fv["fiscal_port"].get(),
+                "fiscal_baudrate": int(self.fv["fiscal_baudrate"].get()),
+                "fiscal_timeout": int(self.fv["fiscal_timeout"].get()),
+                "fiscal_barcode_type": self.fv["fiscal_barcode_type"].get(),
+            }
+        except (ValueError, KeyError) as e:
+            Messagebox.show_error(f"Valor inválido de hardware: {e}", "Impresora Fiscal")
+            return
+
+        try:
+            validate(new_config, CONFIG_SCHEMA)
+        except ValidationError as e:
+            Messagebox.show_error(f"Configuración inválida: {e.message}", "Impresora Fiscal")
+            return
+
+        # Plantilla fiscal
         new_template = {
             "fiscal": {
                 "model": self.fv["model"].get(),
@@ -907,31 +706,417 @@ class MainWindow:
         try:
             validate(new_template, FISCAL_TEMPLATE_SCHEMA)
         except ValidationError as e:
-            Messagebox.show_error(f"Plantilla inválida: {e.message}", "Configuración Fiscal")
+            Messagebox.show_error(f"Plantilla inválida: {e.message}", "Impresora Fiscal")
             return
 
         try:
-            with open(_template_path(), "w", encoding="utf-8") as f:
-                json.dump(new_template, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            Messagebox.show_error(f"No se pudo guardar la plantilla fiscal: {e}", "Configuración Fiscal")
-            return
+            ConfigManager.save_config(new_config)
+            ConfigManager.reload_config()
+            if self.flask_app is not None:
+                self.flask_app.config.update(new_config)
+            _save_json_file(_fiscal_template_path(), new_template)
 
-        # Fuerza a recrear la instancia de impresora para que recoja la plantilla nueva
-        try:
             from server.handlers.printer_manager import PrinterManager
-
-            fiscal_name = ConfigManager.get_config().get("printers", {}).get("fiscal", {}).get("fiscal_name", "")
+            fiscal_name = new_config.get("printers", {}).get("fiscal", {}).get("fiscal_name", "")
             PrinterManager.remove_printer(fiscal_name.strip().lower())
         except Exception as e:
-            logger.warning("No se pudo invalidar la instancia de impresora tras guardar plantilla: %s", str(e))
+            Messagebox.show_error(f"Error al guardar configuración fiscal: {e}", "Impresora Fiscal")
+            return
 
-        Messagebox.show_info("Plantilla fiscal guardada correctamente.", "Configuración Fiscal")
+        Messagebox.show_info("Configuración y plantilla fiscal guardadas correctamente.", "Impresora Fiscal")
+
+    # ------------------------------------------------------------------
+    # 4. Pestaña: Impresora Ticket
+    # ------------------------------------------------------------------
+    def _build_ticket_tab(self, parent) -> None:
+        config = ConfigManager.get_config()
+        ticket_cfg = config.get("printers", {}).get("ticket", {})
+        template = _load_json_file(_ticket_template_path())
+        hdr = template.get("header", {})
+        ftr = template.get("footer", {})
+        fmt = template.get("format", {})
+
+        self.tv: dict[str, tb.Variable] = {}
+
+        # --- Hardware Ticket ---
+        hw_box = tb.LabelFrame(parent, text="Configuración del Dispositivo Ticket (config.json)", padding=10)
+        hw_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_checkbox(self.tv, hw_box, "Impresora Ticket Habilitada", "ticket_enabled", ticket_cfg.get("ticket_enabled", False))
+        self._add_entry(self.tv, hw_box, "Nombre", "ticket_name", ticket_cfg.get("ticket_name", "PDF"))
+        self._add_entry(self.tv, hw_box, "Puerto / Destino", "ticket_port", ticket_cfg.get("ticket_port", "PDF"))
+        self._add_combobox(self.tv, hw_box, "Papel", "ticket_paper", ["80mm", "58mm"], ticket_cfg.get("ticket_paper", "80mm"))
+        self._add_entry(self.tv, hw_box, "Plantilla", "ticket_template", ticket_cfg.get("ticket_template", "template_ticket_simple.json"))
+        self._add_entry(self.tv, hw_box, "Archivo de Salida", "ticket_file", ticket_cfg.get("ticket_file", "docs/ticket_output.txt"))
+        self._add_checkbox(self.tv, hw_box, "Impresión Directa", "ticket_direct", ticket_cfg.get("ticket_direct", False))
+        self._add_checkbox(self.tv, hw_box, "Usar ESC/POS", "ticket_use_escpos", ticket_cfg.get("ticket_use_escpos", False))
+        self._add_checkbox(self.tv, hw_box, "Código de Barras Habilitado", "barcode_enabled", ticket_cfg.get("barcode_enabled", False))
+        self._add_combobox(
+            self.tv,
+            hw_box,
+            "Tipo de Código de Barras",
+            "barcode_type",
+            sorted(VALID_BARCODE_TYPES),
+            ticket_cfg.get("barcode_type", "BARCODE"),
+        )
+        self._add_checkbox(self.tv, hw_box, "Logo Habilitado", "logo_enabled", ticket_cfg.get("logo_enabled", False))
+        self._add_entry(self.tv, hw_box, "Ancho de Logo (px)", "logo_width", ticket_cfg.get("logo_width", 480))
+        self._add_entry(self.tv, hw_box, "Alto de Logo (px)", "logo_height", ticket_cfg.get("logo_height", 160))
+
+        # --- Encabezado y Pie de Página (Plantilla) ---
+        text_box = tb.LabelFrame(parent, text="Encabezado y Pie de Ticket (template_ticket_simple.json)", padding=10)
+        text_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_entry(self.tv, text_box, "Título", "ticket_header_title", hdr.get("title", ""))
+        self._add_entry(self.tv, text_box, "Subtítulo / RIF", "ticket_header_subtitle", hdr.get("subtitle", ""))
+        self._add_entry(self.tv, text_box, "Empresa", "ticket_header_company", hdr.get("company", ""))
+        self._add_entry(self.tv, text_box, "Dirección", "ticket_header_address", hdr.get("address", ""))
+        self._add_entry(self.tv, text_box, "Teléfono", "ticket_header_phone", hdr.get("phone", ""))
+        self._add_entry(self.tv, text_box, "Tipo de Documento", "ticket_header_type", hdr.get("type", ""))
+        self._add_entry(self.tv, text_box, "Etiqueta Número", "ticket_header_name", hdr.get("name", ""))
+        self._add_entry(self.tv, text_box, "Mensaje de Pie", "ticket_footer_message", ftr.get("message", ""))
+        self._add_entry(self.tv, text_box, "Texto Legal", "ticket_footer_legal", ftr.get("legal", ""))
+
+        # --- Formato del Ticket ---
+        format_box = tb.LabelFrame(parent, text="Formato del Ticket (Plantilla)", padding=10)
+        format_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_entry(self.tv, format_box, "Ancho en caracteres", "ticket_format_width", fmt.get("width", 64))
+        self._add_entry(self.tv, format_box, "Separador", "ticket_format_separator", fmt.get("separator", "-"))
+        self._add_combobox(self.tv, format_box, "Fuente", "ticket_format_font", ["A", "B"], fmt.get("font", "B"))
+        self._add_entry(self.tv, format_box, "Ancho desc. ítem", "ticket_format_desc_width", fmt.get("width_item_description", 15))
+        self._add_entry(self.tv, format_box, "Espacio libre", "ticket_format_free_space", fmt.get("width_free_space", 15))
+
+        grid = tb.Frame(format_box)
+        grid.pack(fill=tbc.X, pady=5)
+        for index, (key, label) in enumerate(TICKET_FORMAT_FLAGS):
+            var = tb.BooleanVar(value=bool(fmt.get(key, False)))
+            self.tv[f"fmt_{key}"] = var
+            row, col = divmod(index, 2)
+            tb.Checkbutton(grid, text=label, variable=var, bootstyle="round-toggle").grid(
+                row=row, column=col, sticky=tbc.W, padx=10, pady=4
+            )
+
+        save_row = tb.Frame(parent)
+        save_row.pack(fill=tbc.X, padx=10, pady=15)
+        tb.Button(
+            save_row,
+            text="Guardar Configuración Ticket",
+            command=self._save_ticket_config,
+            bootstyle="success",
+        ).pack(side=tbc.LEFT)
+
+    def _save_ticket_config(self) -> None:
+        config = ConfigManager.get_config()
+        try:
+            new_config = json.loads(json.dumps(config))
+            new_config["printers"]["ticket"] = {
+                "ticket_enabled": self.tv["ticket_enabled"].get(),
+                "ticket_name": self.tv["ticket_name"].get(),
+                "ticket_port": self.tv["ticket_port"].get(),
+                "ticket_paper": self.tv["ticket_paper"].get(),
+                "ticket_template": self.tv["ticket_template"].get(),
+                "ticket_file": self.tv["ticket_file"].get(),
+                "ticket_direct": self.tv["ticket_direct"].get(),
+                "ticket_use_escpos": self.tv["ticket_use_escpos"].get(),
+                "barcode_enabled": self.tv["barcode_enabled"].get(),
+                "barcode_type": self.tv["barcode_type"].get(),
+                "logo_enabled": self.tv["logo_enabled"].get(),
+                "logo_width": int(self.tv["logo_width"].get()),
+                "logo_height": int(self.tv["logo_height"].get()),
+            }
+        except (ValueError, KeyError) as e:
+            Messagebox.show_error(f"Valor inválido de hardware: {e}", "Impresora Ticket")
+            return
+
+        try:
+            validate(new_config, CONFIG_SCHEMA)
+        except ValidationError as e:
+            Messagebox.show_error(f"Configuración inválida: {e.message}", "Impresora Ticket")
+            return
+
+        # Actualizar plantilla ticket
+        template = _load_json_file(_ticket_template_path())
+        template["header"] = {
+            "title": self.tv["ticket_header_title"].get(),
+            "subtitle": self.tv["ticket_header_subtitle"].get(),
+            "company": self.tv["ticket_header_company"].get(),
+            "address": self.tv["ticket_header_address"].get(),
+            "phone": self.tv["ticket_header_phone"].get(),
+            "type": self.tv["ticket_header_type"].get(),
+            "name": self.tv["ticket_header_name"].get(),
+        }
+        template["footer"] = {
+            "message": self.tv["ticket_footer_message"].get(),
+            "legal": self.tv["ticket_footer_legal"].get(),
+        }
+        fmt = template.setdefault("format", {})
+        try:
+            fmt["width"] = int(self.tv["ticket_format_width"].get())
+            fmt["separator"] = self.tv["ticket_format_separator"].get()
+            fmt["font"] = self.tv["ticket_format_font"].get()
+            fmt["width_item_description"] = int(self.tv["ticket_format_desc_width"].get())
+            fmt["width_free_space"] = int(self.tv["ticket_format_free_space"].get())
+            for key, _ in TICKET_FORMAT_FLAGS:
+                fmt[key] = self.tv[f"fmt_{key}"].get()
+        except ValueError as e:
+            Messagebox.show_error(f"Formato numérico inválido en plantilla ticket: {e}", "Impresora Ticket")
+            return
+
+        try:
+            ConfigManager.save_config(new_config)
+            ConfigManager.reload_config()
+            if self.flask_app is not None:
+                self.flask_app.config.update(new_config)
+            _save_json_file(_ticket_template_path(), template)
+        except Exception as e:
+            Messagebox.show_error(f"Error al guardar configuración ticket: {e}", "Impresora Ticket")
+            return
+
+        Messagebox.show_info("Configuración y plantilla de ticket guardadas correctamente.", "Impresora Ticket")
+
+    # ------------------------------------------------------------------
+    # 5. Pestaña: Impresora Matrix
+    # ------------------------------------------------------------------
+    def _build_matrix_tab(self, parent) -> None:
+        config = ConfigManager.get_config()
+        matrix_cfg = config.get("printers", {}).get("matrix", {})
+        template = _load_json_file(_matrix_template_path())
+        hdr = template.get("header", {})
+        ftr = template.get("footer", {})
+        fmt = template.get("format", {})
+
+        self.mv: dict[str, tb.Variable] = {}
+
+        # --- Hardware Matrix ---
+        hw_box = tb.LabelFrame(parent, text="Configuración del Dispositivo Matriz (config.json)", padding=10)
+        hw_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_checkbox(self.mv, hw_box, "Impresora Matriz Habilitada", "matrix_enabled", matrix_cfg.get("matrix_enabled", False))
+        self._add_entry(self.mv, hw_box, "Nombre", "matrix_name", matrix_cfg.get("matrix_name", "LX-350"))
+        self._add_entry(self.mv, hw_box, "Puerto / Destino", "matrix_port", matrix_cfg.get("matrix_port", "EPSON LX-350"))
+        self._add_combobox(
+            self.mv,
+            hw_box,
+            "Papel",
+            "matrix_paper",
+            sorted(VALID_MATRIX_PAPER_TYPES),
+            matrix_cfg.get("matrix_paper", "MEDIA_CARTA"),
+        )
+        self._add_entry(self.mv, hw_box, "Plantilla", "matrix_template", matrix_cfg.get("matrix_template", "template_matriz_carta.json"))
+        self._add_entry(self.mv, hw_box, "Archivo de Salida", "matrix_file", matrix_cfg.get("matrix_file", "docs/print_output.txt"))
+        self._add_checkbox(self.mv, hw_box, "Impresión Directa", "matrix_direct", matrix_cfg.get("matrix_direct", False))
+        self._add_checkbox(self.mv, hw_box, "Usar ESC/P", "matrix_use_escp", matrix_cfg.get("matrix_use_escp", False))
+
+        # --- Encabezado y Pie de Matriz ---
+        text_box = tb.LabelFrame(parent, text="Encabezado y Pie de Matriz (template_matriz_carta.json)", padding=10)
+        text_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_entry(self.mv, text_box, "Título", "matrix_header_title", hdr.get("title", ""))
+        self._add_entry(self.mv, text_box, "Subtítulo / RIF", "matrix_header_subtitle", hdr.get("subtitle", ""))
+        self._add_entry(self.mv, text_box, "Empresa", "matrix_header_company", hdr.get("company", ""))
+        self._add_entry(self.mv, text_box, "Dirección", "matrix_header_address", hdr.get("address", ""))
+        self._add_entry(self.mv, text_box, "Teléfono", "matrix_header_phone", hdr.get("phone", ""))
+        self._add_entry(self.mv, text_box, "Tipo de Documento", "matrix_header_type", hdr.get("type", ""))
+        self._add_entry(self.mv, text_box, "Mensaje de Pie", "matrix_footer_message", ftr.get("message", ""))
+        self._add_entry(self.mv, text_box, "Texto Legal", "matrix_footer_legal", ftr.get("legal", ""))
+
+        # --- Formato de Matriz ---
+        format_box = tb.LabelFrame(parent, text="Formato de Matriz (Plantilla)", padding=10)
+        format_box.pack(fill=tbc.X, padx=10, pady=10)
+        self._add_entry(self.mv, format_box, "Ancho de página", "matrix_format_page_width", fmt.get("page_width", 80))
+        self._add_entry(self.mv, format_box, "Margen izquierdo", "matrix_format_margin_left", fmt.get("margin_left", 5))
+        self._add_entry(self.mv, format_box, "Margen superior", "matrix_format_margin_top", fmt.get("margin_top", 3))
+        self._add_entry(self.mv, format_box, "Margen inferior", "matrix_format_margin_bottom", fmt.get("margin_bottom", 3))
+        self._add_entry(self.mv, format_box, "Separador", "matrix_format_separator", fmt.get("separator", "="))
+
+        grid = tb.Frame(format_box)
+        grid.pack(fill=tbc.X, pady=5)
+        for index, (key, label) in enumerate(MATRIX_FORMAT_FLAGS):
+            var = tb.BooleanVar(value=bool(fmt.get(key, False)))
+            self.mv[f"fmt_{key}"] = var
+            row, col = divmod(index, 2)
+            tb.Checkbutton(grid, text=label, variable=var, bootstyle="round-toggle").grid(
+                row=row, column=col, sticky=tbc.W, padx=10, pady=4
+            )
+
+        save_row = tb.Frame(parent)
+        save_row.pack(fill=tbc.X, padx=10, pady=15)
+        tb.Button(
+            save_row,
+            text="Guardar Configuración Matrix",
+            command=self._save_matrix_config,
+            bootstyle="success",
+        ).pack(side=tbc.LEFT)
+
+    def _save_matrix_config(self) -> None:
+        config = ConfigManager.get_config()
+        try:
+            new_config = json.loads(json.dumps(config))
+            new_config["printers"]["matrix"] = {
+                "matrix_enabled": self.mv["matrix_enabled"].get(),
+                "matrix_name": self.mv["matrix_name"].get(),
+                "matrix_port": self.mv["matrix_port"].get(),
+                "matrix_paper": self.mv["matrix_paper"].get(),
+                "matrix_template": self.mv["matrix_template"].get(),
+                "matrix_file": self.mv["matrix_file"].get(),
+                "matrix_direct": self.mv["matrix_direct"].get(),
+                "matrix_use_escp": self.mv["matrix_use_escp"].get(),
+            }
+        except (ValueError, KeyError) as e:
+            Messagebox.show_error(f"Valor inválido de hardware: {e}", "Impresora Matrix")
+            return
+
+        try:
+            validate(new_config, CONFIG_SCHEMA)
+        except ValidationError as e:
+            Messagebox.show_error(f"Configuración inválida: {e.message}", "Impresora Matrix")
+            return
+
+        # Actualizar plantilla matriz
+        template = _load_json_file(_matrix_template_path())
+        template["header"] = {
+            **template.get("header", {}),
+            "title": self.mv["matrix_header_title"].get(),
+            "subtitle": self.mv["matrix_header_subtitle"].get(),
+            "company": self.mv["matrix_header_company"].get(),
+            "address": self.mv["matrix_header_address"].get(),
+            "phone": self.mv["matrix_header_phone"].get(),
+            "type": self.mv["matrix_header_type"].get(),
+        }
+        template["footer"] = {
+            "message": self.mv["matrix_footer_message"].get(),
+            "legal": self.mv["matrix_footer_legal"].get(),
+        }
+        fmt = template.setdefault("format", {})
+        try:
+            fmt["page_width"] = int(self.mv["matrix_format_page_width"].get())
+            fmt["margin_left"] = int(self.mv["matrix_format_margin_left"].get())
+            fmt["margin_top"] = int(self.mv["matrix_format_margin_top"].get())
+            fmt["margin_bottom"] = int(self.mv["matrix_format_margin_bottom"].get())
+            fmt["separator"] = self.mv["matrix_format_separator"].get()
+            for key, _ in MATRIX_FORMAT_FLAGS:
+                fmt[key] = self.mv[f"fmt_{key}"].get()
+        except ValueError as e:
+            Messagebox.show_error(f"Formato numérico inválido en plantilla matriz: {e}", "Impresora Matrix")
+            return
+
+        try:
+            ConfigManager.save_config(new_config)
+            ConfigManager.reload_config()
+            if self.flask_app is not None:
+                self.flask_app.config.update(new_config)
+            _save_json_file(_matrix_template_path(), template)
+        except Exception as e:
+            Messagebox.show_error(f"Error al guardar configuración matriz: {e}", "Impresora Matrix")
+            return
+
+        Messagebox.show_info("Configuración y plantilla de matriz guardadas correctamente.", "Impresora Matrix")
+
+    # ------------------------------------------------------------------
+    # 6. Pestaña: Comandos
+    # ------------------------------------------------------------------
+    def _build_commands_tab(self, parent) -> None:
+        # --- Comandos Fiscales Directos ---
+        cmd_frame = tb.LabelFrame(parent, text="Comandos Fiscales Directos", bootstyle="secondary", padding=10)
+        cmd_frame.pack(fill=tbc.X, padx=10, pady=10)
+
+        tb.Label(
+            cmd_frame,
+            text='Pega un JSON con la estructura {"commands": ["CMD1", "CMD2"]} y presiona Enviar.',
+            wraplength=800,
+        ).pack(anchor=tbc.W, pady=(0, 5))
+
+        self.commands_text = tb.Text(cmd_frame, height=12)
+        self.commands_text.pack(fill=tbc.X, pady=5)
+        self.commands_text.insert("1.0", '{\n    "commands": [\n        "S1",\n        "I0X"\n    ]\n}')
+
+        cmd_btn_frame = tb.Frame(cmd_frame)
+        cmd_btn_frame.pack(fill=tbc.X, pady=(0, 5))
+        tb.Button(cmd_btn_frame, text="Enviar Comandos", command=self._send_commands, bootstyle="warning").pack(
+            side=tbc.LEFT
+        )
+
+        # --- Reportes Fiscales ---
+        reports_frame = tb.LabelFrame(parent, text="Reportes Fiscales", bootstyle="secondary", padding=10)
+        reports_frame.pack(fill=tbc.X, padx=10, pady=10)
+
+        tb.Label(
+            reports_frame,
+            text="Impresión de reportes X (lectura) y Z (cierre diario).",
+            wraplength=800,
+        ).pack(anchor=tbc.W, pady=(0, 5))
+
+        reports_btn_row = tb.Frame(reports_frame)
+        reports_btn_row.pack(fill=tbc.X, pady=5)
+        tb.Button(
+            reports_btn_row, text="Imprimir Reporte X", command=lambda: self._print_report("X"), bootstyle="primary"
+        ).pack(side=tbc.LEFT, padx=(0, 10))
+        tb.Button(
+            reports_btn_row, text="Imprimir Reporte Z", command=lambda: self._print_report("Z"), bootstyle="danger"
+        ).pack(side=tbc.LEFT)
+
+    def _send_commands(self) -> None:
+        try:
+            raw = self.commands_text.get("1.0", tbc.END).strip()
+            data = json.loads(raw)
+            commands = data.get("commands", [])
+            if not isinstance(commands, list) or not commands:
+                Messagebox.show_error("El JSON debe contener una lista no vacía en 'commands'.", "Comandos")
+                return
+
+            import requests
+            config = ConfigManager.get_config()
+            port = config.get("server", {}).get("server_port", 5051)
+            resp = requests.post(f"http://127.0.0.1:{port}/api/fiscal/command", json={"commands": commands}, timeout=15)
+            res_json = resp.json()
+            if res_json.get("status"):
+                Messagebox.show_info(f"Comandos enviados con éxito:\n{json.dumps(res_json.get('data'), indent=2)}", "Comandos")
+            else:
+                Messagebox.show_error(f"Falla al ejecutar comandos:\n{res_json.get('message')}", "Comandos")
+        except Exception as e:
+            Messagebox.show_error(f"Error al enviar comandos: {e}", "Comandos")
+
+    def _print_report(self, report_type: str) -> None:
+        try:
+            import requests
+            config = ConfigManager.get_config()
+            port = config.get("server", {}).get("server_port", 5051)
+            endpoint = "report_x" if report_type == "X" else "report_z"
+            resp = requests.post(f"http://127.0.0.1:{port}/api/{endpoint}", timeout=20)
+            res_json = resp.json()
+            if res_json.get("status"):
+                Messagebox.show_info(f"Reporte {report_type} ejecutado correctamente.", "Reportes Fiscales")
+            else:
+                Messagebox.show_error(f"Error al imprimir reporte {report_type}:\n{res_json.get('message')}", "Reportes Fiscales")
+        except Exception as e:
+            Messagebox.show_error(f"Error al solicitar reporte {report_type}: {e}", "Reportes Fiscales")
+
+    # ------------------------------------------------------------------
+    # Helpers para construcción de widgets
+    # ------------------------------------------------------------------
+    def _add_entry(self, store: dict, parent, label: str, key: str, value: Any, show: str = None) -> None:
+        row = tb.Frame(parent)
+        row.pack(fill=tbc.X, pady=3)
+        tb.Label(row, text=label, width=22).pack(side=tbc.LEFT)
+        var = tb.StringVar(value=str(value) if value is not None else "")
+        store[key] = var
+        entry_kwargs = {"show": show} if show else {}
+        tb.Entry(row, textvariable=var, **entry_kwargs).pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES)
+
+    def _add_checkbox(self, store: dict, parent, label: str, key: str, value: bool) -> None:
+        var = tb.BooleanVar(value=bool(value))
+        store[key] = var
+        tb.Checkbutton(parent, text=label, variable=var, bootstyle="round-toggle").pack(anchor=tbc.W, pady=3)
+
+    def _add_combobox(self, store: dict, parent, label: str, key: str, values: list[str], value: Any) -> None:
+        row = tb.Frame(parent)
+        row.pack(fill=tbc.X, pady=3)
+        tb.Label(row, text=label, width=22).pack(side=tbc.LEFT)
+        var = tb.StringVar(value=str(value) if value is not None else "")
+        store[key] = var
+        tb.Combobox(row, textvariable=var, values=values, state="readonly").pack(
+            side=tbc.LEFT, fill=tbc.X, expand=tbc.YES
+        )
 
 
 if __name__ == "__main__":
-    # Punto de entrada para probar la GUI de forma aislada, sin arrancar Flask
-    # ni el system tray. Uso: uv run python -m views.main_window
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     window = MainWindow()
+    window.show()
     window.mainloop()
