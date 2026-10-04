@@ -133,3 +133,56 @@ def test_payment_invalid_method():
     err = payment.validate()
     assert err is not None
     assert "entre 01 y 24" in err
+
+
+def test_invoice_rounding_fallback_applied(valid_document_payload):
+    """Slight difference within 0.1% tolerance must be auto-adjusted without error."""
+    # Setup large document like customer invoice (702,823.49 Bs) with 1.25 Bs rounding difference
+    valid_document_payload["items"] = [
+        {
+            "item_name": "Suministro Medico Especial",
+            "item_quantity": 1,
+            "item_price": 605882.32,
+            "item_tax": 16,
+        }
+    ]
+    # Total with tax = 605882.32 * 1.16 = 702823.49
+    # Payment sent from Odoo with slight discrepancy: 702822.24 (diff: 1.25)
+    valid_document_payload["payments"] = [
+        {
+            "payment_method": "01",
+            "payment_amount": 702822.24,
+        }
+    ]
+
+    inv = Invoice(valid_document_payload)
+    err = inv.validate()
+    # Must succeed (None) thanks to 0.1% fallback
+    assert err is None
+    # Must adjust payment to match document total
+    assert inv.payments[-1].amount == inv.total_with_tax
+    assert valid_document_payload["payments"][-1]["payment_amount"] == inv.total_with_tax
+
+
+def test_invoice_excessive_difference_rejected(valid_document_payload):
+    """Difference exceeding 0.1% tolerance must fail validation."""
+    valid_document_payload["items"] = [
+        {
+            "item_name": "Suministro Medico Especial",
+            "item_quantity": 1,
+            "item_price": 605882.32,
+            "item_tax": 16,
+        }
+    ]
+    # Underpayment of 5000 Bs exceeds 0.1% tolerance (~702.82 Bs)
+    valid_document_payload["payments"] = [
+        {
+            "payment_method": "01",
+            "payment_amount": 697823.49,
+        }
+    ]
+
+    inv = Invoice(valid_document_payload)
+    err = inv.validate()
+    assert err is not None
+    assert "superando la tolerancia permitida" in err

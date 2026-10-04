@@ -6,7 +6,10 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Clases que manejar el modelo de facturas. Contiene reglas de negocio.
 """
 
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class InvoiceItem:
@@ -50,17 +53,17 @@ class InvoiceItem:
 
     @property
     def subtotal(self) -> float:
-        """Calcula el subtotal del item con descuento o recargo"""
+        """Calcula el subtotal del item con descuento o recargo redondeado a 2 decimales"""
         if self.discount > 0:
             if self.discount_type == "discount_percentage":
-                return self.price * self.quantity * (1 - self.discount / 100)
+                return round(self.price * self.quantity * (1 - self.discount / 100), 2)
             if self.discount_type == "surcharge_percentage":
-                return self.price * self.quantity * (1 + self.discount / 100)
+                return round(self.price * self.quantity * (1 + self.discount / 100), 2)
             if self.discount_type == "discount_amount":
-                return (self.price - self.discount) * self.quantity
+                return round((self.price - self.discount) * self.quantity, 2)
             if self.discount_type == "surcharge_amount":
-                return (self.price + self.discount) * self.quantity
-        return self.price * self.quantity
+                return round((self.price + self.discount) * self.quantity, 2)
+        return round(self.price * self.quantity, 2)
 
 
 class Payment:  # pylint: disable=R0903
@@ -87,6 +90,7 @@ class Invoice:
     """Modelo para representar una factura"""
 
     def __init__(self, data: dict):
+        self._raw_data = data
         self.operation_type = data.get("operation_type", "")  # Datos de operación
 
         self.affected_document = data.get("affected_document", {})  # Documento afectado
@@ -131,28 +135,50 @@ class Invoice:
             if error := item.validate():  # Validar items
                 return f"Error en item {idx}: {error}"
 
-        total_pagos = sum(payment.amount for payment in self.payments)  # Total de pagos
-        diferencia = self.total_with_tax - total_pagos  # Diferencia
+        total_pagos = round(sum(payment.amount for payment in self.payments), 2)  # Total de pagos
+        diferencia = round(self.total_with_tax - total_pagos, 2)  # Diferencia
 
-        if diferencia > 0.05:  # Hasta 0.05 de diferencia por redondeo
-            return f"Total de pagos ({total_pagos}) es menor al total del documento ({self.total_with_tax})"
+        # Tolerancia dinámica: 0.1% del total con piso mínimo de 0.05 Bs
+        tolerancia = max(0.05, round(self.total_with_tax * 0.001, 2))
+
+        if diferencia > tolerancia:
+            return (
+                f"Total de pagos ({total_pagos}) es menor al total del documento ({self.total_with_tax}) "
+                f"por una diferencia de {diferencia}, superando la tolerancia permitida ({tolerancia})"
+            )
+
+        # Fallback de tolerancia (0.1%): si la diferencia es mínima por redondeos de Odoo,
+        # ajustamos el último pago para que el documento balancee y no bloquee la impresión.
+        if 0 < diferencia <= tolerancia and self.payments:
+            logger.warning(
+                "Ajuste automático de redondeo en documento %s: total doc %.2f vs total pagos %.2f "
+                "(diferencia: %.2f dentro de tolerancia %.2f). Ajustando último pago.",
+                self.document_number or "N/A",
+                self.total_with_tax,
+                total_pagos,
+                diferencia,
+                tolerancia,
+            )
+            self.payments[-1].amount = round(self.payments[-1].amount + diferencia, 2)
+            if self._raw_data and self._raw_data.get("payments"):
+                self._raw_data["payments"][-1]["payment_amount"] = self.payments[-1].amount
 
         return None
 
     @property
     def total_amount(self) -> float:
         """Calcula el subtotal del documento incluyendo descuentos"""
-        return sum(item.subtotal for item in self.items)
+        return round(sum(item.subtotal for item in self.items), 2)
 
     @property
     def total_tax(self) -> float:
         """Calcula el impuesto total del documento"""
-        return sum(item.subtotal * (item.tax / 100) for item in self.items)
+        return round(sum(round(item.subtotal * (item.tax / 100), 2) for item in self.items), 2)
 
     @property
     def total_with_tax(self) -> float:
         """Calcula el monto total con impuestos"""
-        return self.total_amount + self.total_tax
+        return round(self.total_amount + self.total_tax, 2)
 
     @property
     def total_discount(self) -> float:
@@ -161,7 +187,7 @@ class Invoice:
         total_con_ajustes = sum(
             item.subtotal for item in self.items if item.discount_type in ["discount_percentage", "discount_amount"]
         )
-        return total_sin_ajustes - total_con_ajustes
+        return round(total_sin_ajustes - total_con_ajustes, 2)
 
     @property
     def total_surcharge(self) -> float:
@@ -170,4 +196,4 @@ class Invoice:
         total_con_ajustes = sum(
             item.subtotal for item in self.items if item.discount_type in ["surcharge_percentage", "surcharge_amount"]
         )
-        return total_con_ajustes - total_sin_ajustes
+        return round(total_con_ajustes - total_sin_ajustes, 2)
