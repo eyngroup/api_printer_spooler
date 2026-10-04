@@ -211,24 +211,26 @@ def get_status():
 
 
 @api.route("/printers", methods=["POST"])
+@api.route("/document", methods=["POST"])
 def print_document():
     """Ruta principal para imprimir documentos"""
     return handle_documents(server_state.proxy_handler)
 
 
-@api.route("/report_x", methods=["GET"])
+@api.route("/report_x", methods=["GET", "POST"])
 def print_report_x():
     """Ruta para imprimir reporte X (solo impresoras fiscales)"""
     return handle_reports("X")
 
 
-@api.route("/report_z", methods=["GET"])
+@api.route("/report_z", methods=["GET", "POST"])
 def print_report_z():
     """Ruta para imprimir reporte Z (solo impresoras fiscales)"""
     return handle_reports("Z")
 
 
 @api.route("/command", methods=["POST"])
+@api.route("/fiscal/command", methods=["POST"])
 def fiscal_command():
     """Ruta para enviar comandos directos a la impresora fiscal"""
     return handle_fiscal_commands()
