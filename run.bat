@@ -5,8 +5,8 @@ uv --version || (
     exit /b 1
 )
 
-rem Instalar dependencias con UV
-uv pip install -r requirements.txt
+rem Sincronizar dependencias del entorno con UV
+call uv sync
 
 rem Limpiar directorio build si existe
 if exist "build" (
