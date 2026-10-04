@@ -70,3 +70,40 @@ def test_fail_and_retry_job():
     res_retry, cached = job_store.acquire_job(doc_id, op_type)
     assert res_retry == "retry"
     assert cached is None
+
+
+def test_backup_and_restore_db(tmp_path: Path):
+    """Verify backup creates a valid copy and restore reinstates data."""
+    # 1. Populate DB with a job
+    job_store.acquire_job("INV-BACKUP-01", "invoice")
+    job_store.complete_job("INV-BACKUP-01", "invoice", {"status": True})
+
+    # 2. Perform backup
+    backup_file = tmp_path / "backup_test.db"
+    generated_path = job_store.backup_db(backup_file)
+    assert generated_path.exists()
+
+    # 3. Simulate data loss / corruption in live db
+    with job_store._connect() as conn:
+        conn.execute("DELETE FROM print_jobs")
+
+    res_after_wipe, _ = job_store.acquire_job("INV-BACKUP-01", "invoice")
+    assert res_after_wipe == "new"  # Was wiped, treated as new
+
+    # 4. Restore from backup
+    job_store.restore_db(backup_file)
+
+    # 5. Check restored state
+    res_restored, cached = job_store.acquire_job("INV-BACKUP-01", "invoice")
+    assert res_restored == "duplicate"
+    assert cached == {"status": True}
+
+
+def test_restore_corrupt_file_rejected(tmp_path: Path):
+    """Restoring from a corrupt non-sqlite file should raise ValueError."""
+    fake_file = tmp_path / "corrupt.db"
+    fake_file.write_text("corrupted content not a sqlite db")
+
+    with pytest.raises(Exception):
+        job_store.restore_db(fake_file)
+

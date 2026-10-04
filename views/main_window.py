@@ -16,6 +16,8 @@ import webbrowser
 from datetime import datetime
 from typing import Any
 
+from tkinter import filedialog
+
 import ttkbootstrap as tb
 from jsonschema import ValidationError, validate
 from ttkbootstrap import constants as tbc
@@ -23,6 +25,7 @@ from ttkbootstrap.dialogs import Messagebox
 
 from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path
+from server.handlers.job_store import backup_db, restore_db
 from server.config_loader import (
     CONFIG_SCHEMA,
     VALID_BARCODE_TYPES,
@@ -520,6 +523,31 @@ class MainWindow:
         security_box.pack(fill=tbc.X, padx=10, pady=10)
         self._add_entry(self.sv, security_box, "Código de seguridad", "security_code", security_cfg.get("security_code", ""), show="*")
 
+        # --- Base de Datos SQLite y Respaldos ---
+        db_box = tb.LabelFrame(parent, text="Base de Datos SQLite y Respaldos", padding=10)
+        db_box.pack(fill=tbc.X, padx=10, pady=10)
+        tb.Label(
+            db_box,
+            text="Control de idempotencia y estado de trabajos de impresión (data/print_jobs.db).\n"
+                 "Los respaldos se generan de forma atómica y en caliente en la carpeta backups/.",
+            wraplength=800,
+        ).pack(anchor=tbc.W, pady=(0, 10))
+
+        db_btn_row = tb.Frame(db_box)
+        db_btn_row.pack(fill=tbc.X)
+        tb.Button(
+            db_btn_row,
+            text="Crear Respaldo de BD",
+            command=self._on_backup_db,
+            bootstyle="info-outline",
+        ).pack(side=tbc.LEFT, padx=(0, 10))
+        tb.Button(
+            db_btn_row,
+            text="Restaurar Respaldo...",
+            command=self._on_restore_db,
+            bootstyle="warning-outline",
+        ).pack(side=tbc.LEFT)
+
         # --- Guardar ---
         save_row = tb.Frame(parent)
         save_row.pack(fill=tbc.X, padx=10, pady=15)
@@ -588,6 +616,44 @@ class MainWindow:
             return
 
         Messagebox.show_info("Configuración del servidor guardada correctamente.", "Configuración del Servidor")
+
+    def _on_backup_db(self) -> None:
+        try:
+            path = backup_db()
+            Messagebox.show_info(
+                f"Respaldo generado exitosamente:\n\n{path}",
+                "Respaldo de Base de Datos",
+            )
+        except Exception as e:
+            logger.error("Error al crear respaldo de BD: %s", str(e))
+            Messagebox.show_error(f"Error al crear respaldo:\n{e}", "Error de Respaldo")
+
+    def _on_restore_db(self) -> None:
+        try:
+            default_dir = os.path.join(get_base_path(), "backups")
+            file_path = filedialog.askopenfilename(
+                title="Seleccionar archivo de respaldo SQLite",
+                initialdir=default_dir if os.path.exists(default_dir) else get_base_path(),
+                filetypes=[("Base de Datos SQLite", "*.db"), ("Todos los archivos", "*.*")],
+            )
+            if not file_path:
+                return
+
+            confirm = Messagebox.yesno(
+                f"¿Está seguro de que desea restaurar la base de datos desde:\n\n{file_path}?\n\n"
+                "La base de datos actual será sobrescrita.",
+                "Confirmar Restauración",
+                buttons=["Cancelar:secondary", "Restaurar:danger"],
+            )
+            if confirm == "Restaurar":
+                restore_db(file_path)
+                Messagebox.show_info(
+                    "Base de datos restaurada exitosamente.",
+                    "Restauración Completada",
+                )
+        except Exception as e:
+            logger.error("Error al restaurar respaldo de BD: %s", str(e))
+            Messagebox.show_error(f"Error al restaurar base de datos:\n{e}", "Error de Restauración")
 
     # ------------------------------------------------------------------
     # 3. Pestaña: Impresora Fiscal

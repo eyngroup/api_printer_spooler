@@ -141,3 +141,52 @@ def fail_job(document_id: str, operation_type: str, error_message: str) -> None:
             (error_message, now, document_id, operation_type),
         )
     logger.debug("Job store: fallido %s/%s — %s", document_id, operation_type, error_message)
+
+
+def backup_db(target_path: str | Path | None = None) -> Path:
+    """
+    Creates an atomic, consistent online backup of the SQLite database using SQLite's backup API.
+    Does not block concurrent reads or writes in WAL mode.
+    """
+    if target_path is None:
+        backup_dir = Path(get_base_path()) / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        target_path = backup_dir / f"print_jobs_{timestamp}.db"
+    else:
+        target_path = Path(target_path)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with _lock, _connect() as src_conn:
+        with sqlite3.connect(str(target_path)) as dst_conn:
+            src_conn.backup(dst_conn)
+
+    logger.info("Respaldo de base de datos generado: %s", target_path)
+    return target_path
+
+
+def restore_db(backup_path: str | Path) -> None:
+    """
+    Restores the database from a backup file after verifying its integrity.
+    Atomically copies content into the live database.
+    """
+    backup_file = Path(backup_path)
+    if not backup_file.exists():
+        raise FileNotFoundError(f"Archivo de respaldo no encontrado: {backup_file}")
+
+    # Integrity check of the backup file before restoring
+    with sqlite3.connect(str(backup_file)) as test_conn:
+        test_conn.row_factory = sqlite3.Row
+        check = test_conn.execute("PRAGMA integrity_check").fetchone()
+        if not check or check[0] != "ok":
+            raise ValueError(f"El archivo de respaldo está corrupto o no es válido: {check}")
+
+    # Ensure target parent directory exists and perform atomic restore
+    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _lock:
+        with sqlite3.connect(str(backup_file)) as src_conn:
+            with _connect() as dst_conn:
+                src_conn.backup(dst_conn)
+
+    logger.info("Base de datos restaurada exitosamente desde: %s", backup_file)
+
