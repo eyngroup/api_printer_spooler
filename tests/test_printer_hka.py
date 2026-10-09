@@ -187,3 +187,19 @@ def test_read_last_document_number_never_raises(printer: TfhkaPrinter):
 
     printer._printer.get_s1 = _boom
     assert printer.read_last_document_number("invoice") is None
+
+
+def test_hka_port_opens_without_software_flow_control(monkeypatch):
+    """El puerto TFHKA se abre sin XON/XOFF (el LRC 0x11/0x13 se perdía) y con control por hardware RTS/CTS."""
+    import serial
+
+    captured = {}
+
+    class _FakeSerial:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(serial, "Serial", _FakeSerial)
+    assert FiscalPrinterHka("emulated").open_port() is True
+    assert captured["xonxoff"] is False
+    assert captured["rtscts"] is True

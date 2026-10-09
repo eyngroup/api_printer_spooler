@@ -46,7 +46,9 @@ class FiscalPrinterHka:
                 stopbits=serial.STOPBITS_ONE,
                 timeout=self.timeout,
                 write_timeout=5,
-                xonxoff=True,
+                # Sin XON/XOFF: el protocolo es binario y usa RTS/CTS. Con xonxoff=True el sistema descartaba el
+                # byte LRC cuando valía 0x11/0x13 (medido en HKA80: 11 de 500 lecturas S1 sin LRC; 0 sin xonxoff).
+                xonxoff=False,
                 rtscts=True,
                 dsrdtr=True,
             )

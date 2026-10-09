@@ -375,6 +375,11 @@ verificar en hardware tras un Z real.
 
 ## Pendientes
 
+- **Probar en Windows antes del despliegue**: el controlador TFHKA abre el puerto sin XON/XOFF (medido en HKA80 bajo
+  Linux: con XON/XOFF se perdía el byte LRC en 11 de 500 lecturas `S1`; sin él, 0 de 500). Verificar en una PC Windows
+  impresión de factura y nota de crédito, reportes y Monitor fiscal.
+- **Ajuste de reloj**: verificar `PF`/`PG` justo después de un Z real.
+
 En espera de contar con una máquina PNP:
 
 - **C3, `data.total` en PNP**: diseño previsto con el campo 16 de `0x43` leído antes de `E|B` y el campo 6 de `0x45`
