@@ -42,8 +42,6 @@ class MatrixPrinter(BasePrinter):
     """Clase para manejar la impresión en impresoras matriciales"""
 
     def __init__(self, config: Dict[str, Any]):
-        if not PLATFORM_HAS_WIN32:
-            raise NotImplementedError("Matrix printing requires win32print on Windows")
         """
         Inicializa la impresora matricial
         Args:
@@ -52,6 +50,10 @@ class MatrixPrinter(BasePrinter):
         super().__init__(config)
         self.printer_name = config.get("matrix_port")
         self.direct_print = config.get("matrix_direct", False)
+        # Solo la impresión directa usa win32print (Windows); el modo archivo (txt) funciona en
+        # cualquier sistema y sirve para pruebas en Linux.
+        if self.direct_print and not PLATFORM_HAS_WIN32:
+            raise NotImplementedError("La impresión directa en matriz requiere win32print (Windows)")
         default_output = os.path.join(get_base_path(), "docs", "matrix_output.txt")
         self.output_file = config.get("matrix_file", default_output)
         self.template_name = config.get("matrix_template", "template_matriz_carta.json")

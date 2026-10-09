@@ -63,7 +63,7 @@ def env(tmp_path, monkeypatch):
     template = tmp_path / "template.json"
     shutil.copy(source, template)
     output = tmp_path / "out.txt"
-    monkeypatch.setattr(dotmatrix, "PLATFORM_HAS_WIN32", True)  # Permite construirla en Linux
+    monkeypatch.setattr(dotmatrix, "PLATFORM_HAS_WIN32", False)  # Modo archivo: debe funcionar sin win32print
     config = {
         "matrix_enabled": True,
         "matrix_direct": False,
@@ -220,3 +220,19 @@ def test_concurrent_prints_get_consecutive_numbers(env):
     assert all(r["status"] for r in results)
     assert numbers == ["00000001", "00000002"]
     assert counter_on_disk(template) == "00000002"
+
+
+def test_direct_print_requires_win32(env, monkeypatch):
+    """La impresión directa sin win32print (Linux) falla de forma explícita al construir la impresora."""
+    config, _, _ = env
+    monkeypatch.setattr(dotmatrix, "PLATFORM_HAS_WIN32", False)
+    with pytest.raises(NotImplementedError):
+        MatrixPrinter({**config, "matrix_direct": True})
+
+
+def test_file_mode_works_without_win32(env):
+    """El modo archivo (txt) imprime sin win32print, en cualquier sistema operativo."""
+    config, _, output = env
+    result = MatrixPrinter(config).print_document(make_document())
+    assert result["status"] is True
+    assert output.exists()
