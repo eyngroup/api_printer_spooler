@@ -9,6 +9,11 @@ enviarles comandos reales.
 import pytest
 import serial
 
+from handy.runtime_files import ensure_runtime_files
+
+# Los tests no dependen de los archivos de runtime locales del desarrollador: se crean desde los defaults si faltan.
+ensure_runtime_files()
+
 
 @pytest.fixture(autouse=True)
 def forbid_real_serial_ports(monkeypatch: pytest.MonkeyPatch):

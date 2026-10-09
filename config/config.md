@@ -1,5 +1,15 @@
 # Configuración del Sistema
 
+## Valores por defecto y archivo de runtime
+
+- `config/defaults/config.json` es la plantilla **versionada** (puertos vacíos, sin código de seguridad).
+- `config/config.json` es la copia de **runtime**: no se versiona (está en `.gitignore`) y la app la modifica
+  (autodetección de puerto serial, ventana de escritorio).
+- En el primer arranque, si `config/config.json` no existe, se crea copiando el valor por defecto
+  (`ensure_runtime_files()`, llamado al inicio de `main.py` y al cargar la configuración).
+- Al actualizar una instalación existente **no se sobrescribe** `config.json`: se conserva la configuración del cliente.
+- El build (`setup.py`) incluye `config/defaults/` pero nunca `config/config.json`.
+
 Este documento explica la estructura y opciones de configuración disponibles en el archivo `config.json`.
 
 ## Estructura General

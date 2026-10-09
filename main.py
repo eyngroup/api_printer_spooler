@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from logging.config import dictConfig
 from logging.handlers import TimedRotatingFileHandler
 
+from handy.runtime_files import ensure_runtime_files
 from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path
 from handy.tray_system import TrayManager
@@ -87,6 +88,8 @@ def autodetect_serial_port(config: dict) -> None:
 
 def main():
     """Función principal que inicializa el servidor API REST."""
+    # Primer arranque: crea config.json y los templates de runtime desde sus valores por defecto (sin sobrescribir)
+    ensure_runtime_files()
     config = ConfigManager.get_config()  # Cargar configuración
 
     base_path = get_base_path()

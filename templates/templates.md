@@ -1,5 +1,15 @@
 # Templates de Impresión
 
+## Valores por defecto y archivos de runtime
+
+- Los valores por defecto versionados están en `templates/defaults/` (`template_fiscal_printer.json`,
+  `template_matriz_carta.json`, `template_ticket_simple.json`), con los contadores en su valor inicial.
+- Las copias de **runtime** (`templates/template_*.json`) no se versionan: el driver HKA escribe modelo/serial al
+  conectar y `printer_counter.py` persiste los contadores emulados.
+- En el primer arranque, cada template que no exista se crea copiándolo desde `templates/defaults/`.
+- Al actualizar una instalación existente **no se sobrescriben** los templates: se conservan sus contadores.
+- El build (`setup.py`) incluye `templates/defaults/` pero nunca las copias de runtime.
+
 ## Template Ticket Simple (template_ticket_simple.json)
 
 ### Header (Encabezado)

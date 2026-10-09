@@ -26,7 +26,7 @@
             "fiscal_baudrate": 9600,
             "fiscal_enabled": true,
             "fiscal_name": "TFHKA",
-            "fiscal_port": "/dev/ttyACM0",
+            "fiscal_port": "",
             "fiscal_timeout": 2
         },
         "matrix": {
@@ -35,7 +35,7 @@
             "matrix_file": "docs/print_output.txt",
             "matrix_name": "LX-350",
             "matrix_paper": "MEDIA_CARTA",
-            "matrix_port": "EPSON LX-350",
+            "matrix_port": "",
             "matrix_template": "template_matriz_carta.json",
             "matrix_use_escp": false
         },
@@ -50,7 +50,7 @@
             "ticket_file": "docs/ticket_output.txt",
             "ticket_name": "PDF",
             "ticket_paper": "80mm",
-            "ticket_port": "PDF",
+            "ticket_port": "",
             "ticket_template": "template_ticket_simple.json",
             "ticket_use_escpos": false
         }

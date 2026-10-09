@@ -122,3 +122,11 @@ handy/commands_factura.json
 handy/commands_credito.json
 handy/commands_debito.json
 handy/commands_config.json
+
+# ---------------------------------------------------------------------------
+# Archivos de runtime (se crean en el primer arranque a partir de config/defaults y templates/defaults)
+# ---------------------------------------------------------------------------
+config/config.json
+templates/template_fiscal_printer.json
+templates/template_matriz_carta.json
+templates/template_ticket_simple.json
