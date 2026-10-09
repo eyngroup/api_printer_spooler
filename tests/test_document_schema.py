@@ -4,6 +4,7 @@ Unit tests for JSON schema and business rule validation.
 
 import pytest
 from jsonschema import ValidationError
+
 from models.model_invoice import Invoice, InvoiceItem, Payment
 from server.document_schema import validate_document
 
@@ -95,13 +96,15 @@ def test_invoice_credit_without_affected_document(valid_document_payload):
 
 def test_invoice_item_invalid_tax():
     """Item with unsupported tax percentage fails item validation."""
-    item = InvoiceItem({
-        "item_ref": "ART-01",
-        "item_name": "Articulo",
-        "item_quantity": 1,
-        "item_price": 5.0,
-        "item_tax": 99,  # 99% is not in ALLOWED_TAX_VALUES (0, 8, 16, 31, 12)
-    })
+    item = InvoiceItem(
+        {
+            "item_ref": "ART-01",
+            "item_name": "Articulo",
+            "item_quantity": 1,
+            "item_price": 5.0,
+            "item_tax": 99,  # 99% is not in ALLOWED_TAX_VALUES (0, 8, 16, 31)
+        }
+    )
     err = item.validate()
     assert err is not None
     assert "impuesto" in err.lower()
@@ -109,15 +112,17 @@ def test_invoice_item_invalid_tax():
 
 def test_invoice_item_excessive_discount():
     """Item with discount percentage >= 100 fails validation."""
-    item = InvoiceItem({
-        "item_ref": "ART-01",
-        "item_name": "Articulo",
-        "item_quantity": 1,
-        "item_price": 5.0,
-        "item_tax": 16,
-        "item_discount": 105.0,
-        "item_discount_type": "discount_percentage",
-    })
+    item = InvoiceItem(
+        {
+            "item_ref": "ART-01",
+            "item_name": "Articulo",
+            "item_quantity": 1,
+            "item_price": 5.0,
+            "item_tax": 16,
+            "item_discount": 105.0,
+            "item_discount_type": "discount_percentage",
+        }
+    )
     err = item.validate()
     assert err is not None
     assert "99.99%" in err
@@ -125,11 +130,13 @@ def test_invoice_item_excessive_discount():
 
 def test_payment_invalid_method():
     """Payment method must be between 01 and 24."""
-    payment = Payment({
-        "payment_method": "99",
-        "payment_name": "Metodo Invalido",
-        "payment_amount": 10.0,
-    })
+    payment = Payment(
+        {
+            "payment_method": "99",
+            "payment_name": "Metodo Invalido",
+            "payment_amount": 10.0,
+        }
+    )
     err = payment.validate()
     assert err is not None
     assert "entre 01 y 24" in err
@@ -186,3 +193,36 @@ def test_invoice_excessive_difference_rejected(valid_document_payload):
     err = inv.validate()
     assert err is not None
     assert "superando la tolerancia permitida" in err
+
+
+def test_invoice_rejects_invalid_payment_method(valid_document_payload):
+    """Invoice validation must reject a payment method outside 01-24."""
+    valid_document_payload["payments"][0]["payment_method"] = "99"
+    inv = Invoice(valid_document_payload)
+    err = inv.validate()
+    assert err is not None
+    assert "pago 1" in err.lower()
+    assert "entre 01 y 24" in err
+
+
+def test_invoice_normalizes_payment_method_in_raw_data(valid_document_payload):
+    """Normalized two-digit payment method must reach the raw payload read by drivers."""
+    valid_document_payload["payments"][0]["payment_method"] = "1"
+    inv = Invoice(valid_document_payload)
+    assert inv.validate() is None
+    assert inv.payments[0].method == "01"
+    assert valid_document_payload["payments"][0]["payment_method"] == "01"
+
+
+@pytest.mark.parametrize("tax", [12, 12.0, 22])
+def test_invoice_item_rejects_rates_outside_contract(tax):
+    """Only the contract rates (0, 8, 16, 31) are accepted; legacy 12% must be rejected up front."""
+    item = InvoiceItem({"item_name": "Articulo", "item_quantity": 1, "item_price": 5.0, "item_tax": tax})
+    assert item.validate() is not None
+
+
+@pytest.mark.parametrize("tax", [0.0, 8.0, 16.0, 31.0])
+def test_invoice_item_accepts_contract_rates_as_float(tax):
+    """Odoo sends the tax percent as a float (16.0); every contract rate is accepted."""
+    item = InvoiceItem({"item_name": "Articulo", "item_quantity": 1, "item_price": 5.0, "item_tax": tax})
+    assert item.validate() is None

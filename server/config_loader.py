@@ -17,6 +17,7 @@ from jsonschema import validate
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from handy.runtime_files import ensure_runtime_files
 from handy.tools import get_base_path
 
 # Constantes
@@ -171,6 +172,8 @@ class ConfigManager:
     def reload_config(cls) -> None:
         """Recarga la configuración desde disco con validación"""
         try:
+            # Defensivo: si falta config.json (primer arranque) se crea desde config/defaults
+            ensure_runtime_files()
             with open(cls._config_path, "r", encoding="utf-8") as f:
                 new_config = json.load(f)
 

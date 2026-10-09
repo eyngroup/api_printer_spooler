@@ -17,8 +17,15 @@ from flask_cors import CORS
 
 from handy.tools import get_base_path
 
-from .handlers.document_handler import handle_documents, handle_fiscal_commands, handle_reports
+from .handlers.document_handler import (
+    handle_clock_sync,
+    handle_documents,
+    handle_fiscal_commands,
+    handle_reports,
+)
+from .handlers.fiscal_monitor import FiscalMonitor
 from .handlers.job_store import init_db
+from .handlers.printer_manager import PrinterManager
 from .handlers.proxy_handler import ProxyHandler
 
 logger = logging.getLogger(__name__)
@@ -62,7 +69,17 @@ def handle_error(error):
     server_state.last_errors.append(error_info)
     if len(server_state.last_errors) > 10:  # Mantener solo los últimos 10 errores
         server_state.last_errors.pop(0)
-    return jsonify({"status": "error", "message": str(error)}), 500
+    # status debe ser booleano (contrato con Odoo) y data siempre lleva Estado/Error
+    return (
+        jsonify(
+            {
+                "status": False,
+                "message": str(error),
+                "data": {"Estado": "Error interno", "Error": str(error)},
+            }
+        ),
+        500,
+    )
 
 
 def create_app(config):
@@ -144,19 +161,38 @@ def get_uptime():
     return int(uptime.total_seconds())
 
 
-@api.route("/ping", methods=["GET"])
-def ping():
-    """Ruta para verificar que el servidor está funcionando y retorna el serial fiscal"""
-    logger.info("Recibida solicitud de conexión")
+def _configured_serial() -> str:
+    """
+    Lee el serial configurado en la pestaña Fiscal (template_fiscal_printer.json).
+    En HKA el driver lo actualiza al conectar; en PNP lo configura el técnico a mano.
+    Returns:
+        str: Serial configurado o "unknown" si no se pudo leer.
+    """
     try:
         template_path = os.path.join(get_base_path(), "templates", "template_fiscal_printer.json")
         with open(template_path, encoding="utf-8") as f:
             template_data = json.load(f)
-        serial = template_data.get("fiscal", {}).get("serial", "unknown")
-        return jsonify({"status": "success", "message": serial})
+        return template_data.get("fiscal", {}).get("serial", "unknown")
     except Exception as e:
         logger.error("Error al leer serial fiscal: %s", str(e))
-        return jsonify({"status": "success", "message": "unknown"})
+        return "unknown"
+
+
+@api.route("/ping", methods=["GET"])
+def ping():
+    """Ruta para verificar que el servidor está funcionando y retorna el serial fiscal"""
+    logger.info("Recibida solicitud de conexión")
+    # Odoo compara este serial con el del diario y bloquea los reportes si no coincide: se prioriza el
+    # serial real de la máquina (instancia conectada o lectura única de solo lectura) sobre el configurado.
+    configured = _configured_serial()
+    fiscal_config = current_app.config.get("printers", {}).get("fiscal", {})
+    serial = None
+    if fiscal_config.get("fiscal_enabled", False):
+        printer_type = str(fiscal_config.get("fiscal_name", "")).strip().lower()
+        serial = PrinterManager.read_serial(printer_type, fiscal_config)
+        if serial and configured not in (serial, "unknown"):
+            logger.warning("Serial configurado (%s) distinto al de la máquina (%s)", configured, serial)
+    return jsonify({"status": "success", "message": serial or configured})
 
 
 @api.route("/status", methods=["GET"])
@@ -185,7 +221,6 @@ def get_status():
                         "console_output": True,
                     },
                 ),
-                "security": config.get("security", {"z_report_code": ""}),
             },
             "stats": {
                 "requests_total": server_state.request_count,
@@ -208,6 +243,14 @@ def get_status():
             ),
             500,
         )
+
+
+@api.route("/monitor", methods=["GET"])
+def fiscal_monitor():
+    """Monitor fiscal de solo lectura (pre-Z, contadores, pagos, máquina). `?refresh=1` fuerza una lectura nueva."""
+    force = request.args.get("refresh", "").strip().lower() in ("1", "true", "yes")
+    printers_config = current_app.config.get("printers", {})
+    return jsonify(FiscalMonitor.get_snapshot(printers_config, force=force))
 
 
 @api.route("/printers", methods=["POST"])
@@ -236,3 +279,7 @@ def fiscal_command():
     return handle_fiscal_commands()
 
 
+@api.route("/fiscal/clock", methods=["POST"])
+def fiscal_clock():
+    """Ruta para ajustar el reloj de la impresora fiscal con la hora del servidor (body opcional {"force": true})"""
+    return handle_clock_sync()

@@ -28,6 +28,10 @@ class ESCPcmd:  # pylint: disable=R0903
         # Comandos de página
         self.CMD_PAGE_LENGTH: bytes = self.command(b"\x1bC")  # Ajustar longitud de página en líneas
         self.CMD_PAGE_ZERO: bytes = self.command(b"\x1b\x43\x00")  # Ajustar longitud de página a 0
+        # Nota: en ESC/P "ESC C 0 n" fija la longitud en pulgadas y exige el byte n; sin él, la impresora toma
+        # el siguiente byte (el ESC del próximo comando) y lo pierde. Longitudes completas:
+        self.CMD_PAGE_LENGTH_CARTA: bytes = self.command(b"\x1b\x43\x00\x0b")  # 11 pulgadas (hoja carta)
+        self.CMD_PAGE_LENGTH_MEDIA_CARTA: bytes = self.command(b"\x1b\x43\x21")  # 33 líneas a 1/6" = 5,5"
         self.CMD_MARGINS: bytes = self.command(b"\x1bQ")  # Set right and left margins
 
         # Comandos de fuente y calidad
@@ -78,6 +82,10 @@ class ESCPcmd:  # pylint: disable=R0903
         self.CMD_CHARSET_USA: bytes = self.command(b"\x1bR\x00")  # Seleccione el conjunto de caracteres de EE.UU.
         self.CMD_CHARSET_SPAIN: bytes = self.command(b"\x1bR\x06")  # Seleccione el juego de caracteres español
         self.CMD_CHARSET_PC850: bytes = self.command(b"\x1bt\x02")  # Select CP850 (multilingual)
+        # Nota: ESC t 2 selecciona la tabla de caracteres definidos por el usuario, no CP850 (verificado en
+        # una Epson LX-350: las mayúsculas acentuadas salían como símbolos gráficos de PC437).
+        # ESC ( t asigna PC850 (d2=3, d3=0) a la tabla 1 y ESC t 1 la selecciona (verificado en LX-350).
+        self.CMD_CHARSET_ASSIGN_PC850: bytes = self.command(b"\x1b(t\x03\x00\x01\x03\x00\x1bt\x01")
 
     def command(self, value: bytes) -> bytes:
         """Retorna el comando si use_escp es True, sino retorna cadena vacía"""
@@ -93,6 +101,9 @@ class ESCPOScmd:  # pylint: disable=R0903
         # Comandos básicos
         self.CMD_INIT = self.command("\x1b\x40")  # Inicializar impresora
         self.CMD_CHARSET = self.command("\x1b\x74\x12")  # character code table (PC850)
+        # Nota: ESC t 18 (0x12) es PC852 (centroeuropeo), no PC850: verificado en una tiquera POS80 (ñ salía "ą").
+        # ESC t 2 es PC850 (numeración Epson ESC/POS, verificado en POS80).
+        self.CMD_CHARSET_PC850 = self.command("\x1b\x74\x02")
         self.CMD_CUT = self.command("\x1d\x56\x41\x00")  # Cut paper
         self.CMD_FEED = self.command("\x0a")  # Avanzar alimentador
 

@@ -26,7 +26,9 @@ class InvoiceItem:
         self.comment = data.get("item_comment", "")
 
     # Valores permitidos de impuesto (flexible para agregar si hay cambios)
-    ALLOWED_TAX_VALUES = [0, 8, 16, 31, 12]
+    # Tasas del contrato con Odoo: exento, reducida, general y adicional. El 12 % (tasa histórica) se
+    # excluye: las máquinas no lo tienen registrado (HKA lo imprimiría al 16 % y PNP lo rechaza en curso).
+    ALLOWED_TAX_VALUES = (0, 8, 16, 31)
 
     def validate(self) -> str | None:
         """Validar reglas de negocio del item"""
@@ -134,6 +136,15 @@ class Invoice:
         for idx, item in enumerate(self.items, 1):
             if error := item.validate():  # Validar items
                 return f"Error en item {idx}: {error}"
+
+        # Validar pagos y propagar el código normalizado (dos dígitos) al payload crudo,
+        # ya que los drivers de impresión leen directamente _raw_data["payments"].
+        raw_payments = (self._raw_data.get("payments") or []) if self._raw_data else []
+        for idx, payment in enumerate(self.payments, 1):
+            if error := payment.validate():
+                return f"Error en pago {idx}: {error}"
+            if idx <= len(raw_payments):
+                raw_payments[idx - 1]["payment_method"] = payment.method
 
         total_pagos = round(sum(payment.amount for payment in self.payments), 2)  # Total de pagos
         diferencia = round(self.total_with_tax - total_pagos, 2)  # Diferencia

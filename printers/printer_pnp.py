@@ -9,8 +9,8 @@ Clase para el manejo de la impresora fiscal PNP
 import datetime
 import logging
 import time
-from decimal import ROUND_HALF_UP, Decimal, getcontext
-from typing import Any
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, getcontext
+from typing import Any, ClassVar
 
 from controllers.pfpnp import FiscalPrinterPnp
 from handy.tools import format_time, normalize_date, normalize_number, normalize_text
@@ -42,6 +42,8 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
         self._serial = None  # Serial de la impresora
         self._type_doc = None
         self._last_document = "0000000000"
+        self._last_response: list[str] = []  # Última respuesta recibida de la impresora
+        self._counters_before: dict[str, Any] | None = None  # Contadores 8|N antes del documento (diagnóstico)
 
         self._initialize_printer()
         if not self.connect():
@@ -170,7 +172,13 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             value = False
             logger.info("Comando  Enviado: %s", command)
             result = self._printer.send_cmd(command)
+            self._last_response = result or []
             logger.debug("Valores Recibidos: %s", result)
+            # Según el manual PNP (v5.4), antes que nada se debe verificar que la respuesta
+            # no contenga "ERROR": la respuesta negativa trae [estado, fiscal, nº error, "ERRORnn"].
+            if result and any("ERROR" in field for field in result):
+                logger.error("Respuesta negativa al comando %s: %s", command, result)
+                return False
             if result:
                 if result[0] == "0080" and result[1] == "2600":
                     value = True
@@ -178,19 +186,9 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                 if result[0] == "0080" and result[1] == "3600":
                     value = True
 
-                if result[0] == "0080" and result[1] == "0600" and len(result) == 2:
-                    value = True
-
-                if result[0] == "0080" and result[1] == "0600" and len(result) >= 3:
-                    if self._type_doc == "note":
-                        self._last_document = result[2]
-                    elif self._type_doc == "invoice":
-                        self._last_document = result[3]
-                    elif self._type_doc == "credit":
-                        self._last_document = result[4]
-                    else:
-                        self._last_document = "0000000000"
-                    logger.info("Documento Fiscal: %s", self._last_document)
+                # El número de documento ya no se extrae aquí: se obtiene únicamente de la
+                # respuesta de los comandos de cierre (ver _extract_document_number).
+                if result[0] == "0080" and result[1] == "0600":
                     value = True
 
                 if wait_time > 0:
@@ -200,6 +198,34 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
         except Exception as e:
             logger.error("Error al enviar comando %s: %s", command, str(e))
             return False
+
+    # Posición del número de documento en la respuesta del comando de cierre (manual PNP v5.4).
+    # 0x4A (cierre no fiscal): Campo 3. 0x45 (cierre fiscal): Campo 4 = factura, Campo 5 = nota de crédito.
+    # Las notas de débito se emiten como factura en PNP, por lo que usan el Campo 4.
+    _DOCUMENT_NUMBER_INDEX: ClassVar[dict[str, int]] = {"note": 2, "invoice": 3, "debit": 3, "credit": 4}
+
+    def _extract_document_number(self, result: list[str]) -> str:
+        """
+        Obtiene el número del documento emitido desde la respuesta del comando de cierre.
+
+        Si la respuesta no trae el campo esperado (p. ej. firmware anterior a 2021-05-05),
+        se devuelve "" y se registra un aviso (antes "0000000000", que Odoo guardaba como número fiscal
+        y luego rechazaba por duplicado): el documento ya fue impreso, por lo
+        que reportar un error provocaría un reintento y una doble impresión fiscal.
+        Args:
+            result (list[str]): Campos de la respuesta del cierre (sin el byte de comando)
+        Returns:
+            str: Número de documento, o "" si no está disponible (nunca se inventa un número)
+        """
+        index = self._DOCUMENT_NUMBER_INDEX.get(self._type_doc)
+        if index is None or len(result) <= index:
+            logger.warning(
+                "No se pudo leer el número de documento (%s) en la respuesta de cierre: %s",
+                self._type_doc,
+                result,
+            )
+            return ""
+        return result[index]
 
     def check_status(self) -> bool:
         """
@@ -327,6 +353,11 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
 
             logger.info(message_info)
             self._type_doc = operation_type
+            # La instancia es singleton: evitar arrastrar el número del documento anterior
+            self._last_document = ""
+            # Contadores 8|N antes del documento: si el cierre no informa el número, se registran junto
+            # con los posteriores para identificar en datos reales el campo del número fiscal (C11).
+            self._counters_before = self._read_counters_safely()
             self._process_customer_data(data)  # Procesar datos del cliente
             self._process_items(data)  # Procesar ítems
             self._process_footer(data)  # Procesar pie de página
@@ -425,6 +456,40 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                 if not resp:
                     raise RuntimeError("Error en datos de documento NO fiscal")
 
+    def _apply_item_adjustment(self, item: dict[str, Any]) -> tuple[Decimal, str | None]:
+        """
+        Calcula el precio unitario (sin impuesto) ajustado por descuento o recargo del ítem.
+        Args:
+            item: Ítem del documento con item_price, item_discount e item_discount_type
+        Returns:
+            tuple: (precio ajustado con 2 decimales, texto informativo o None si no hay ajuste)
+        """
+        cent = Decimal("0.01")
+        price = Decimal(str(item.get("item_price", 0) or 0))
+        try:
+            value = Decimal(str(item.get("item_discount", 0) or 0))
+        except (InvalidOperation, ValueError):
+            value = Decimal(0)
+        adjustment_type = item.get("item_discount_type", "")
+        # normalize_text elimina el punto decimal ("10.00" -> "1000"), por eso el texto usa coma decimal
+        shown = f"{value:.2f}".replace(".", ",")
+
+        if value <= 0:
+            return price.quantize(cent, rounding=ROUND_HALF_UP), None
+
+        if adjustment_type == "discount_percentage":
+            adjusted, text = price * (1 - value / 100), f"DESCUENTO {shown}%"
+        elif adjustment_type == "surcharge_percentage":
+            adjusted, text = price * (1 + value / 100), f"RECARGO {shown}%"
+        elif adjustment_type == "discount_amount":
+            adjusted, text = price - value, f"DESCUENTO {shown}"
+        elif adjustment_type == "surcharge_amount":
+            adjusted, text = price + value, f"RECARGO {shown}"
+        else:
+            return price.quantize(cent, rounding=ROUND_HALF_UP), None
+
+        return adjusted.quantize(cent, rounding=ROUND_HALF_UP), text
+
     def _process_items(self, data: dict[str, Any]) -> None:
         """Procesa y envía los ítems del documento a la impresora."""
         logger.debug("Procesando items")
@@ -454,10 +519,19 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                         raise RuntimeError("Error de comentario en item de documento NO fiscal")
             else:
                 tax_value = str(int(float(item_tax) * 100)).zfill(4)
+                # El comando 0x42 del manual PNP v5.4 no admite descuento/recargo y el calificador "m"
+                # es anulación de ítem, por lo que el precio se envía ya ajustado.
+                adjusted_price, adjustment_text = self._apply_item_adjustment(item)
+                item_price = self._format_number(adjusted_price, "price")
                 resp = self.send_command(PNPcmd.ITEM_LINE.format(item_name, item_quantity, item_price, tax_value))
                 if not resp:
                     self.send_command(PNPcmd.ITEM_LINE_DEL.format(item_name, item_quantity, item_price, tax_value))
                     raise RuntimeError("Error al procesar ítem fiscal")
+
+                if self.template_config.get("format", {}).get("include_item_discount", False) and adjustment_text:
+                    resp = self.send_command(PNPcmd.COMMENTS.format(self._format_text(adjustment_text, "comment")))
+                    if not resp:
+                        raise RuntimeError(f"Error al procesar línea de descuento: {adjustment_text}")
 
                 if self.template_config.get("format", {}).get("include_item_comment", False) and item_comment:
                     resp = self.send_command(PNPcmd.COMMENTS.format(item_comment))
@@ -505,6 +579,8 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             self.send_command(PNPcmd.DNF_TEXT.format(f"Monto Total: {total_amount}"))
             if not self.send_command(PNPcmd.DNF_CLOSE):
                 raise RuntimeError("Error al procesar cierre de documento NO fiscal")
+            self._last_document = self._extract_document_number(self._last_response)
+            logger.info("Documento NO Fiscal: %s", self._last_document)
         else:
             if payments:
                 mount_base = 0
@@ -523,6 +599,20 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             time.sleep(1)
             if not self.send_command(PNPcmd.CLOSE_TOTAL):
                 raise RuntimeError("Error al cerrar documento fiscal")
+            self._last_document = self._extract_document_number(self._last_response)
+            logger.info("Documento Fiscal: %s", self._last_document)
+
+    def _read_counters_safely(self) -> dict[str, Any] | None:
+        """
+        Lee los contadores 8|N sin interrumpir la impresión ante cualquier falla.
+        Returns:
+            dict | None: Contadores leídos o None si no se pudieron obtener
+        """
+        try:
+            return self._printer.get_counters()
+        except Exception as e:  # noqa: BLE001 - lectura de diagnóstico: nunca debe interrumpir la impresión
+            logger.warning("No se pudieron leer los contadores 8|N: %s", e)
+            return None
 
     def _process_send_data(self) -> dict[str, Any]:
         """Obtiene los datos finales después de la impresión."""
@@ -531,6 +621,28 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             data = self._printer.get_counters()
             daily_closure = data["ultimo_z"]
             daily_closure = int(daily_closure) + 1
+
+            if not self._last_document:
+                # El documento salió impreso pero la máquina no informó su número: nunca se inventa uno.
+                # status False + printed True: el handler marca el trabajo como completado (sin reimpresión).
+                logger.warning(
+                    "Documento %s impreso sin número fiscal. Contadores 8|N antes: %s | después: %s",
+                    self._type_doc,
+                    self._counters_before,
+                    data,
+                )
+                return {
+                    "status": False,
+                    "printed": True,
+                    "message": "Documento impreso, pero no se pudo leer el número fiscal; verifíquelo en la máquina",
+                    "data": {
+                        "Estado": "Documento impreso",
+                        "Error": "No se pudo leer el número fiscal; verifíquelo en la máquina",
+                        "document_date": data["fecha_formateada"],
+                        "machine_serial": self._serial,
+                        "machine_report": str(daily_closure).zfill(4),
+                    },
+                }
 
             return {
                 "status": True,

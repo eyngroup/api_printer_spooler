@@ -10,6 +10,7 @@ setup cxFreeze
 import sys
 import os
 from cx_Freeze import setup, Executable
+from handy.runtime_files import collect_include_files
 from handy.version import __version__
 
 # Obtener la ruta base del proyecto
@@ -27,14 +28,9 @@ include_files = [
     ("resources/printer_fiscal.ico", "resources/printer_fiscal.ico"),
 ]
 
-for dir_name in include_dirs:
-    dir_path = os.path.join(base_path, dir_name)
-    if os.path.exists(dir_path):
-        for root, dirs, files in os.walk(dir_path):
-            for file in files:
-                source = os.path.join(root, file)
-                dest = os.path.relpath(source, base_path)
-                include_files.append((source, dest))
+# Se excluyen los archivos de runtime (config.json y templates con contadores): se crean en el primer
+# arranque a partir de config/defaults y templates/defaults.
+include_files.extend(collect_include_files(base_path, include_dirs))
 
 # Configuración del ejecutable
 build_options = {
