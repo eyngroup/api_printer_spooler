@@ -719,3 +719,22 @@ def test_dashboard_is_read_only(app_client):
     html = app_client.get("/").get_data(as_text=True)
     for removed in ("printReportZ", "printReportX", "sendCommandsBtn", "configEditorBtn", "securityCodeModal"):
         assert removed not in html
+
+
+def test_dashboard_has_monitor_section_with_local_assets(app_client):
+    """El panel incluye el Monitor fiscal y usa solo recursos locales (sin CDN)."""
+    from pathlib import Path
+
+    response = app_client.get("/")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Monitor fiscal" in html
+    assert "cdn.jsdelivr.net" not in html
+    assert "static/vendor/bootstrap.min.css" in html
+    assert "static/vendor/chart.umd.min.js" in html
+    assert "static/vendor/bootstrap.bundle.min.js" in html
+
+    vendor = Path(__file__).resolve().parents[1] / "views" / "static" / "vendor"
+    for name in ("bootstrap.min.css", "bootstrap.bundle.min.js", "chart.umd.min.js"):
+        assert (vendor / name).stat().st_size > 0
+        assert app_client.get(f"/static/vendor/{name}").status_code == 200

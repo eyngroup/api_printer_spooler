@@ -62,3 +62,20 @@ canvas {
     width: 100% !important;
     height: 300px !important;
 }
+
+/* Monitor fiscal: cifras alineadas a la derecha y neto del día destacado */
+#fiscalMonitor .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+#fiscalMonitor .net-total {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+/* El gráfico global de canvas no debe afectar al monitor */
+#fiscalMonitor canvas {
+    height: auto !important;
+}
