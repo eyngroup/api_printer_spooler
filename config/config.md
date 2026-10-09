@@ -89,6 +89,20 @@ El archivo de configuración está dividido en las siguientes secciones principa
 
 > **Nota sobre Auto-Programación**: El sistema verificará al inicio si el `Flag 43` de la impresora coincide con el `fiscal_barcode_type` configurado. Si difieren, enviará automáticamente el comando de programación correspondiente (ej: `PJ43xx`) para ajustar la impresora. Las reglas de validación se encuentran en `hka_barcode_rules.json`.
 
+##### Etiquetas de medios de pago (`payment_labels`, opcional)
+- `payment_labels`: objeto `{"01": "Efectivo", ..., "24": "DivisaCashea"}` con el nombre de cada medio de pago (códigos `01` a `24`). Solo lo usa el monitor fiscal (`GET /api/monitor`) para mostrar "04 — Contado" en lugar de "Código 04"; no afecta a la impresión.
+- La máquina TFHKA no permite leer los nombres programados (solo el comando `D` los imprime), por eso se mantienen aquí. Deben coincidir con los programados en la impresora.
+- Los valores por defecto (HKA80) están en `config/defaults/config.json`. La clave es **opcional** en `config/config.json`: las instalaciones existentes no la tienen y usan los valores por defecto.
+- Para personalizar una instalación, indique solo los códigos que difieran; sustituyen al valor por defecto de ese código. Una cadena vacía (`""`) significa "sin etiqueta" (se muestra "Código NN"). También se edita en la pestaña "Impresora Fiscal", sección "Medios de pago (etiquetas)", que guarda únicamente las diferencias.
+
+```json
+{
+    "fiscal": {
+        "payment_labels": {"07": "Punto", "13": ""}
+    }
+}
+```
+
 *Nota: Los modelos RIGAZSA y BEMATECH están en desarrollo y no disponibles actualmente.
 
 #### Impresora Matriz

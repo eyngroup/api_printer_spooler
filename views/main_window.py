@@ -33,6 +33,9 @@ from server.config_loader import (
     VALID_MATRIX_PAPER_TYPES,
     VALID_SERVER_MODES,
     ConfigManager,
+    PAYMENT_CODES,
+    _load_default_payment_labels,
+    get_payment_labels,
     get_security_code,
 )
 
@@ -696,6 +699,9 @@ class MainWindow:
             fiscal_cfg.get("fiscal_barcode_type", "CODE128"),
         )
 
+        # --- Medios de pago (etiquetas del monitor) ---
+        self._build_payment_labels_box(parent, get_payment_labels(config))
+
         # --- Datos de la Impresora ---
         info_box = tb.LabelFrame(parent, text="Datos de la Impresora (Plantilla)", padding=10)
         info_box.pack(fill=tbc.X, padx=10, pady=10)
@@ -739,6 +745,46 @@ class MainWindow:
             bootstyle="success",
         ).pack(side=tbc.LEFT)
 
+    def _build_payment_labels_box(self, parent, labels: dict[str, str]) -> None:
+        """
+        Sección "Medios de pago (etiquetas)": 24 entradas (código: nombre) en una grilla de 4 columnas.
+        Args:
+            parent: Contenedor de la pestaña fiscal
+            labels: Etiquetas vigentes por código ("01".."24")
+        """
+        self.payment_label_vars: dict[str, tb.StringVar] = {}
+        box = tb.LabelFrame(parent, text="Medios de pago (etiquetas)", padding=10)
+        box.pack(fill=tbc.X, padx=10, pady=10)
+        tb.Label(
+            box,
+            text="Los nombres deben coincidir con los programados en la impresora (comando D imprime la programación)",
+            bootstyle="secondary",
+            wraplength=800,
+        ).pack(anchor=tbc.W, pady=(0, 8))
+        grid = tb.Frame(box)
+        grid.pack(fill=tbc.X)
+        columns = 4
+        for index, code in enumerate(PAYMENT_CODES):
+            row, col = divmod(index, columns)
+            cell = tb.Frame(grid)
+            cell.grid(row=row, column=col, sticky=tbc.EW, padx=4, pady=2)
+            grid.columnconfigure(col, weight=1)
+            tb.Label(cell, text=f"{code}:", width=3).pack(side=tbc.LEFT)
+            var = tb.StringVar(value=labels.get(code, ""))
+            self.payment_label_vars[code] = var
+            tb.Entry(cell, textvariable=var, width=16).pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES)
+
+    def _collect_payment_labels(self) -> dict[str, str]:
+        """
+        Etiquetas de pago a guardar en la configuración: solo las que difieren de las de fábrica, para que
+        las instalaciones sigan heredando los cambios futuros de los valores por defecto.
+        Returns:
+            dict[str, str]: {código: etiqueta} con las diferencias (puede incluir cadenas vacías)
+        """
+        defaults = _load_default_payment_labels()
+        current = {code: var.get().strip() for code, var in self.payment_label_vars.items()}
+        return {code: label for code, label in current.items() if label != defaults.get(code, "")}
+
     def _scan_fiscal_ports(self) -> None:
         try:
             scanner = get_serial_scanner()
@@ -775,6 +821,9 @@ class MainWindow:
                 "fiscal_timeout": int(self.fv["fiscal_timeout"].get()),
                 "fiscal_barcode_type": self.fv["fiscal_barcode_type"].get(),
             }
+            payment_labels = self._collect_payment_labels()
+            if payment_labels:
+                new_config["printers"]["fiscal"]["payment_labels"] = payment_labels
         except (ValueError, KeyError) as e:
             Messagebox.show_error(f"Valor inválido de hardware: {e}", "Impresora Fiscal")
             return

@@ -17,7 +17,7 @@ from jsonschema import validate
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from handy.runtime_files import ensure_runtime_files
+from handy.runtime_files import default_path_for, ensure_runtime_files
 from handy.tools import get_base_path
 
 # Constantes
@@ -26,6 +26,35 @@ VALID_FISCAL_PRINTERS = {"TFHKA", "PNP"}
 VALID_MATRIX_PAPER_TYPES = {"CARTA", "MEDIA_CARTA"}
 VALID_BARCODE_TYPES = {"QR", "BARCODE", "CODE128", "EAN13", "ITF", "CODE39", "PDF417"}
 
+# Etiquetas de respaldo de los medios de pago 01..24 (HKA80). La fuente de verdad es config/defaults/config.json;
+# esta constante solo se usa si ese archivo no se puede leer.
+FALLBACK_PAYMENT_LABELS = {
+    "01": "Efectivo",
+    "02": "EfectivoBs",
+    "03": "EfectivoOtros",
+    "04": "Contado",
+    "05": "Credito",
+    "06": "OtrasCxC",
+    "07": "PuntoDeVenta",
+    "08": "Transferencia",
+    "09": "TarjetaDebito",
+    "10": "TarjetaCredito",
+    "11": "PagoMovil",
+    "12": "BioPago",
+    "13": "CestaTicket",
+    "14": "Cashea",
+    "15": "CasheaCxC",
+    "16": "CasheaPunto",
+    "17": "CasheaPagoMovil",
+    "18": "CasheaBs",
+    "19": "Dif.IG..",
+    "20": "Divisa",
+    "21": "DivisaUSD",
+    "22": "DivisaEUR",
+    "23": "DivisaOtros",
+    "24": "DivisaCashea",
+}
+PAYMENT_CODES = tuple(f"{n:02d}" for n in range(1, 25))
 
 CONFIG_SCHEMA = {
     "type": "object",
@@ -62,6 +91,12 @@ CONFIG_SCHEMA = {
                         "fiscal_baudrate": {"type": "integer"},
                         "fiscal_timeout": {"type": "integer"},
                         "fiscal_barcode_type": {"type": "string", "enum": list(VALID_BARCODE_TYPES)},
+                        # Opcional: nombre de cada medio de pago 01..24 (cadena vacía = sin etiqueta)
+                        "payment_labels": {
+                            "type": "object",
+                            "patternProperties": {r"^(0[1-9]|1[0-9]|2[0-4])$": {"type": "string"}},
+                            "additionalProperties": False,
+                        },
                     },
                     "required": ["fiscal_enabled", "fiscal_name", "fiscal_port"],
                 },
@@ -125,6 +160,45 @@ CONFIG_SCHEMA = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+def _load_default_payment_labels() -> dict[str, str]:
+    """
+    Lee las etiquetas por defecto de los medios de pago desde config/defaults/config.json.
+    Returns:
+        dict[str, str]: Etiquetas por código; las de respaldo si el archivo no se puede leer o no es válido
+    """
+    try:
+        path = os.path.join(get_base_path(), *default_path_for("config/config.json").split("/"))
+        with open(path, encoding="utf-8") as f:
+            labels = json.load(f)["printers"]["fiscal"]["payment_labels"]
+        return {str(k): str(v) for k, v in labels.items() if k in PAYMENT_CODES}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        logger.warning("No se pudieron leer las etiquetas de pago por defecto, se usan las de respaldo: %s", e)
+        return dict(FALLBACK_PAYMENT_LABELS)
+
+
+def get_payment_labels(config: dict[str, Any] | None) -> dict[str, str]:
+    """
+    Etiquetas de los medios de pago 01..24: los valores por defecto combinados con los de la instalación.
+    La configuración de runtime tiene prioridad por código; una cadena vacía significa "sin etiqueta".
+    Nunca lanza excepciones.
+    Args:
+        config: Configuración completa (o None); se lee `printers.fiscal.payment_labels`
+    Returns:
+        dict[str, str]: Etiqueta por código ("01".."24")
+    """
+    try:
+        labels = _load_default_payment_labels()
+        overrides = ((config or {}).get("printers", {}).get("fiscal", {}) or {}).get("payment_labels") or {}
+        if isinstance(overrides, dict):
+            for code, label in overrides.items():
+                if code in PAYMENT_CODES and isinstance(label, str):
+                    labels[code] = label
+        return labels
+    except Exception as e:  # noqa: BLE001 - las etiquetas son informativas: nunca deben romper al llamador
+        logger.warning("Error combinando las etiquetas de pago: %s", e)
+        return dict(FALLBACK_PAYMENT_LABELS)
 
 
 def get_security_code() -> str:

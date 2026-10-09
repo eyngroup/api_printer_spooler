@@ -162,7 +162,8 @@ function renderPayments(container, data) {
         payments.forEach(function (p) {
             const code = String(p.code);
             const row = el('tr');
-            const cell = addCell(row, 'Código ' + code);
+            const label = p.label ? String(p.label).trim() : '';
+            const cell = addCell(row, label ? code + ' — ' + label : 'Código ' + code);
             if (p.divisa || MONITOR_DIVISA_CODES.indexOf(code) !== -1) {
                 cell.appendChild(el('span', 'Divisa', 'badge bg-info text-dark ms-2'));
             }
