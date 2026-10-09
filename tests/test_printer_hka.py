@@ -54,7 +54,10 @@ def printer() -> TfhkaPrinter:
     instance.printer = "TFHKA"
     instance._flag_50 = "01"
     instance._flag_21 = "00"  # valor real de la HKA80 (S3)
-    instance.flag_config = json.loads((Path(__file__).parents[1] / "config" / "hka_flag_21.json").read_text())
+    config_dir = Path(__file__).parents[1] / "config"
+    instance.flag_config = json.loads((config_dir / "hka_flag_21.json").read_text())
+    instance.max_char_config = json.loads((config_dir / "hka_max_char.json").read_text())
+    instance._model = "HKA-80"  # modelo que reporta la máquina real
     instance._printed_total = None
     return instance
 
@@ -128,3 +131,25 @@ def test_print_document_resets_total_between_documents(printer: TfhkaPrinter, mo
     assert result["status"] is True
     assert "total" not in result["data"]
     assert printer._printed_total is None
+
+
+# Prefijo de tasa por tipo de documento según el manual TFHKA v8.5.0 (págs. 33-39):
+# exento, general (16 %), reducida (8 %), adicional (31 %).
+MANUAL_TAX_PREFIXES = {
+    "invoice": {0.0: " ", 16.0: "!", 8.0: '"', 31.0: "#"},
+    "credit": {0.0: "d0", 16.0: "d1", 8.0: "d2", 31.0: "d3"},
+    "debit": {0.0: "`0", 16.0: "`1", 8.0: "`2", 31.0: "`3"},
+}
+
+
+@pytest.mark.parametrize(
+    ("operation_type", "tax", "prefix"),
+    [(op, tax, prefix) for op, rates in MANUAL_TAX_PREFIXES.items() for tax, prefix in rates.items()],
+)
+def test_item_tax_prefix_matches_manual(printer: TfhkaPrinter, operation_type: str, tax: float, prefix: str):
+    """Each contract tax rate (float percent, as Odoo sends it) maps to the manual's machine rate prefix."""
+    item = {"item_name": "Producto", "item_quantity": 1.0, "item_price": 1.0, "item_tax": tax}
+    printer._process_items({"items": [item]}, operation_type)
+    item_line = printer._printer.sent[0]
+    assert item_line.startswith(prefix)
+    assert item_line[len(prefix) : len(prefix) + 10].isdigit()  # Seguido del precio

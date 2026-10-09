@@ -39,7 +39,10 @@ _SERIAL_FALLBACK = "Z1B1234567"
 TAX_VALUES = {
     "invoice": {0: " ", 12: "!", 16: "!", 8: '"', 22: "#", 31: "#"},
     "credit": {0: "d0", 12: "d1", 16: "d1", 8: "d2", 22: "d3", 31: "d3"},
-    "debit": {0: "`0", 12: "`1", 16: "`1", 8: "`2", 22: "`2", 31: "`2"},  # Nota: 22 y 31 usan tasa adicional
+    # Nota: 22 y 31 usan tasa adicional
+    # Corrección: el 31 % (tasa adicional) usa el prefijo `3 según el manual v8.5.0 (págs. 38-39);
+    # antes se enviaba como `2 (tasa reducida, 8 %).
+    "debit": {0: "`0", 12: "`1", 16: "`1", 8: "`2", 22: "`2", 31: "`3"},
     "note": {0: "80", 12: "80", 16: "80", 8: "80", 22: "80", 31: "80"},
 }
 
