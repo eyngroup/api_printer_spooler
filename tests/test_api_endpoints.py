@@ -412,9 +412,9 @@ def test_ping_returns_machine_serial(app_client, monkeypatch):
     """GET /api/ping returns the serial read from the machine instead of the template default."""
     from server.handlers.printer_manager import PrinterManager
 
-    monkeypatch.setattr(PrinterManager, "read_serial", classmethod(lambda cls, t, c: "Z7C7034708"))
+    monkeypatch.setattr(PrinterManager, "read_serial", classmethod(lambda cls, t, c: "Z7C0000000"))
     body = app_client.get("/api/ping").get_json()
-    assert body == {"status": "success", "message": "Z7C7034708"}
+    assert body == {"status": "success", "message": "Z7C0000000"}
 
 
 def test_ping_falls_back_to_configured_serial(app_client, monkeypatch):
