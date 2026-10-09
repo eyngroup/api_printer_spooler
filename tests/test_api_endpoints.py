@@ -148,3 +148,106 @@ def test_document_mock_print_and_idempotency(app_client, sample_invoice_payload,
 
     # Crucial: printer was NOT called a second time (idempotent deduplication!)
     assert mock_printer.print_document.call_count == 1
+
+
+def _job_status(document_id: str, operation_type: str = "invoice") -> str | None:
+    """Read the stored status of a job directly from the job store."""
+    with job_store._connect() as conn:
+        row = conn.execute(
+            "SELECT status FROM print_jobs WHERE document_id=? AND operation_type=?", (document_id, operation_type)
+        ).fetchone()
+    return row["status"] if row else None
+
+
+def _ok_printer() -> MagicMock:
+    """Mock printer that prints successfully."""
+    printer = MagicMock()
+    printer.print_document.return_value = {
+        "status": True,
+        "message": "Impresión completada",
+        "data": {"document_number": "00000123", "machine_serial": "ZB1234567"},
+    }
+    return printer
+
+
+def test_exception_getting_printer_releases_job(app_client, sample_invoice_payload, monkeypatch):
+    """An exception before printing marks the job failed so the retry can print."""
+    from server.handlers import document_handler
+
+    def _boom(cfg):
+        raise OSError("puerto serial no disponible")
+
+    monkeypatch.setattr(document_handler, "printer_instance", _boom)
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 500
+    assert resp.get_json()["status"] is False
+    assert _job_status("TEST-0099") == "failed"
+
+    printer = _ok_printer()
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+    resp_retry = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp_retry.status_code == 200
+    assert printer.print_document.call_count == 1
+    assert _job_status("TEST-0099") == "completed"
+
+
+def test_exception_during_print_releases_job(app_client, sample_invoice_payload, monkeypatch):
+    """An exception raised by print_document marks the job failed (no permanent 409)."""
+    from server.handlers import document_handler
+
+    printer = MagicMock()
+    printer.print_document.side_effect = OSError("cable desconectado")
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 500
+    assert _job_status("TEST-0099") == "failed"
+
+
+def test_printed_but_not_recorded_never_reprints(app_client, sample_invoice_payload, monkeypatch):
+    """If the job cannot be recorded after printing, Odoo still gets success and retries get 409."""
+    from server.handlers import document_handler
+
+    printer = _ok_printer()
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+
+    def _db_down(*args, **kwargs):
+        raise job_store.sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(document_handler, "complete_job", _db_down)
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["document_number"] == "00000123"
+    assert _job_status("TEST-0099") == "processing"
+
+    resp_retry = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp_retry.status_code == 409
+    assert printer.print_document.call_count == 1
+
+
+def test_complete_job_retried_once(app_client, sample_invoice_payload, monkeypatch):
+    """A transient failure recording the job is retried and the duplicate is served from cache."""
+    from server.handlers import document_handler
+
+    printer = _ok_printer()
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+    calls = {"n": 0}
+    real_complete = job_store.complete_job
+
+    def _flaky_complete(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise job_store.sqlite3.OperationalError("database is locked")
+        return real_complete(*args, **kwargs)
+
+    monkeypatch.setattr(document_handler, "complete_job", _flaky_complete)
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 200
+    assert _job_status("TEST-0099") == "completed"
+
+    resp_dup = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp_dup.status_code == 200
+    assert resp_dup.get_json() == resp.get_json()
+    assert printer.print_document.call_count == 1

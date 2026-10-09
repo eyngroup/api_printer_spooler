@@ -120,6 +120,51 @@ def printer_instance(
         return None, {"message": str(e)}
 
 
+def _complete_job_safely(document_id: str, operation_type: str, response: dict[str, Any]) -> bool:
+    """
+    Registra un trabajo como completado, con un reintento si falla el registro.
+
+    Si ambos intentos fallan, el trabajo queda deliberadamente en 'processing': el documento ya
+    fue emitido y marcarlo como fallido permitiría reimprimirlo (doble documento fiscal).
+    Args:
+        document_id: Clave de idempotencia del documento
+        operation_type: Tipo de operación
+        response: Respuesta enviada a Odoo, que se guarda como caché
+    Returns:
+        bool: True si el trabajo quedó registrado como completado
+    """
+    for attempt in (1, 2):
+        try:
+            complete_job(document_id, operation_type, response)
+            return True
+        except Exception as e:  # noqa: BLE001 - red de seguridad: cualquier error de la base de trabajos
+            logger.error(
+                "Intento %s: no se pudo registrar el trabajo %s/%s: %s", attempt, document_id, operation_type, e
+            )
+    logger.critical(
+        "Documento %s/%s IMPRESO pero no registrado como completado; queda en 'processing' para evitar "
+        "una reimpresión. Respuesta: %s",
+        document_id,
+        operation_type,
+        response,
+    )
+    return False
+
+
+def _fail_job_safely(document_id: str, operation_type: str, error_message: str) -> None:
+    """
+    Registra un trabajo como fallido sin propagar errores de la base de trabajos.
+    Args:
+        document_id: Clave de idempotencia del documento
+        operation_type: Tipo de operación
+        error_message: Motivo de la falla
+    """
+    try:
+        fail_job(document_id, operation_type, error_message)
+    except Exception as e:  # noqa: BLE001 - red de seguridad: cualquier error de la base de trabajos
+        logger.critical("No se pudo registrar como fallido el trabajo %s/%s: %s", document_id, operation_type, e)
+
+
 def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de documentos.
@@ -168,21 +213,33 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
             )
 
         # acquire_result is 'new' or 'retry' — proceed
-        printers_config = current_app.config.get("printers", {})  # Obtener configuración de impresoras
-        printer, error_data = printer_instance(printers_config)
-        if not printer:
-            if error_data:
-                if "state" in error_data and "error" in error_data:
-                    message = f"Impresora no disponible - Estado: {error_data['state']}, Error: {error_data['error']}"
-                else:
-                    message = error_data.get("message", "Error desconocido al obtener la impresora")
-                fail_job(invoice.document_number, invoice.operation_type, message)
-                return error_response(message, data=error_data)
-            fail_job(invoice.document_number, invoice.operation_type, "No hay impresoras habilitadas")
-            return error_response("No hay impresoras habilitadas para procesar el documento")
+        # Desde aquí el trabajo está en 'processing': toda salida debe dejarlo en un estado final,
+        # o Odoo recibiría 409 indefinidamente para este documento.
+        try:
+            printers_config = current_app.config.get("printers", {})  # Obtener configuración de impresoras
+            printer, error_data = printer_instance(printers_config)
+            if not printer:
+                if error_data:
+                    if "state" in error_data and "error" in error_data:
+                        message = (
+                            f"Impresora no disponible - Estado: {error_data['state']}, Error: {error_data['error']}"
+                        )
+                    else:
+                        message = error_data.get("message", "Error desconocido al obtener la impresora")
+                    fail_job(invoice.document_number, invoice.operation_type, message)
+                    return error_response(message, data=error_data)
+                fail_job(invoice.document_number, invoice.operation_type, "No hay impresoras habilitadas")
+                return error_response("No hay impresoras habilitadas para procesar el documento")
 
-        result = printer.print_document(data)  # Procesar el documento
-        logger.debug("Documento result= %s", result)
+            result = printer.print_document(data)  # Procesar el documento
+            logger.debug("Documento result= %s", result)
+        except Exception as e:  # Cualquier falla debe liberar el trabajo
+            # Falla antes o durante la impresión: misma semántica que un error devuelto por el driver,
+            # que cancela el documento abierto en la máquina. Se libera el trabajo para permitir el reintento.
+            error_msg = f"Error interno durante la impresión: {e!s}"
+            logger.exception("Documento %s: %s", invoice.document_number, error_msg)
+            _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
+            return error_response(error_msg, HTTP_INTERNAL_ERROR)
 
         if result.get("status", False):
             response_payload = {
@@ -190,12 +247,14 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
                 "message": result.get("message", "Documento procesado correctamente"),
                 "data": result.get("data", {}),
             }
-            complete_job(invoice.document_number, invoice.operation_type, response_payload)
+            # El documento ya fue emitido: aunque no se pueda registrar, se responde con éxito para que
+            # Odoo guarde el número fiscal. Nunca se marca como fallido (evita una doble impresión).
+            _complete_job_safely(invoice.document_number, invoice.operation_type, response_payload)
             logger.info("Documento Origen: %s, impreso correctamente", invoice.document_number)
             return jsonify(response_payload)
 
         error_msg = result.get("message", "Error desconocido al imprimir")
-        fail_job(invoice.document_number, invoice.operation_type, error_msg)
+        _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
         return error_response(error_msg, data=result.get("data"))
 
     except Exception as e:
