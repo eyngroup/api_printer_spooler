@@ -406,3 +406,23 @@ def test_blueprint_errorhandler_returns_boolean_false(app_client, monkeypatch):
     assert resp.status_code == 500
     assert body["status"] is False
     assert body["data"] == {"Estado": "Error interno", "Error": "fallo inesperado"}
+
+
+def test_ping_returns_machine_serial(app_client, monkeypatch):
+    """GET /api/ping returns the serial read from the machine instead of the template default."""
+    from server.handlers.printer_manager import PrinterManager
+
+    monkeypatch.setattr(PrinterManager, "read_serial", classmethod(lambda cls, t, c: "Z7C7034708"))
+    body = app_client.get("/api/ping").get_json()
+    assert body == {"status": "success", "message": "Z7C7034708"}
+
+
+def test_ping_falls_back_to_configured_serial(app_client, monkeypatch):
+    """When the machine cannot be read, the serial configured in the Fiscal tab (template) is returned."""
+    from server.handlers.printer_manager import PrinterManager
+    from server import server_api
+
+    monkeypatch.setattr(PrinterManager, "read_serial", classmethod(lambda cls, t, c: None))
+    monkeypatch.setattr(server_api, "_configured_serial", lambda: "Z1B9999999")
+    body = app_client.get("/api/ping").get_json()
+    assert body == {"status": "success", "message": "Z1B9999999"}

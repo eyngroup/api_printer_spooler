@@ -175,3 +175,59 @@ class PrinterManager:
                     controller.close_port()
                 except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
                     logger.warning("Error al cerrar el puerto tras leer el estado: %s", e)
+
+    @classmethod
+    def read_serial(cls, printer_type: str, printer_config: dict[str, Any]) -> str | None:
+        """
+        Obtiene el serial (registro de máquina) de la impresora fiscal sin crear una instancia.
+
+        Prioridad: 1) serial de la instancia conectada (no toca el puerto, seguro durante una impresión);
+        2) lectura única de solo lectura con un controlador temporal (HKA: S5, PNP: versión). Nunca envía
+        CANCEL ni crea la instancia: crear la instancia de HKA cancela un documento abierto y consume un
+        número fiscal, algo que un simple ping no debe provocar. Nunca lanza excepciones.
+        Args:
+            printer_type: Tipo de impresora fiscal ("tfhka" o "pnp").
+            printer_config: Configuración de la impresora (fiscal_port, fiscal_baudrate, fiscal_timeout).
+        Returns:
+            str | None: Serial de la máquina, o None si no se pudo obtener.
+        """
+        controller = None
+        try:
+            printer_type = printer_type.lower()
+            if printer_type not in cls._FISCAL_PRINTERS:
+                return None
+
+            with cls._lock:
+                instance = cls._instances.get(printer_type)
+                if instance is not None:
+                    return getattr(instance, "_serial", None) or None
+
+                port = printer_config.get("fiscal_port")
+                baudrate = printer_config.get("fiscal_baudrate", 9600)
+                timeout = printer_config.get("fiscal_timeout", 2)
+
+                if printer_type == "tfhka":
+                    from controllers.pfhka import FiscalPrinterHka
+
+                    controller = FiscalPrinterHka(port, baudrate, timeout)
+                else:
+                    from controllers.pfpnp import FiscalPrinterPnp
+
+                    controller = FiscalPrinterPnp(port, baudrate, timeout)
+
+                if not controller.open_port():
+                    logger.warning("No se pudo abrir el puerto %s para leer el serial de %s", port, printer_type)
+                    return None
+
+                info = controller.get_s5() if printer_type == "tfhka" else controller.get_version()
+                serial = (info or {}).get("serial", "").strip()
+                return serial or None
+        except Exception as e:  # noqa: BLE001 - nunca debe lanzar: cualquier fallo devuelve None
+            logger.warning("No se pudo leer el serial de la impresora %s: %s", printer_type, e)
+            return None
+        finally:
+            if controller is not None:
+                try:
+                    controller.close_port()
+                except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
+                    logger.warning("Error al cerrar el puerto tras leer el serial: %s", e)

@@ -127,3 +127,78 @@ def test_get_printer_failure_without_status_keeps_original_message(monkeypatch):
     with pytest.raises(ValueError) as exc:
         PrinterManager.get_printer("tfhka", {})
     assert str(exc.value) == "Error al conectar con la impresora: TFHKA"
+
+
+# --- C8: lectura del serial para /api/ping -------------------------------------------------------
+
+HKA_CONFIG = {"fiscal_port": "/dev/ttyACM1", "fiscal_baudrate": 9600, "fiscal_timeout": 2}
+
+
+class _SerialController:
+    """Fake controller exposing the read-only serial queries (HKA S5 / PNP get_version)."""
+
+    calls: ClassVar[list] = []
+
+    def __init__(self, port, baudrate, timeout):
+        self.sent: list[str] = []
+
+    def open_port(self):
+        return True
+
+    def close_port(self):
+        _SerialController.calls.append("close")
+
+    def get_s5(self):
+        _SerialController.calls.append("S5")
+        return {"rif": "J-000000000", "serial": "Z7C7034708"}
+
+    def get_version(self):
+        _SerialController.calls.append("version")
+        return {"modelo": "PF-220", "serial": "EOO1234567"}
+
+    def send_cmd(self, command):  # pragma: no cover - must never be called
+        raise AssertionError(f"read_serial must not send commands: {command}")
+
+
+@pytest.fixture
+def serial_controllers(monkeypatch):
+    """Replace both fiscal controllers with the read-only fake."""
+    import controllers.pfhka
+    import controllers.pfpnp
+
+    _SerialController.calls = []
+    monkeypatch.setattr(controllers.pfhka, "FiscalPrinterHka", _SerialController)
+    monkeypatch.setattr(controllers.pfpnp, "FiscalPrinterPnp", _SerialController)
+
+
+def test_read_serial_prefers_live_instance(serial_controllers, monkeypatch):
+    """With a connected instance the cached serial is returned without touching the port."""
+
+    class _Live:
+        _serial = "Z7C7034708"
+
+    monkeypatch.setattr(PrinterManager, "_instances", {"tfhka": _Live()})
+    assert PrinterManager.read_serial("TFHKA", HKA_CONFIG) == "Z7C7034708"
+    assert _SerialController.calls == []
+
+
+@pytest.mark.parametrize(
+    ("printer_type", "expected", "query"), [("tfhka", "Z7C7034708", "S5"), ("pnp", "EOO1234567", "version")]
+)
+def test_read_serial_one_shot_read_only(serial_controllers, printer_type, expected, query):
+    """Without an instance the serial is read once (read-only query), the port is closed and no instance is created."""
+    assert PrinterManager.read_serial(printer_type, HKA_CONFIG) == expected
+    assert _SerialController.calls == [query, "close"]
+    assert PrinterManager._instances == {}
+
+
+def test_read_serial_returns_none_when_unreachable(monkeypatch):
+    """If the port cannot be opened the caller falls back to the configured serial."""
+    import controllers.pfhka
+
+    class _Down(_SerialController):
+        def open_port(self):
+            return False
+
+    monkeypatch.setattr(controllers.pfhka, "FiscalPrinterHka", _Down)
+    assert PrinterManager.read_serial("tfhka", HKA_CONFIG) is None
