@@ -236,3 +236,14 @@ def test_file_mode_works_without_win32(env):
     result = MatrixPrinter(config).print_document(make_document())
     assert result["status"] is True
     assert output.exists()
+
+
+def test_column_titles_aligned_with_values(env):
+    """Los títulos de columnas numéricas terminan en la misma posición que sus valores."""
+    config, _, output = env
+    MatrixPrinter(config).print_document(make_document())
+    lines = printed(output).splitlines()
+    title = next(line for line in lines if "DESCRIPCION" in line)
+    row = next(line for line in lines if line.startswith("A1"))
+    for label, value in (("CANT", "2.00"), ("PRECIO", "10.00"), ("TOTAL", "20.00")):
+        assert title.index(label) + len(label) == row.index(value) + len(value)

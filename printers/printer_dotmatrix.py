@@ -405,8 +405,9 @@ class MatrixPrinter(BasePrinter):
 
         # Encabezado de columnas
         header_line = ""
-        for col, width in zip(self.columns, self.column_widths):
-            header_line += f"{col:<{width}}"
+        # Cada título se alinea como su columna: texto ("s") a la izquierda, números ("f") a la derecha
+        for col, width, fmt in zip(self.columns, self.column_widths, self.column_format):
+            header_line += f"{col:>{width}}" if fmt == "f" else f"{col:<{width}}"
 
         items_lines.append(self.escp_commands.CMD_BOLD_ON)
         items_lines.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
