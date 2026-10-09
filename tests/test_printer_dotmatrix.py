@@ -79,9 +79,9 @@ def counter_on_disk(template: Path) -> str:
 
 
 def printed(output: Path) -> str:
-    """Texto impreso (latin-1) sin los comandos ESC/P, para comparar solo el contenido legible."""
-    text = output.read_bytes().decode("latin-1")
-    return re.sub(r"\x1b(?:[aCt][\x00-\x02]|.)|[\x0c\x0f]", "", text)
+    """Texto impreso (CP850) sin los comandos ESC/P, para comparar solo el contenido legible."""
+    text = output.read_bytes().decode("cp850")
+    return re.sub(r"\x1b\(t[\s\S]{5}|\x1b(?:[aCt][\x00-\x02]|.)|[\x0c\x0f]", "", text)
 
 
 def test_header_prints_counter_and_reference_not_odoo_key(env):
@@ -247,3 +247,30 @@ def test_column_titles_aligned_with_values(env):
     row = next(line for line in lines if line.startswith("A1"))
     for label, value in (("CANT", "2.00"), ("PRECIO", "10.00"), ("TOTAL", "20.00")):
         assert title.index(label) + len(label) == row.index(value) + len(value)
+
+
+def test_spanish_characters_printed_in_cp850(env):
+    """ñ, acentos (también en mayúscula) y ¡ ¿ se envían en CP850 tras asignar la tabla PC850 (Epson LX-350)."""
+    config, _, output = env
+    document = make_document()
+    document["customer"]["customer_name"] = "JOSÉ MUÑOZ ÁLVAREZ"
+    document["customer"]["customer_address"] = "Av. Bolívar, Caño Amarillo"
+    MatrixPrinter(config).print_document(document)
+    raw = output.read_bytes()
+
+    assert b"\x1b(t\x03\x00\x01\x03\x00\x1bt\x01" in raw  # ESC ( t PC850 en tabla 1 + ESC t 1
+    assert b"\x1bt\x02" not in raw  # ESC t 2 (tabla de usuario) ya no se usa
+    assert "JOSÉ MUÑOZ ÁLVAREZ".encode("cp850") in raw  # Á = 0xB5, É = 0x90, Ñ = 0xA5
+    assert b"\xb5" in raw
+    assert "Av. Bolívar, Caño Amarillo".encode("cp850") in raw  # dirección sin normalizar
+    assert b"?" not in raw.split(b"JOS")[1][:20]
+
+
+@pytest.mark.parametrize(("paper", "length_cmd"), [("carta", b"\x1bC\x00\x0b"), ("media_carta", b"\x1bC\x21")])
+def test_document_starts_with_reset_charset_and_full_page_length(env, paper, length_cmd):
+    """Reset, tabla PC850 y longitud de página completa (con su parámetro) al inicio del documento."""
+    config, _, output = env
+    MatrixPrinter({**config, "matrix_paper": paper}).print_document(make_document())
+    raw = output.read_bytes()
+    assert raw.startswith(b"\x1b@" + b"\x1b(t\x03\x00\x01\x03\x00\x1bt\x01" + length_cmd)
+    assert b"\x1bC\x00\x1b" not in raw  # ESC C 0 sin parámetro ya no se envía

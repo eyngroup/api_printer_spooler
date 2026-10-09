@@ -19,7 +19,11 @@ try:
 except ImportError:
     PLATFORM_HAS_WIN32 = False
 
-from handy.tools import get_base_path, normalize_text, format_multiline
+# Codificación del texto: CP850 (español: ñ, acentos en minúscula y mayúscula, ¡ ¿), seleccionada en la
+# impresora con ESCPcmd.CMD_CHARSET_ASSIGN_PC850. Verificado en una Epson LX-350.
+TEXT_ENCODING = "cp850"
+
+from handy.tools import get_base_path, format_multiline
 
 from models.model_invoice import Invoice, InvoiceItem
 
@@ -283,8 +287,13 @@ class MatrixPrinter(BasePrinter):
 
         # Inicializar impresora y configurar página
         content.append(self.escp_commands.CMD_INIT)  # Reset printer
-        content.append(self.escp_commands.CMD_PAGE_ZERO)  # Continuous form
-        content.append(self.escp_commands.CMD_CHARSET_PC850)  # CP850 charset
+        # La tabla de caracteres va justo después del reset: ningún comando previo puede consumir su ESC
+        content.append(self.escp_commands.CMD_CHARSET_ASSIGN_PC850)  # CP850 charset (ESC ( t + ESC t 1)
+        # Longitud de página según el papel (antes "ESC C 0" sin parámetro: 27" y se perdía el comando siguiente)
+        if self.paper_size == "media_carta":
+            content.append(self.escp_commands.CMD_PAGE_LENGTH_MEDIA_CARTA)
+        else:
+            content.append(self.escp_commands.CMD_PAGE_LENGTH_CARTA)
         content.append(self.escp_commands.CMD_CPI_12)  # 12 CPI para el texto general
 
         # Formatear documento
@@ -326,7 +335,7 @@ class MatrixPrinter(BasePrinter):
             header_info["address"],
             header_info["phone"],
         ]:
-            header.append(line.encode("ascii", errors="replace") + b"\n")
+            header.append(line.encode(TEXT_ENCODING, errors="replace") + b"\n")
 
         header.append(self.escp_commands.CMD_BOLD_OFF)
         header.append(b"\n")  # Línea en blanco
@@ -347,12 +356,12 @@ class MatrixPrinter(BasePrinter):
 
         header.append(self.escp_commands.CMD_ALIGN_RIGHT)
         doc_line = f"FECHA: {data['document']['document_date']} | {document_type}: {fiscal_data['document_number']}\n"
-        header.append(doc_line.encode("ascii", errors="replace"))
+        header.append(doc_line.encode(TEXT_ENCODING, errors="replace"))
         document_name = data["document"].get("document_name")
         if document_name:  # Referencia de Odoo (no es la clave de idempotencia)
-            header.append(f"REF: {document_name}\n".encode("ascii", errors="replace"))
+            header.append(f"REF: {document_name}\n".encode(TEXT_ENCODING, errors="replace"))
         header.append(self.escp_commands.CMD_ALIGN_LEFT)
-        header.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
+        header.append((self.separator * self.page_width + "\n").encode(TEXT_ENCODING, errors="replace"))
         return header
 
     def _format_customer_info(self, data: Dict[str, Any]) -> List[bytes]:
@@ -366,21 +375,22 @@ class MatrixPrinter(BasePrinter):
         customer_info = []
         customer = data.get("customer", {})
         customer_line = f"RIF/CI:{customer['customer_vat']} | CLIENTE:{customer['customer_name']}\n"
-        customer_info.append(customer_line.encode("ascii", errors="replace"))
-        address = normalize_text(customer.get("customer_address", ""))
-        phone = normalize_text(customer.get("customer_phone", ""))
+        customer_info.append(customer_line.encode(TEXT_ENCODING, errors="replace"))
+        # Se imprimen tal cual (con acentos y puntos): el texto se codifica en CP850
+        address = " ".join(str(customer.get("customer_address", "") or "").split())
+        phone = " ".join(str(customer.get("customer_phone", "") or "").split())
         contact_line = f"DIR.: {address} | TEL.: {phone}\n"
 
         wrapped_lines = format_multiline(contact_line, self.page_width)
         if wrapped_lines:
             for line in wrapped_lines[:2]:  # Máximo 2 líneas
-                customer_info.append((line + "\n").encode("ascii", errors="replace"))
+                customer_info.append((line + "\n").encode(TEXT_ENCODING, errors="replace"))
 
         # Asegurar que haya al menos 3 líneas (con espacios en blanco si es necesario)
         while len(customer_info) < 3:
             customer_info.append(b"\n")
 
-        customer_info.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
+        customer_info.append((self.separator * self.page_width + "\n").encode(TEXT_ENCODING, errors="replace"))
         return customer_info
 
     def _format_items(self, data: Dict[str, Any]) -> List[bytes]:
@@ -410,9 +420,9 @@ class MatrixPrinter(BasePrinter):
             header_line += f"{col:>{width}}" if fmt == "f" else f"{col:<{width}}"
 
         items_lines.append(self.escp_commands.CMD_BOLD_ON)
-        items_lines.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
-        items_lines.append((header_line + "\n").encode("ascii", errors="replace"))
-        items_lines.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
+        items_lines.append((self.separator * self.page_width + "\n").encode(TEXT_ENCODING, errors="replace"))
+        items_lines.append((header_line + "\n").encode(TEXT_ENCODING, errors="replace"))
+        items_lines.append((self.separator * self.page_width + "\n").encode(TEXT_ENCODING, errors="replace"))
         items_lines.append(self.escp_commands.CMD_BOLD_OFF)
         for item in data["items"]:
             item_line = ""
@@ -432,11 +442,11 @@ class MatrixPrinter(BasePrinter):
                 elif fmt == "f":
                     item_line += f"{float(val):>{width}.2f}"
 
-            items_lines.append((item_line + "\n").encode("ascii", errors="replace"))
+            items_lines.append((item_line + "\n").encode(TEXT_ENCODING, errors="replace"))
 
             if item.get("item_comment") and self.template["format"].get("show_items_comment", False):
                 comment_line = f"{'':8}Nota: {item['item_comment']}\n"
-                items_lines.append(comment_line.encode("ascii", errors="replace"))
+                items_lines.append(comment_line.encode(TEXT_ENCODING, errors="replace"))
 
             adjustment = self._item_adjustment(item)
             if adjustment is not None:
@@ -444,7 +454,7 @@ class MatrixPrinter(BasePrinter):
                 last_width = self.column_widths[-1]
                 prefix = f"{'':8}{label}"[: sum(self.column_widths) - last_width]
                 adjustment_line = f"{prefix:<{sum(self.column_widths) - last_width}}{amount:>{last_width}.2f}\n"
-                items_lines.append(adjustment_line.encode("ascii", errors="replace"))
+                items_lines.append(adjustment_line.encode(TEXT_ENCODING, errors="replace"))
 
         return items_lines
 
@@ -484,26 +494,26 @@ class MatrixPrinter(BasePrinter):
         gross = sum(round(item["item_price"] * item["item_quantity"], 2) for item in data["items"])
         # Ajustes netos con el mismo signo que las líneas de ítem: descuento negativo, recargo positivo
         adjustments = round(subtotal - gross, 2)
-        totals.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
+        totals.append((self.separator * self.page_width + "\n").encode(TEXT_ENCODING, errors="replace"))
         totals.append(self.escp_commands.CMD_ALIGN_RIGHT)
         totals.append(self.escp_commands.CMD_BOLD_ON)
         if has_adjustment:
-            totals.append(f"AJUSTES: {adjustments:>14.2f}\n".encode("ascii", errors="replace"))
-        totals.append(f"SUBTOTAL: {subtotal:>14.2f}\n".encode("ascii", errors="replace"))
-        totals.append(f"IVA: {tax:>14.2f}\n".encode("ascii", errors="replace"))
-        totals.append(f"TOTAL: {total:>14.2f}\n".encode("ascii", errors="replace"))
+            totals.append(f"AJUSTES: {adjustments:>14.2f}\n".encode(TEXT_ENCODING, errors="replace"))
+        totals.append(f"SUBTOTAL: {subtotal:>14.2f}\n".encode(TEXT_ENCODING, errors="replace"))
+        totals.append(f"IVA: {tax:>14.2f}\n".encode(TEXT_ENCODING, errors="replace"))
+        totals.append(f"TOTAL: {total:>14.2f}\n".encode(TEXT_ENCODING, errors="replace"))
 
         totals.append(self.escp_commands.CMD_BOLD_OFF)
 
         # Agregar pagos si están habilitados
         if data.get("payments") and self.template["format"].get("show_payments", False):
             totals.append(self.escp_commands.CMD_BOLD_ON)
-            totals.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
+            totals.append((self.separator * self.page_width + "\n").encode(TEXT_ENCODING, errors="replace"))
             totals.append(self.escp_commands.CMD_BOLD_OFF)
 
             for payment in data["payments"]:
                 payment_line = f"{payment['payment_name']}: {payment['payment_amount']:>10.2f}\n"
-                totals.append(payment_line.encode("ascii", errors="replace"))
+                totals.append(payment_line.encode(TEXT_ENCODING, errors="replace"))
 
         totals.append(self.escp_commands.CMD_ALIGN_LEFT)  # Volver a alineación izquierda
 
@@ -520,24 +530,24 @@ class MatrixPrinter(BasePrinter):
         footer = []
         footer_info = self.template["footer"]
         footer.append(b"\n")  # Agregar línea en blanco
-        footer.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))  # Separador
+        footer.append((self.separator * self.page_width + "\n").encode(TEXT_ENCODING, errors="replace"))  # Separador
         footer.append(self.escp_commands.CMD_CPI_17)
 
         if data.get("delivery", {}).get("delivery_comments") and self.template["format"].get(
             "show_delivery_comment", False
         ):
             footer.append(self.escp_commands.CMD_BOLD_ON)
-            footer.append("COMENTARIOS\n".encode("ascii", errors="replace"))
+            footer.append("COMENTARIOS\n".encode(TEXT_ENCODING, errors="replace"))
             footer.append(self.escp_commands.CMD_BOLD_OFF)
             footer.append(b"\n")
 
             for comment in data["delivery"]["delivery_comments"]:
-                footer.append((comment + "\n").encode("ascii", errors="replace"))
+                footer.append((comment + "\n").encode(TEXT_ENCODING, errors="replace"))
 
         footer.append(b"\n")
         footer.append(self.escp_commands.CMD_ALIGN_CENTER)
-        footer.append((footer_info["message"] + "\n").encode("ascii", errors="replace"))
-        footer.append((footer_info["legal"] + "\n").encode("ascii", errors="replace"))
+        footer.append((footer_info["message"] + "\n").encode(TEXT_ENCODING, errors="replace"))
+        footer.append((footer_info["legal"] + "\n").encode(TEXT_ENCODING, errors="replace"))
 
         footer.append(self.escp_commands.CMD_ALIGN_LEFT)
         return footer
