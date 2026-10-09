@@ -4,6 +4,7 @@ Unit tests for JSON schema and business rule validation.
 
 import pytest
 from jsonschema import ValidationError
+
 from models.model_invoice import Invoice, InvoiceItem, Payment
 from server.document_schema import validate_document
 
@@ -95,13 +96,15 @@ def test_invoice_credit_without_affected_document(valid_document_payload):
 
 def test_invoice_item_invalid_tax():
     """Item with unsupported tax percentage fails item validation."""
-    item = InvoiceItem({
-        "item_ref": "ART-01",
-        "item_name": "Articulo",
-        "item_quantity": 1,
-        "item_price": 5.0,
-        "item_tax": 99,  # 99% is not in ALLOWED_TAX_VALUES (0, 8, 16, 31, 12)
-    })
+    item = InvoiceItem(
+        {
+            "item_ref": "ART-01",
+            "item_name": "Articulo",
+            "item_quantity": 1,
+            "item_price": 5.0,
+            "item_tax": 99,  # 99% is not in ALLOWED_TAX_VALUES (0, 8, 16, 31, 12)
+        }
+    )
     err = item.validate()
     assert err is not None
     assert "impuesto" in err.lower()
@@ -109,15 +112,17 @@ def test_invoice_item_invalid_tax():
 
 def test_invoice_item_excessive_discount():
     """Item with discount percentage >= 100 fails validation."""
-    item = InvoiceItem({
-        "item_ref": "ART-01",
-        "item_name": "Articulo",
-        "item_quantity": 1,
-        "item_price": 5.0,
-        "item_tax": 16,
-        "item_discount": 105.0,
-        "item_discount_type": "discount_percentage",
-    })
+    item = InvoiceItem(
+        {
+            "item_ref": "ART-01",
+            "item_name": "Articulo",
+            "item_quantity": 1,
+            "item_price": 5.0,
+            "item_tax": 16,
+            "item_discount": 105.0,
+            "item_discount_type": "discount_percentage",
+        }
+    )
     err = item.validate()
     assert err is not None
     assert "99.99%" in err
@@ -125,11 +130,13 @@ def test_invoice_item_excessive_discount():
 
 def test_payment_invalid_method():
     """Payment method must be between 01 and 24."""
-    payment = Payment({
-        "payment_method": "99",
-        "payment_name": "Metodo Invalido",
-        "payment_amount": 10.0,
-    })
+    payment = Payment(
+        {
+            "payment_method": "99",
+            "payment_name": "Metodo Invalido",
+            "payment_amount": 10.0,
+        }
+    )
     err = payment.validate()
     assert err is not None
     assert "entre 01 y 24" in err

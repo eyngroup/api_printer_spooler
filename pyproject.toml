@@ -20,15 +20,14 @@ dependencies = [
     "ttkbootstrap>=2.2.3",
 ]
 
-[tool.black]
-line-length = 120
-indent-width = 4
-
-[tool.black.format]
-
 [tool.ruff]
 line-length = 120
 indent-width = 4
+
+[tool.ruff.lint]
+# EXE001: el shebang es parte de la cabecera estándar de los módulos y el bit
+# de ejecución no se conserva en Windows (plataforma principal de compilación).
+extend-ignore = ["EXE001"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -41,4 +40,5 @@ docstring-code-line-length = "dynamic"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.16.10",
 ]

@@ -3,10 +3,12 @@ Integration tests for the Flask REST API endpoints without requiring physical ha
 """
 
 from unittest.mock import MagicMock
+
 import pytest
+
 from server.config_loader import ConfigManager
-from server.server_api import create_app
 from server.handlers import job_store
+from server.server_api import create_app
 
 
 @pytest.fixture

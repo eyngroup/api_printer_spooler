@@ -3,7 +3,9 @@ Unit tests for the SQLite job store (idempotency engine).
 """
 
 from pathlib import Path
+
 import pytest
+
 from server.handlers import job_store
 
 
@@ -106,4 +108,3 @@ def test_restore_corrupt_file_rejected(tmp_path: Path):
 
     with pytest.raises(Exception):
         job_store.restore_db(fake_file)
-
