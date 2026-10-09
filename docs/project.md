@@ -344,6 +344,35 @@ Reglas de seguridad para pruebas con una máquina fiscal real: nunca emitir un r
 documentos de valor mínimo y anular todo documento de prueba con una nota de crédito. Detalle en
 [HKA80](manuales_propios/HKA80.md#0-reglas-de-seguridad-máquina-en-producción).
 
+## Monitor fiscal (TFHKA)
+
+Vista de solo lectura para el contador, en el panel web (`GET /`, sección "Monitor fiscal") y como JSON en
+`GET /api/monitor` (`?refresh=1` fuerza una lectura). No imprime nada.
+
+| Bloque | Contenido | Fuente en la máquina |
+|---|---|---|
+| Pre-cierre del Z | Próximo Z, último Z, ventas / notas de crédito / notas de débito por tasa (exento, base, IVA), neto del día | `U0X` (extracción del reporte X sin imprimir) |
+| Contadores | Últimos números de factura, NC, ND y no fiscal; documentos del día; cierres Z | `U0X`, `S1` |
+| Medios de pago | Acumulados del día por código (01-19 moneda nacional, 20-24 divisa), netos de notas de crédito | `S4` |
+| Máquina | Modelo, serial, memoria de auditoría, tasas, flags, diferencia de reloj con el servidor | `SV`, `S5`, `S3`, `S1` |
+
+- **Caché en el servidor**: la máquina se lee como máximo cada 60 s (forzado: cada 10 s) y **nunca durante una
+  impresión**; todos los visitantes ven la misma lectura con su hora.
+- Sin acumulados de IGTF: con el flag 63 = `00` la máquina no los incluye en `U0X` (cambiar el flag alteraría las
+  respuestas de `S1`/`S2` que usa el driver).
+- Solo TFHKA; para otras impresoras responde "no disponible".
+- Archivos del panel servidos localmente (`views/static/vendor/`: Bootstrap 5.3.0, Chart.js 4.4.1): funciona sin
+  internet.
+
+### Ajuste automático del reloj
+
+La máquina solo acepta ajustar la hora (`PF` HHMMSS) y la fecha (`PG` DDMMAA) **justo después de un reporte Z**
+(manual v8.5.0, Tabla 18). Tras cada Z exitoso (`/api/report_z` o un comando `I?Z`), si el reloj de la máquina
+difiere más de 2 minutos del servidor (sincronizado por NTP), el spooler lo ajusta y lo verifica con `S1`; el
+resultado se informa como `clock_sync` y nunca convierte un Z exitoso en error. Ajuste manual: `POST /api/fiscal/clock`
+o el botón "Ajustar reloj de la impresora" en la pestaña Comandos de la ventana (protegida por código). Pendiente de
+verificar en hardware tras un Z real.
+
 ## Pendientes
 
 En espera de contar con una máquina PNP:

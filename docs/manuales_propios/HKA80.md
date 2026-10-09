@@ -271,3 +271,31 @@ El driver está ajustado para producción y no se modifica salvo necesidad expl�
 - El encabezado del siguiente documento se pre-imprime al terminar cada ticket; abrir la tapa o mover el papel lo
   descuadra. Es configurable en la impresora, pero el flag no figura en la Tabla 72 del manual v8.5.0 (ver
   [Pendientes](../project.md#pendientes)).
+
+## 15. Extracción de reportes sin imprimir (`U0X`)
+
+**Protocolo real** (igual que la librería oficial TfhkaPyGD): el PC envía `STX U0X ETX LRC`; la impresora responde
+**ENQ (0x05)**; el PC debe contestar **ACK** de inmediato; la impresora envía la trama de datos y el PC responde ACK.
+Si no se contesta el ENQ a tiempo, la impresora envía **NAK (0x15)**, lo que parece un rechazo.
+
+| Comando | Manual v8.5.0 | Real en HKA80 (flag 63 = 00) |
+|---|---|---|
+| `U0X` | Reporte X | 30 campos: próximo Z, fecha/hora del último Z, última factura (número, fecha, hora), **última nota de débito y luego última nota de crédito** (el manual las lista al revés), último no fiscal y 21 acumulados de 11+2 dígitos: ventas (exento, base1, imp1, base2, imp2, base3, imp3), notas de débito (7) y notas de crédito (7). Sin IGTF. |
+| `U0X4` | Acumulados de ventas | ✔ 7 campos de 16 dígitos: exento, base1, base2, base3, imp1, imp2, imp3 |
+| `U0X5` | Acumulados de notas de crédito | ✔ mismo formato |
+| `U0X6` | Acumulados de notas de débito | ❌ devuelve la estructura de `S1` |
+| `U0X7` | Estructura de `S1` | ❌ devuelve los acumulados de notas de débito |
+
+`U0Z` no se usa nunca (regla de no tocar el Z en producción).
+
+## 16. Tipo de tasa en `S3`
+
+El manual se contradice: la Tabla 19 (programación) dice 1 = excluida, 2 = incluida; la Tabla 55 (`S3`) dice
+1 = incluido, 2 = excluido. En la HKA80 las tasas son tipo 2 y la máquina **suma** el IVA al precio (precio 1,00 al
+31 % -> base 1,00, impuesto 0,31): **tipo 2 = excluido**. El controlador (`get_s3`) etiqueta según la Tabla 19; el
+Monitor usa el comportamiento verificado.
+
+## 17. Fecha y hora (`PF` / `PG`)
+
+`PF` + HHMMSS y `PG` + DDMMAA. Solo se aceptan **justo después de un reporte Z** (Tabla 18). El spooler los envía
+automáticamente tras cada Z si el reloj difiere más de 2 minutos del servidor. No verificado aún en hardware.
