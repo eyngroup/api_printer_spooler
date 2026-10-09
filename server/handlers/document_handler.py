@@ -14,7 +14,16 @@ from jsonschema import ValidationError
 
 from models.model_invoice import Invoice
 from server.document_schema import validate_document
-from server.handlers.job_store import acquire_job, complete_job, fail_job
+from server.handlers.job_store import (
+    acquire_job,
+    complete_job,
+    completed_since,
+    fail_job,
+    get_job,
+    mark_unknown,
+    restart_job,
+    set_counter_before,
+)
 from server.handlers.printer_manager import PrinterManager
 
 HTTP_BAD_REQUEST = 400
@@ -231,6 +240,221 @@ def _fail_job_safely(document_id: str, operation_type: str, error_message: str) 
         logger.critical("No se pudo registrar como fallido el trabajo %s/%s: %s", document_id, operation_type, e)
 
 
+UNKNOWN_RESULT_MESSAGE = "No se pudo verificar si el documento se emitió; verifíquelo en la máquina antes de reintentar"
+
+
+def _unknown_payload() -> dict[str, Any]:
+    """
+    Construye la respuesta cuando no se puede saber si la máquina emitió el documento.
+    Returns:
+        dict[str, Any]: Payload con status False y Estado/Error ("Resultado desconocido")
+    """
+    return {
+        "status": False,
+        "message": UNKNOWN_RESULT_MESSAGE,
+        "data": failure_data("Resultado desconocido", UNKNOWN_RESULT_MESSAGE),
+    }
+
+
+def _issued_payload(
+    printer_type: str, fiscal_config: dict[str, Any], operation_type: str, after: str
+) -> dict[str, Any]:
+    """
+    Construye la respuesta de éxito de un documento que la máquina emitió pese a la falla de comunicación.
+
+    Intenta obtener los datos fiscales completos de la instancia viva (`_process_send_data`, que los arma
+    desde S1) y los acepta solo si su número coincide con el leído; si no, devuelve al menos el número y el
+    serial de la máquina. No incluye el total: S2 se reinicia tras el cierre.
+    Args:
+        printer_type: Tipo de impresora fiscal
+        fiscal_config: Configuración de la impresora fiscal
+        operation_type: Tipo de operación
+        after: Último número leído de la máquina tras la falla
+    Returns:
+        dict[str, Any]: Payload de éxito para Odoo
+    """
+    document_number = str(after).strip().zfill(8)
+    data: dict[str, Any] | None = None
+    try:
+        instance = PrinterManager._instances.get(printer_type)
+        if instance is not None:
+            full = instance._process_send_data(operation_type)
+            candidate = dict((full or {}).get("data") or {})
+            if candidate.get("document_number") == document_number:
+                candidate.pop("total", None)
+                data = candidate
+    except Exception as e:  # noqa: BLE001 - mejora opcional: si falla se usan los datos mínimos
+        logger.warning("No se pudieron leer los datos fiscales completos tras la conciliación: %s", e)
+    if data is None:
+        data = {"document_number": document_number}
+        # Sin instancia viva (p. ej. tras una caída): fecha, Z y serial de la misma lectura S1 de la máquina
+        summary = PrinterManager.read_fiscal_summary(printer_type, fiscal_config)
+        if summary:
+            data.update(summary)
+        else:
+            serial = PrinterManager.read_serial(printer_type, fiscal_config)
+            if serial:
+                data["machine_serial"] = serial
+    return {
+        "status": True,
+        "message": "Documento emitido (verificado en la máquina tras una falla de comunicación)",
+        "data": data,
+    }
+
+
+def _reconcile(
+    printer_type: str, fiscal_config: dict[str, Any], invoice: Any, job: dict[str, Any]
+) -> tuple[str, dict[str, Any] | None]:
+    """
+    Concilia un trabajo dudoso con el contador de la máquina (única fuente de verdad).
+
+    Compara el contador guardado antes de imprimir con el actual:
+      - igual al previo + 1 y sin otros documentos del tipo completados desde entonces: "issued";
+      - igual al previo: "not_issued" (la máquina no emitió nada);
+      - cualquier otro caso (sin lectura, saltos, otro documento intermedio, no numérico): "unknown".
+    Nunca lanza excepciones.
+    Args:
+        printer_type: Tipo de impresora fiscal
+        fiscal_config: Configuración de la impresora fiscal
+        invoice: Documento validado (document_number, operation_type)
+        job: Trabajo registrado (get_job) con counter_before y created_at
+    Returns:
+        tuple[str, dict | None]: ("issued", payload de éxito), ("not_issued", None) o
+        ("unknown", payload de resultado desconocido)
+    """
+    unknown = ("unknown", _unknown_payload())
+    try:
+        before = job.get("counter_before")
+        if before is None:
+            logger.warning("Documento %s: sin contador previo; no se puede conciliar", invoice.document_number)
+            return unknown
+        after = PrinterManager.read_last_document_number(printer_type, fiscal_config, invoice.operation_type)
+        if after is None:
+            logger.warning("Documento %s: no se pudo leer el contador de la máquina", invoice.document_number)
+            return unknown
+        try:
+            before_n, after_n = int(before), int(after)
+        except (TypeError, ValueError):
+            return unknown
+        if after_n == before_n:
+            return "not_issued", None
+        if (
+            after_n == before_n + 1
+            and completed_since(invoice.operation_type, job["created_at"], invoice.document_number) == 0
+        ):
+            logger.warning(
+                "Documento %s: la máquina lo emitió (contador %s -> %s) pese a la falla de comunicación",
+                invoice.document_number,
+                before,
+                after,
+            )
+            return "issued", _issued_payload(printer_type, fiscal_config, invoice.operation_type, str(after))
+        logger.warning(
+            "Documento %s: contador inconsistente (antes %s, ahora %s); resultado desconocido",
+            invoice.document_number,
+            before,
+            after,
+        )
+        return unknown
+    except Exception:
+        logger.exception("Documento %s: error al conciliar con la máquina", invoice.document_number)
+        return unknown
+
+
+def _mark_unknown_safely(document_id: str, operation_type: str, error_message: str) -> None:
+    """
+    Marca un trabajo como de resultado desconocido sin propagar errores de la base de trabajos.
+    Args:
+        document_id: Clave de idempotencia del documento
+        operation_type: Tipo de operación
+        error_message: Motivo de la incertidumbre
+    """
+    try:
+        mark_unknown(document_id, operation_type, error_message)
+    except Exception as e:  # noqa: BLE001 - red de seguridad: cualquier error de la base de trabajos
+        logger.critical("No se pudo marcar como desconocido el trabajo %s/%s: %s", document_id, operation_type, e)
+
+
+def _resolve_unknown_job(printer_type: str, fiscal_config: dict[str, Any], invoice: Any) -> tuple[Response, int] | None:
+    """
+    Resuelve un trabajo en estado 'unknown' consultando el contador de la máquina antes de imprimir.
+    Args:
+        printer_type: Tipo de impresora fiscal
+        fiscal_config: Configuración de la impresora fiscal
+        invoice: Documento validado
+    Returns:
+        tuple[Response, int] | None: Respuesta final (emitido o aún desconocido), o None si se comprobó
+        que NO se emitió y el trabajo quedó en 'processing' para imprimir normalmente
+    """
+    job = get_job(invoice.document_number, invoice.operation_type)
+    if job is None:
+        return error_response("Trabajo no encontrado al conciliar", HTTP_INTERNAL_ERROR)
+    outcome, payload = _reconcile(printer_type, fiscal_config, invoice, job)
+    if outcome == "issued":
+        _complete_job_safely(invoice.document_number, invoice.operation_type, payload)
+        return jsonify(payload), 200
+    if outcome == "not_issued":
+        if restart_job(invoice.document_number, invoice.operation_type):
+            logger.info("Documento %s: no se emitió en la máquina; se reintenta la impresión", invoice.document_number)
+            return None
+        # Otra solicitud ya tomó el reintento
+        return (
+            jsonify({"status": False, "message": "Solicitud en curso, intente nuevamente en unos segundos"}),
+            409,
+        )
+    logger.error("Documento %s: resultado aún desconocido", invoice.document_number)
+    return jsonify(payload), HTTP_BAD_REQUEST
+
+
+def _reconcile_failed_print(
+    printer_type: str, fiscal_config: dict[str, Any], invoice: Any
+) -> tuple[Response, int] | None:
+    """
+    Concilia con la máquina una impresión fallida cuyo contador previo se conoce.
+    Args:
+        printer_type: Tipo de impresora fiscal
+        fiscal_config: Configuración de la impresora fiscal
+        invoice: Documento validado
+    Returns:
+        tuple[Response, int] | None: Respuesta de éxito (emitido) o de resultado desconocido (el trabajo
+        queda en 'unknown'); None si no se emitió y se debe aplicar el manejo de falla habitual
+    """
+    job = get_job(invoice.document_number, invoice.operation_type)
+    outcome, payload = _reconcile(printer_type, fiscal_config, invoice, job) if job else ("unknown", _unknown_payload())
+    if outcome == "issued":
+        _complete_job_safely(invoice.document_number, invoice.operation_type, payload)
+        return jsonify(payload), 200
+    if outcome == "unknown":
+        _mark_unknown_safely(invoice.document_number, invoice.operation_type, UNKNOWN_RESULT_MESSAGE)
+        return jsonify(payload), HTTP_BAD_REQUEST
+    return None
+
+
+def _read_counter_before(printer: Any, invoice: Any) -> str | None:
+    """
+    Lee y guarda el contador de la máquina antes de imprimir (solo impresoras que lo soportan, HKA).
+    Nunca lanza excepciones; sin lectura válida no se guarda nada y la falla se trata como siempre.
+    Args:
+        printer: Instancia de la impresora
+        invoice: Documento validado
+    Returns:
+        str | None: Último número leído, o None si no aplica o no se pudo leer
+    """
+    try:
+        reader = getattr(printer, "read_last_document_number", None)
+        if not callable(reader):
+            return None
+        value = reader(invoice.operation_type)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        value = value.strip()
+        set_counter_before(invoice.document_number, invoice.operation_type, value)
+        return value
+    except Exception as e:  # noqa: BLE001 - mejora opcional: sin contador previo se mantiene el flujo habitual
+        logger.warning("No se pudo registrar el contador previo del documento %s: %s", invoice.document_number, e)
+        return None
+
+
 def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de documentos.
@@ -284,12 +508,23 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
                 409,
             )
 
-        # acquire_result is 'new' or 'retry' — proceed
+        printers_config = current_app.config.get("printers", {})  # Obtener configuración de impresoras
+        fiscal_config = printers_config.get("fiscal", {}) or {}
+        fiscal_name = find_value(printers_config, "fiscal_name")
+        printer_type = str(fiscal_name or "").strip().lower()
+
+        if acquire_result == "unknown":
+            # No se sabe si la máquina emitió el documento: se concilia con su contador antes de imprimir
+            resolved = _resolve_unknown_job(printer_type, fiscal_config, invoice)
+            if resolved is not None:
+                return resolved
+
+        # acquire_result is 'new' or 'retry' (o 'unknown' ya conciliado como no emitido) — proceed
         # Desde aquí el trabajo está en 'processing': toda salida debe dejarlo en un estado final,
         # o Odoo recibiría 409 indefinidamente para este documento.
         printer = None
+        counter_before = None  # Contador de la máquina antes de imprimir (solo HKA)
         try:
-            printers_config = current_app.config.get("printers", {})  # Obtener configuración de impresoras
             printer, error_data = printer_instance(printers_config)
             if not printer:
                 if error_data:
@@ -306,6 +541,7 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
                     "No hay impresoras habilitadas para procesar el documento", state="Impresora no disponible"
                 )
 
+            counter_before = _read_counter_before(printer, invoice)
             result = printer.print_document(data)  # Procesar el documento
             logger.debug("Documento result= %s", result)
         except Exception as e:  # Cualquier falla debe liberar el trabajo
@@ -313,6 +549,11 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
             # que cancela el documento abierto en la máquina. Se libera el trabajo para permitir el reintento.
             error_msg = f"Error interno durante la impresión: {e!s}"
             logger.exception("Documento %s: %s", invoice.document_number, error_msg)
+            if counter_before is not None:
+                # La máquina pudo emitir el documento antes de la falla: se verifica con su contador
+                reconciled = _reconcile_failed_print(printer_type, fiscal_config, invoice)
+                if reconciled is not None:
+                    return reconciled
             _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
             # Si la impresora existe, se intenta informar su estado real (una sola lectura, sin fallar).
             return error_response(error_msg, HTTP_INTERNAL_ERROR, data=_fill_status_from_printer(printer, None))
@@ -341,6 +582,12 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
             _complete_job_safely(invoice.document_number, invoice.operation_type, failure_payload)
             logger.error("Documento %s impreso sin número fiscal: %s", invoice.document_number, error_msg)
             return jsonify(failure_payload), HTTP_BAD_REQUEST
+
+        if counter_before is not None:
+            # El driver reportó falla (p. ej. USB cortado tras el cierre): se verifica en la máquina
+            reconciled = _reconcile_failed_print(printer_type, fiscal_config, invoice)
+            if reconciled is not None:
+                return reconciled
 
         _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
         return error_response(

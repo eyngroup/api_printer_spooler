@@ -202,3 +202,128 @@ def test_read_serial_returns_none_when_unreachable(monkeypatch):
 
     monkeypatch.setattr(controllers.pfhka, "FiscalPrinterHka", _Down)
     assert PrinterManager.read_serial("tfhka", HKA_CONFIG) is None
+
+
+class _FakeS1Controller(_FakeController):
+    """Controlador HKA falso con S1 para leer el último número fiscal."""
+
+    s1: ClassVar[dict[str, str] | None] = {"ultima_factura": " 00000998 ", "ultima_nota_credito": "00000144"}
+    sent: ClassVar[list] = []
+
+    def __init__(self, port, baudrate, timeout):
+        self.args = (port, baudrate, timeout)
+        self.closed = False
+        _FakeS1Controller.instances.append(self)
+
+    def open_port(self):
+        return _FakeS1Controller.opened
+
+    def get_s1(self):
+        _FakeS1Controller.sent.append("S1")
+        return self.s1
+
+
+def _patch_s1_controller(monkeypatch):
+    _FakeS1Controller.opened = True
+    _FakeS1Controller.instances = []
+    _FakeS1Controller.sent = []
+    monkeypatch.setattr("controllers.pfhka.FiscalPrinterHka", _FakeS1Controller)
+
+
+def test_read_last_document_number_uses_live_instance(monkeypatch):
+    """With a healthy instance its own reader is used and no temporary controller is created."""
+    _patch_s1_controller(monkeypatch)
+
+    class _Live:
+        def read_last_document_number(self, operation_type):
+            return "00000999"
+
+    PrinterManager._instances["tfhka"] = _Live()
+    assert PrinterManager.read_last_document_number("tfhka", {}, "invoice") == "00000999"
+    assert _FakeS1Controller.instances == []
+    assert "tfhka" in PrinterManager._instances
+
+
+def test_read_last_document_number_broken_instance_uses_temporary_controller(monkeypatch):
+    """A broken instance is removed and a one-shot controller reads S1 and always closes the port."""
+    _patch_s1_controller(monkeypatch)
+    disconnected = []
+
+    class _Broken:
+        def read_last_document_number(self, operation_type):
+            return None
+
+        def disconnect(self):
+            disconnected.append(True)
+
+    PrinterManager._instances["tfhka"] = _Broken()
+
+    assert PrinterManager.read_last_document_number("tfhka", {"fiscal_port": "COM9"}, "invoice") == "00000998"
+    assert "tfhka" not in PrinterManager._instances
+    assert disconnected == [True]
+    assert _FakeS1Controller.instances[0].args == ("COM9", 9600, 2)
+    assert _FakeS1Controller.instances[0].closed is True
+    assert _FakeS1Controller.sent == ["S1"]
+
+
+def test_read_last_document_number_without_instance_and_per_operation(monkeypatch):
+    """Without an instance the temporary controller maps the operation type."""
+    _patch_s1_controller(monkeypatch)
+    assert PrinterManager.read_last_document_number("tfhka", {}, "credit") == "00000144"
+    assert PrinterManager.read_last_document_number("tfhka", {}, "debit") is None  # campo ausente en S1
+    assert PrinterManager.read_last_document_number("tfhka", {}, "otro") is None
+
+
+def test_read_last_document_number_returns_none_when_unreadable(monkeypatch):
+    """Port that cannot open, S1 failure or exceptions yield None and the port is closed."""
+    _patch_s1_controller(monkeypatch)
+    _FakeS1Controller.opened = False
+    assert PrinterManager.read_last_document_number("tfhka", {}, "invoice") is None
+    assert _FakeS1Controller.instances[0].closed is True
+
+    _FakeS1Controller.opened = True
+    monkeypatch.setattr(_FakeS1Controller, "s1", None)
+    assert PrinterManager.read_last_document_number("tfhka", {}, "invoice") is None
+
+
+def test_read_last_document_number_pnp_returns_none(monkeypatch):
+    """PNP: the number is not reliably readable, so no controller is touched."""
+    _patch_s1_controller(monkeypatch)
+    assert PrinterManager.read_last_document_number("pnp", {}, "invoice") is None
+    assert _FakeS1Controller.instances == []
+
+
+# S1 real de la HKA80 tras la factura 999 (RIF y registro anonimizados), en la forma que devuelve get_s1
+S1_PARSED = {
+    "ultima_factura": "00000999",
+    "contador_cierres_z": "0147",
+    "registro_maquina": "Z7C0000000",
+    "fecha_impresora": "091026",
+}
+
+
+def test_read_fiscal_summary_from_temporary_controller(monkeypatch):
+    """Sin instancia: fecha AAAA-MM-DD, próximo Z (contador + 1) y serial desde una lectura S1 única."""
+    import controllers.pfhka
+
+    class _S1Controller(_SerialController):
+        def get_s1(self):
+            return S1_PARSED
+
+    monkeypatch.setattr(controllers.pfhka, "FiscalPrinterHka", _S1Controller)
+    summary = PrinterManager.read_fiscal_summary("tfhka", HKA_CONFIG)
+    assert summary == {"document_date": "2026-10-09", "machine_report": "0148", "machine_serial": "Z7C0000000"}
+    assert PrinterManager._instances == {}
+
+
+def test_read_fiscal_summary_none_for_pnp_or_failure(monkeypatch):
+    """PNP no se lee; un fallo de S1 devuelve None sin lanzar excepciones."""
+    import controllers.pfhka
+
+    class _NoS1(_SerialController):
+        def get_s1(self):
+            return None
+
+    monkeypatch.setattr(controllers.pfhka, "FiscalPrinterHka", _NoS1)
+    assert PrinterManager.read_fiscal_summary("pnp", HKA_CONFIG) is None
+    assert PrinterManager.read_fiscal_summary("tfhka", HKA_CONFIG) is None

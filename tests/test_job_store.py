@@ -4,6 +4,8 @@ Unit tests for the SQLite job store (idempotency engine).
 
 import sqlite3
 import threading
+from contextlib import closing
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -165,3 +167,118 @@ def test_job_updates_wait_for_lock(operation: str):
 
     worker.join(timeout=2)
     assert not worker.is_alive()
+
+
+def _set_times(document_id: str, *, created: str | None = None, updated: str | None = None, op: str = "invoice"):
+    """Fija marcas de tiempo de un trabajo para simular antigüedad."""
+    with job_store._connect() as conn:
+        if created:
+            conn.execute(
+                "UPDATE print_jobs SET created_at=? WHERE document_id=? AND operation_type=?",
+                (created, document_id, op),
+            )
+        if updated:
+            conn.execute(
+                "UPDATE print_jobs SET updated_at=? WHERE document_id=? AND operation_type=?",
+                (updated, document_id, op),
+            )
+
+
+def test_init_db_migrates_old_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A DB created with the old schema gets counter_before without losing rows."""
+    old_db = tmp_path / "old_jobs.db"
+    with sqlite3.connect(str(old_db)) as conn:
+        conn.execute(
+            "CREATE TABLE print_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL,"
+            " operation_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing', response TEXT,"
+            " error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,"
+            " UNIQUE (document_id, operation_type))"
+        )
+        conn.execute(
+            "INSERT INTO print_jobs (document_id, operation_type, status, created_at, updated_at)"
+            " VALUES ('OLD-1', 'invoice', 'failed', '2024-01-01T00:00:00', '2024-01-01T00:00:00')"
+        )
+    conn.close()
+    monkeypatch.setattr(job_store, "_DB_PATH", old_db)
+
+    job_store.init_db()
+    job_store.init_db()  # idempotente
+
+    job = job_store.get_job("OLD-1", "invoice")
+    assert job is not None
+    assert job["status"] == "failed"
+    assert job["counter_before"] is None
+    job_store.set_counter_before("OLD-1", "invoice", "00000010")
+    assert job_store.get_job("OLD-1", "invoice")["counter_before"] == "00000010"
+
+
+def test_restore_old_backup_is_migrated(tmp_path: Path):
+    """Restoring a backup made with the old schema keeps the store usable."""
+    backup = tmp_path / "old_backup.db"
+    with closing(sqlite3.connect(str(backup))) as conn, conn:
+        conn.execute(
+            "CREATE TABLE print_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL,"
+            " operation_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing', response TEXT,"
+            " error_message TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,"
+            " UNIQUE (document_id, operation_type))"
+        )
+    job_store.restore_db(backup)
+    assert job_store.acquire_job("NEW-1", "invoice")[0] == "new"
+    job_store.set_counter_before("NEW-1", "invoice", "00000001")
+
+
+def test_stale_processing_becomes_unknown_and_persists():
+    """A 'processing' job older than STALE_PROCESSING_SECONDS is an orphan -> 'unknown', and stays so."""
+    job_store.acquire_job("INV-OLD", "invoice")
+    old = (datetime.now() - timedelta(seconds=job_store.STALE_PROCESSING_SECONDS + 5)).isoformat(timespec="seconds")
+    _set_times("INV-OLD", updated=old)
+
+    assert job_store.acquire_job("INV-OLD", "invoice") == ("unknown", None)
+    job = job_store.get_job("INV-OLD", "invoice")
+    assert job["status"] == "unknown"
+    assert "huérfano" in job["error_message"]
+    assert job_store.acquire_job("INV-OLD", "invoice") == ("unknown", None)
+
+
+def test_fresh_processing_stays_in_progress():
+    """A recent 'processing' job is still in progress (409)."""
+    job_store.acquire_job("INV-NEW", "invoice")
+    recent = (datetime.now() - timedelta(seconds=30)).isoformat(timespec="seconds")
+    _set_times("INV-NEW", updated=recent)
+    assert job_store.acquire_job("INV-NEW", "invoice") == ("in_progress", None)
+
+
+def test_mark_unknown_and_restart_job():
+    """mark_unknown keeps the state across acquires; restart_job reopens it only from 'unknown'."""
+    job_store.acquire_job("INV-U", "invoice")
+    assert job_store.restart_job("INV-U", "invoice") is False  # processing: no es 'unknown'
+    job_store.mark_unknown("INV-U", "invoice", "sin respuesta")
+    assert job_store.acquire_job("INV-U", "invoice") == ("unknown", None)
+    assert job_store.restart_job("INV-U", "invoice") is True
+    job = job_store.get_job("INV-U", "invoice")
+    assert job["status"] == "processing"
+    assert job["error_message"] is None
+    assert job_store.get_job("NOPE", "invoice") is None
+
+
+def test_get_job_decodes_response():
+    """get_job returns the decoded response of a completed job."""
+    job_store.acquire_job("INV-R", "invoice")
+    job_store.complete_job("INV-R", "invoice", {"status": True})
+    job = job_store.get_job("INV-R", "invoice")
+    assert job["response"] == {"status": True}
+    assert job["created_at"] and job["updated_at"]
+
+
+def test_completed_since_counts_matching_jobs():
+    """completed_since counts completed jobs of the same type since a date, excluding one document."""
+    for doc, op in (("A", "invoice"), ("B", "invoice"), ("C", "credit"), ("D", "invoice")):
+        job_store.acquire_job(doc, op)
+        job_store.complete_job(doc, op, {"status": True})
+    job_store.acquire_job("E", "invoice")  # processing: no cuenta
+    _set_times("D", updated="2000-01-01T00:00:00")  # anterior a la fecha de corte
+
+    since = "2020-01-01T00:00:00"
+    assert job_store.completed_since("invoice", since, "X") == 2  # A y B
+    assert job_store.completed_since("invoice", since, "A") == 1  # excluye A
+    assert job_store.completed_since("credit", since, "X") == 1

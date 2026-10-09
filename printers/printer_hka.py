@@ -742,6 +742,34 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
             logger.warning("Error leyendo el total del documento desde S2: %s", e)
             return None
 
+    def read_last_document_number(self, operation_type: str) -> str | None:
+        """
+        Lee de la máquina el último número fiscal emitido del tipo de documento (solo lectura).
+
+        Envía únicamente el comando S1. La máquina es la única fuente de verdad del contador: sirve para
+        comprobar si un documento se emitió aunque se perdiera la comunicación tras el cierre (199).
+        Nunca lanza excepciones ni envía otros comandos.
+        Args:
+            operation_type: "invoice", "credit", "debit" o "note"
+        Returns:
+            str | None: Último número (texto sin espacios), o None si el tipo no aplica o la lectura falló
+        """
+        try:
+            field = {
+                "invoice": "ultima_factura",
+                "credit": "ultima_nota_credito",
+                "debit": "ultima_nota_debito",
+                "note": "ultimo_doc_no_fiscal",
+            }.get(operation_type)
+            if field is None:
+                return None
+            s1 = self._printer.get_s1()
+            value = str((s1 or {}).get(field, "")).strip()
+            return value or None
+        except Exception as e:  # noqa: BLE001 - lectura informativa, nunca debe lanzar
+            logger.warning("No se pudo leer el último número de %s desde S1: %s", operation_type, e)
+            return None
+
     def _process_send_data(self, operation_type: str) -> dict[str, Any]:
         """Obtiene los datos fiscales finales después de la impresión."""
         logger.debug("Obteniendo datos fiscales finales")

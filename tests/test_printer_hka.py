@@ -153,3 +153,37 @@ def test_item_tax_prefix_matches_manual(printer: TfhkaPrinter, operation_type: s
     item_line = printer._printer.sent[0]
     assert item_line.startswith(prefix)
     assert item_line[len(prefix) : len(prefix) + 10].isdigit()  # Seguido del precio
+
+
+@pytest.mark.parametrize(
+    ("operation_type", "expected"),
+    [("invoice", "00000999"), ("credit", "00000144"), ("debit", "00000005"), ("note", "00000201")],
+)
+def test_read_last_document_number_maps_each_operation(printer: TfhkaPrinter, operation_type: str, expected: str):
+    """Cada tipo de operación lee su contador del S1 real y solo se envía S1."""
+    assert printer.read_last_document_number(operation_type) == expected
+    assert printer._printer.sent == ["S1"]
+
+
+def test_read_last_document_number_unknown_operation_sends_nothing(printer: TfhkaPrinter):
+    """Un tipo desconocido devuelve None sin tocar la máquina."""
+    assert printer.read_last_document_number("report") is None
+    assert printer._printer.sent == []
+
+
+@pytest.mark.parametrize("s1", [False, "", "S1 basura"])
+def test_read_last_document_number_returns_none_when_s1_fails(printer: TfhkaPrinter, s1):
+    """Si S1 falla o llega incompleto devuelve None, nunca lanza y solo envía S1."""
+    printer._printer = FakeTransportController(s1=s1)
+    assert printer.read_last_document_number("invoice") is None
+    assert printer._printer.sent == ["S1"]
+
+
+def test_read_last_document_number_never_raises(printer: TfhkaPrinter):
+    """Una excepción del controlador se traduce en None."""
+
+    def _boom():
+        raise OSError("USB desconectado")
+
+    printer._printer.get_s1 = _boom
+    assert printer.read_last_document_number("invoice") is None

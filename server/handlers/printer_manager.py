@@ -8,7 +8,8 @@ Clase Singleton para manejar las instancias de impresoras.
 
 import logging
 import threading
-from typing import Any
+from datetime import datetime
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -231,3 +232,127 @@ class PrinterManager:
                     controller.close_port()
                 except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
                     logger.warning("Error al cerrar el puerto tras leer el serial: %s", e)
+
+    # Campo de S1 con el último número fiscal según el tipo de operación (solo HKA)
+    _HKA_S1_LAST_NUMBER_FIELDS: ClassVar[dict[str, str]] = {
+        "invoice": "ultima_factura",
+        "credit": "ultima_nota_credito",
+        "debit": "ultima_nota_debito",
+        "note": "ultimo_doc_no_fiscal",
+    }
+
+    @classmethod
+    def read_last_document_number(
+        cls, printer_type: str, printer_config: dict[str, Any], operation_type: str
+    ) -> str | None:
+        """
+        Lee el último número fiscal emitido por la máquina, aunque la instancia viva esté rota.
+
+        Con instancia, usa su `read_last_document_number`; si no responde, la elimina (puerto roto, por
+        ejemplo tras un corte de USB) y lee una sola vez con un controlador temporal, igual que
+        read_status/read_serial. Solo HKA: en PNP el número no se puede leer de forma confiable (devuelve
+        None). Solo lee (S1). Nunca lanza excepciones.
+        Args:
+            printer_type: Tipo de impresora fiscal ("tfhka" o "pnp").
+            printer_config: Configuración (fiscal_port, fiscal_baudrate, fiscal_timeout).
+            operation_type: "invoice", "credit", "debit" o "note".
+        Returns:
+            str | None: Último número (texto sin espacios), o None si no se pudo determinar.
+        """
+        controller = None
+        try:
+            printer_type = printer_type.lower()
+            if printer_type != "tfhka":
+                return None
+            field = cls._HKA_S1_LAST_NUMBER_FIELDS.get(operation_type)
+            if field is None:
+                return None
+
+            with cls._lock:
+                instance = cls._instances.get(printer_type)
+                if instance is not None:
+                    reader = getattr(instance, "read_last_document_number", None)
+                    if callable(reader):
+                        value = reader(operation_type)
+                        if value is not None:
+                            return value
+                    logger.warning("La instancia %s no pudo leer el contador; se recrea la conexión", printer_type)
+                    cls.remove_printer(printer_type)
+
+                from controllers.pfhka import FiscalPrinterHka
+
+                port = printer_config.get("fiscal_port")
+                baudrate = printer_config.get("fiscal_baudrate", 9600)
+                timeout = printer_config.get("fiscal_timeout", 2)
+                controller = FiscalPrinterHka(port, baudrate, timeout)
+
+                if not controller.open_port():
+                    logger.warning("No se pudo abrir el puerto %s para leer el contador de %s", port, printer_type)
+                    return None
+
+                s1 = controller.get_s1()
+                value = str((s1 or {}).get(field, "")).strip()
+                return value or None
+        except Exception as e:  # noqa: BLE001 - nunca debe lanzar: cualquier fallo devuelve None
+            logger.warning("No se pudo leer el contador de la impresora %s: %s", printer_type, e)
+            return None
+        finally:
+            if controller is not None:
+                try:
+                    controller.close_port()
+                except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
+                    logger.warning("Error al cerrar el puerto tras leer el contador: %s", e)
+
+    @classmethod
+    def read_fiscal_summary(cls, printer_type: str, printer_config: dict[str, Any]) -> dict[str, str] | None:
+        """
+        Lee de S1 la fecha, el próximo número de Z y el serial de la máquina, para completar la respuesta
+        de un documento conciliado sin instancia viva (p. ej. tras una caída del spooler).
+
+        Usa las mismas reglas que el driver HKA en una impresión normal (_process_send_data): fecha de la
+        máquina en formato AAAA-MM-DD, machine_report = contador de Z + 1 (4 dígitos). Solo HKA y solo lee
+        (S1). Nunca lanza excepciones.
+        Args:
+            printer_type: Tipo de impresora fiscal ("tfhka" o "pnp").
+            printer_config: Configuración (fiscal_port, fiscal_baudrate, fiscal_timeout).
+        Returns:
+            dict | None: document_date, machine_report y machine_serial, o None si no se pudieron leer.
+        """
+        controller = None
+        try:
+            if printer_type.lower() != "tfhka":
+                return None
+
+            with cls._lock:
+                instance = cls._instances.get("tfhka")
+                if instance is not None:
+                    s1 = instance._printer.get_s1()
+                else:
+                    from controllers.pfhka import FiscalPrinterHka
+
+                    controller = FiscalPrinterHka(
+                        printer_config.get("fiscal_port"),
+                        printer_config.get("fiscal_baudrate", 9600),
+                        printer_config.get("fiscal_timeout", 2),
+                    )
+                    if not controller.open_port():
+                        return None
+                    s1 = controller.get_s1()
+
+            if not s1:
+                return None
+            fecha = datetime.strptime(s1["fecha_impresora"], "%d%m%y").strftime("%Y-%m-%d")  # noqa: DTZ007 - fecha local de la máquina
+            return {
+                "document_date": fecha,
+                "machine_report": str(int(s1["contador_cierres_z"]) + 1).zfill(4),
+                "machine_serial": s1["registro_maquina"],
+            }
+        except Exception as e:  # noqa: BLE001 - nunca debe lanzar: cualquier fallo devuelve None
+            logger.warning("No se pudo leer el resumen fiscal (S1) de %s: %s", printer_type, e)
+            return None
+        finally:
+            if controller is not None:
+                try:
+                    controller.close_port()
+                except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
+                    logger.warning("Error al cerrar el puerto tras leer S1: %s", e)

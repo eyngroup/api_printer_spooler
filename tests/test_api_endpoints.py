@@ -419,8 +419,8 @@ def test_ping_returns_machine_serial(app_client, monkeypatch):
 
 def test_ping_falls_back_to_configured_serial(app_client, monkeypatch):
     """When the machine cannot be read, the serial configured in the Fiscal tab (template) is returned."""
-    from server.handlers.printer_manager import PrinterManager
     from server import server_api
+    from server.handlers.printer_manager import PrinterManager
 
     monkeypatch.setattr(PrinterManager, "read_serial", classmethod(lambda cls, t, c: None))
     monkeypatch.setattr(server_api, "_configured_serial", lambda: "Z1B9999999")
@@ -449,3 +449,258 @@ def test_printed_without_number_is_never_reprinted(app_client, sample_invoice_pa
     retry = app_client.post("/api/printers", json=sample_invoice_payload).get_json()
     assert retry == first
     assert printer.print_document.call_count == 1
+
+
+# --- Conciliación con el contador de la máquina (HKA) ---
+
+
+class _Counter:
+    """Contador fiscal simulado de la máquina; value None simula una lectura imposible."""
+
+    def __init__(self, value: str | None):
+        self.value = value
+
+
+def _hka_printer(counter: _Counter, *, issues_then_fails: bool = True, raises: bool = False) -> MagicMock:
+    """
+    Impresora simulada con lectura del contador. Al imprimir avanza el contador (la máquina emitió el
+    documento) y reporta falla, como un corte de USB tras el cierre 199.
+    """
+    printer = MagicMock()
+    printer.read_last_document_number.side_effect = lambda op: counter.value
+
+    def _print(data):
+        if issues_then_fails and counter.value is not None:
+            counter.value = str(int(counter.value) + 1).zfill(8)
+        if raises:
+            raise OSError("USB desconectado")
+        return {"status": False, "message": "Sin ACK tras el cierre", "data": None}
+
+    printer.print_document.side_effect = _print
+    return printer
+
+
+@pytest.fixture
+def machine(monkeypatch):
+    """Contador de la máquina visible para PrinterManager.read_last_document_number (sin hardware)."""
+    from server.handlers.printer_manager import PrinterManager
+
+    counter = _Counter("00000997")
+    monkeypatch.setattr(PrinterManager, "read_last_document_number", lambda *a, **k: counter.value)
+    monkeypatch.setattr(PrinterManager, "read_serial", lambda *a, **k: "Z7C0000000")
+    monkeypatch.setattr(
+        PrinterManager,
+        "read_fiscal_summary",
+        lambda *a, **k: {"document_date": "2026-10-09", "machine_report": "0148", "machine_serial": "Z7C0000000"},
+    )
+    return counter
+
+
+def _use_printer(monkeypatch, printer) -> None:
+    from server.handlers import document_handler
+
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+
+
+def test_failed_print_but_issued_is_completed_from_machine(app_client, sample_invoice_payload, machine, monkeypatch):
+    """(i) Falla sin ACK pero el contador 997 -> 998: éxito con el número, caché y una sola impresión."""
+    printer = _hka_printer(machine)
+    _use_printer(monkeypatch, printer)
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["status"] is True
+    assert body["data"]["document_number"] == "00000998"
+    assert body["data"]["machine_serial"] == "Z7C0000000"
+    assert body["data"]["machine_report"] == "0148"
+    assert body["data"]["document_date"] == "2026-10-09"
+    assert _job_status("TEST-0099") == "completed"
+
+    retry = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert retry.get_json() == body
+    assert printer.print_document.call_count == 1
+
+
+def test_failed_print_exception_but_issued_is_completed(app_client, sample_invoice_payload, machine, monkeypatch):
+    """Una excepción durante la impresión con el documento emitido también se concilia como éxito."""
+    printer = _hka_printer(machine, raises=True)
+    _use_printer(monkeypatch, printer)
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["document_number"] == "00000998"
+    assert _job_status("TEST-0099") == "completed"
+
+
+def test_failed_print_not_issued_stays_failed_and_retry_prints(
+    app_client, sample_invoice_payload, machine, monkeypatch
+):
+    """(ii) Contador sin cambios: falla como siempre y el reintento vuelve a imprimir."""
+    printer = _hka_printer(machine, issues_then_fails=False)
+    _use_printer(monkeypatch, printer)
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 400
+    assert resp.get_json()["status"] is False
+    assert _job_status("TEST-0099") == "failed"
+
+    app_client.post("/api/printers", json=sample_invoice_payload)
+    assert printer.print_document.call_count == 2
+
+
+def test_unreadable_counter_marks_unknown_and_retry_reconciles(
+    app_client, sample_invoice_payload, machine, monkeypatch
+):
+    """(iii) Contador ilegible: 'unknown'; el reintento no imprime mientras siga ilegible y completa al leerse."""
+    printer = _hka_printer(machine)
+    _use_printer(monkeypatch, printer)
+
+    real_print = printer.print_document.side_effect
+
+    def _print_then_unplug(data):
+        result = real_print(data)  # la máquina emite (998) y luego el cable queda inaccesible
+        machine.value = None
+        return result
+
+    printer.print_document.side_effect = _print_then_unplug
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    body = resp.get_json()
+    assert resp.status_code == 400
+    assert body["status"] is False
+    assert body["data"]["Estado"] == "Resultado desconocido"
+    assert body["data"]["Error"] == body["message"]
+    assert _job_status("TEST-0099") == "unknown"
+
+    still = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert still.status_code == 400
+    assert still.get_json()["data"]["Estado"] == "Resultado desconocido"
+    assert _job_status("TEST-0099") == "unknown"
+    assert printer.print_document.call_count == 1
+
+    machine.value = "00000998"
+    done = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert done.status_code == 200
+    assert done.get_json()["data"]["document_number"] == "00000998"
+    assert _job_status("TEST-0099") == "completed"
+    assert printer.print_document.call_count == 1
+
+
+def test_unreadable_counter_before_print_keeps_current_failure_behavior(
+    app_client, sample_invoice_payload, machine, monkeypatch
+):
+    """Sin contador previo no se concilia: la falla se registra como 'failed' (comportamiento actual)."""
+    machine.value = None
+    printer = _hka_printer(machine, issues_then_fails=False)
+    _use_printer(monkeypatch, printer)
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 400
+    assert _job_status("TEST-0099") == "failed"
+
+
+def _age_job(document_id: str, seconds: int, counter_before: str | None) -> None:
+    """Deja un trabajo 'processing' con antigüedad y contador previo dados (huérfano simulado)."""
+    from datetime import datetime, timedelta
+
+    old = (datetime.now() - timedelta(seconds=seconds)).isoformat(timespec="seconds")
+    with job_store._connect() as conn:
+        conn.execute(
+            "UPDATE print_jobs SET updated_at=?, created_at=?, counter_before=? WHERE document_id=?",
+            (old, old, counter_before, document_id),
+        )
+
+
+def test_orphan_processing_job_is_reconciled_as_issued(app_client, sample_invoice_payload, machine, monkeypatch):
+    """(iv) Un 'processing' de más de 180 s se concilia con la máquina y no se reimprime."""
+    printer = _ok_printer()
+    _use_printer(monkeypatch, printer)
+    job_store.acquire_job("TEST-0099", "invoice")
+    _age_job("TEST-0099", job_store.STALE_PROCESSING_SECONDS + 60, "00000997")
+    machine.value = "00000998"
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["document_number"] == "00000998"
+    assert _job_status("TEST-0099") == "completed"
+    assert printer.print_document.call_count == 0
+
+
+def test_orphan_processing_job_not_issued_prints_again(app_client, sample_invoice_payload, machine, monkeypatch):
+    """Huérfano cuya máquina no emitió nada: se reabre y se imprime normalmente."""
+    printer = _ok_printer()
+    printer.read_last_document_number.return_value = "00000997"
+    _use_printer(monkeypatch, printer)
+    job_store.acquire_job("TEST-0099", "invoice")
+    _age_job("TEST-0099", job_store.STALE_PROCESSING_SECONDS + 60, "00000997")
+    machine.value = "00000997"
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 200
+    assert printer.print_document.call_count == 1
+    assert _job_status("TEST-0099") == "completed"
+
+
+def test_other_completed_document_in_between_is_unknown(app_client, sample_invoice_payload, machine, monkeypatch):
+    """(v) Otro documento del mismo tipo completado entre medias: no se autocompleta, queda 'unknown'."""
+    printer = _hka_printer(machine)
+    _use_printer(monkeypatch, printer)
+    real_print = printer.print_document.side_effect
+
+    def _print_with_other_doc(data):
+        job_store.acquire_job("OTHER-1", "invoice")
+        job_store.complete_job("OTHER-1", "invoice", {"status": True})
+        return real_print(data)
+
+    printer.print_document.side_effect = _print_with_other_doc
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 400
+    assert resp.get_json()["data"]["Estado"] == "Resultado desconocido"
+    assert _job_status("TEST-0099") == "unknown"
+
+
+def test_counter_jump_is_unknown(app_client, sample_invoice_payload, machine, monkeypatch):
+    """Un salto mayor a +1 del contador no se asume emitido."""
+    printer = _hka_printer(machine)
+    _use_printer(monkeypatch, printer)
+    real_print = printer.print_document.side_effect
+
+    def _print_jump(data):
+        result = real_print(data)
+        machine.value = "00001005"
+        return result
+
+    printer.print_document.side_effect = _print_jump
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 400
+    assert _job_status("TEST-0099") == "unknown"
+
+
+def test_printer_without_counter_support_is_unchanged(app_client, sample_invoice_payload, machine, monkeypatch):
+    """(vi) Impresora sin read_last_document_number (PNP/matrix/ticket): falla -> 'failed', sin conciliar."""
+
+    class _NoCounterPrinter:
+        """Impresora sin lectura de contador."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def print_document(self, data):
+            self.calls += 1
+            return {"status": False, "message": "Error de impresión", "data": None}
+
+        def get_printer_status(self):
+            raise OSError("sin puerto")
+
+    printer = _NoCounterPrinter()
+    _use_printer(monkeypatch, printer)
+    machine.value = "00000998"  # aunque el contador avanzara, estas impresoras no concilian
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    assert resp.status_code == 400
+    assert _job_status("TEST-0099") == "failed"
+    app_client.post("/api/printers", json=sample_invoice_payload)
+    assert printer.calls == 2
