@@ -21,11 +21,21 @@ except ImportError:
 
 from handy.tools import get_base_path, normalize_text, format_multiline
 
+from models.model_invoice import Invoice, InvoiceItem
+
 from .printer_base import BasePrinter
 from .printer_commands import ESCPcmd
 from .printer_counter import FiscalCounter
 
 logger = logging.getLogger(__name__)
+
+# Leyenda impresa según el tipo de ajuste del item
+ADJUSTMENT_LABELS = {
+    "discount_percentage": "Descuento",
+    "surcharge_percentage": "Recargo",
+    "discount_amount": "Descuento",
+    "surcharge_amount": "Recargo",
+}
 
 
 class MatrixPrinter(BasePrinter):
@@ -54,10 +64,11 @@ class MatrixPrinter(BasePrinter):
         use_escp = config.get("matrix_use_escp", True)  # Inicializar comandos ESC/POS
         self.escp_commands = ESCPcmd(use_escp)
 
-        self._load_template()
+        with FiscalCounter.LOCK:  # Evita leer el template mientras otra petición lo está escribiendo
+            self._load_template()
 
-        template_path = os.path.join(get_base_path(), "templates", self.template_name)  # Inicializar contador fiscal
-        self.counter = FiscalCounter(template_path)
+            template_path = os.path.join(get_base_path(), "templates", self.template_name)  # Inicializar contador
+            self.counter = FiscalCounter(template_path)
 
         self.separator = self.template["format"]["separator"]
         self.page_width = self.template["format"]["page_width"]
@@ -144,61 +155,86 @@ class MatrixPrinter(BasePrinter):
                 "data": None,
             }
 
-        try:
-            if not self.connect():
-                return {
-                    "status": False,
-                    "message": f"No se pudo conectar a la impresora {self.printer_name}",
-                    "data": None,
-                }
+        with FiscalCounter.LOCK:  # Serializa reservar -> formatear -> imprimir -> confirmar el contador
+            try:
+                if not self.connect():
+                    return {
+                        "status": False,
+                        "message": f"No se pudo conectar a la impresora {self.printer_name}",
+                        "data": None,
+                    }
 
-            document_content = self._format_document(data)  # Formatea el documento si usa ESC/P
-            fiscal_data = self.counter.update_counter(data.get("operation_type", "invoice"))  # Actualizar contador
+                operation_type = data.get("operation_type", "invoice")
+                fiscal_data = self.counter.reserve_counter(operation_type)  # Reserva sin persistir
+                document_content = self._format_document(data, fiscal_data)  # Formatea el documento si usa ESC/P
 
-            if self.direct_print:
+                if self.direct_print:
+                    try:
+                        try:  # Enviar directamente los bytes a la impresora
+                            doc_info = ("Matrix Document", None, "RAW")
+                            win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
+                            win32print.StartPagePrinter(self.printer_handle)
+
+                            # No decodificar/codificar, mantener como bytes
+                            win32print.WritePrinter(self.printer_handle, document_content)
+
+                            win32print.EndPagePrinter(self.printer_handle)
+                            win32print.EndDocPrinter(self.printer_handle)
+                        finally:
+                            self.disconnect()
+                    except Exception as e:
+                        error_msg = f"Error imprimiendo documento: {str(e)}"
+                        logger.error(error_msg, exc_info=True)
+                        return {"status": False, "message": error_msg, "data": None}
+
+                    self._commit_counter(operation_type, fiscal_data)
+                    return {
+                        "status": True,
+                        "message": "Documento enviado a imprimir correctamente",
+                        "data": fiscal_data,
+                    }
+
                 try:
-                    try:  # Enviar directamente los bytes a la impresora
-                        doc_info = ("Matrix Document", None, "RAW")
-                        win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
-                        win32print.StartPagePrinter(self.printer_handle)
+                    with open(self.output_file, "wb") as f:
+                        f.write(document_content)  # Escribir el archivo en modo binario
 
-                        # No decodificar/codificar, mantener como bytes
-                        win32print.WritePrinter(self.printer_handle, document_content)
-
-                        win32print.EndPagePrinter(self.printer_handle)
-                        win32print.EndDocPrinter(self.printer_handle)
-                    finally:
-                        self.disconnect()
+                    logger.info("Documento guardado en: %s", self.output_file)
                 except Exception as e:
-                    error_msg = f"Error imprimiendo documento: {str(e)}"
-                    logger.error(error_msg, exc_info=True)
+                    error_msg = f"Error guardando archivo: {str(e)}"
+                    logger.error(error_msg)
                     return {"status": False, "message": error_msg, "data": None}
 
-                return {
-                    "status": True,
-                    "message": "Documento enviado a imprimir correctamente",
-                    "data": fiscal_data,
-                }
-
-            try:
-                with open(self.output_file, "wb") as f:
-                    f.write(document_content)  # Escribir el archivo en modo binario
-
-                logger.info("Documento guardado en: %s", self.output_file)
+                self._commit_counter(operation_type, fiscal_data)
                 return {
                     "status": True,
                     "message": f"Documento guardado en archivo: {self.output_file}",
                     "data": fiscal_data,
                 }
-            except Exception as e:
-                error_msg = f"Error guardando archivo: {str(e)}"
-                logger.error(error_msg)
-                return {"status": False, "message": error_msg, "data": None}
 
-        except Exception as e:
-            message = f"Error imprimiendo documento: {str(e)}"
-            logger.error(message, exc_info=True)
-            return {"status": False, "message": message, "data": None}
+            except Exception as e:
+                self.disconnect()  # No dejar el spooler abierto si falló antes de enviar
+                message = f"Error imprimiendo documento: {str(e)}"
+                logger.error(message, exc_info=True)
+                return {"status": False, "message": message, "data": None}
+
+    def _commit_counter(self, operation_type: str, fiscal_data: dict[str, str]) -> None:
+        """
+        Persiste el contador reservado una vez que la impresión fue exitosa.
+        Si la escritura falla el documento ya salió impreso: se registra el error pero no se
+        reporta fallo, para que Odoo no reintente y genere un duplicado en papel.
+        Args:
+            operation_type (str): Tipo de operación del documento
+            fiscal_data (dict): Valores devueltos por reserve_counter
+        """
+        try:
+            self.counter.commit_counter(operation_type, fiscal_data)
+        except Exception as e:  # noqa: BLE001 - el documento ya salió impreso: nunca reportar fallo
+            # Crítico: el número no quedó guardado y el siguiente documento lo repetiría.
+            logger.critical(
+                "Documento impreso pero no se pudo persistir el contador %s: %s",
+                fiscal_data.get("document_number"),
+                str(e),
+            )
 
     def check_status(self) -> Dict[str, Any]:
         """
@@ -226,11 +262,12 @@ class MatrixPrinter(BasePrinter):
 
         return status
 
-    def _format_document(self, data: Dict[str, Any]) -> bytes:
+    def _format_document(self, data: Dict[str, Any], fiscal_data: dict[str, str]) -> bytes:
         """
         Formatea el documento para impresión
         Args:
             data (dict): Datos del documento
+            fiscal_data (dict): Contador reservado para este documento (el mismo que recibe Odoo)
         Returns:
             bytes: Documento formateado
         """
@@ -249,7 +286,7 @@ class MatrixPrinter(BasePrinter):
         content.append(self.escp_commands.CMD_CPI_12)  # 12 CPI para el texto general
 
         # Formatear documento
-        content.extend(self._format_header(data))
+        content.extend(self._format_header(data, fiscal_data))
         content.extend(self._format_customer_info(data))
         content.extend(self._format_items(data))
         content.extend(self._format_totals(data))
@@ -262,11 +299,14 @@ class MatrixPrinter(BasePrinter):
         # Unir todo el contenido como bytes
         return b"".join(content)
 
-    def _format_header(self, data: Dict[str, Any]) -> List[bytes]:
+    def _format_header(self, data: Dict[str, Any], fiscal_data: dict[str, str]) -> List[bytes]:
         """
         Formatea el encabezado del documento
+        Imprime el número del contador reservado (no el document_number de Odoo, que es la clave de
+        idempotencia) y, si existe, la referencia de Odoo (document_name) en una línea aparte.
         Args:
             data: Datos del documento
+            fiscal_data: Contador reservado para este documento
         Returns:
             List[bytes]: Líneas del encabezado
         """
@@ -304,10 +344,11 @@ class MatrixPrinter(BasePrinter):
         )
 
         header.append(self.escp_commands.CMD_ALIGN_RIGHT)
-        doc_line = (
-            f"FECHA: {data['document']['document_date']} | {document_type}: {data['document']['document_number']}\n"
-        )
+        doc_line = f"FECHA: {data['document']['document_date']} | {document_type}: {fiscal_data['document_number']}\n"
         header.append(doc_line.encode("ascii", errors="replace"))
+        document_name = data["document"].get("document_name")
+        if document_name:  # Referencia de Odoo (no es la clave de idempotencia)
+            header.append(f"REF: {document_name}\n".encode("ascii", errors="replace"))
         header.append(self.escp_commands.CMD_ALIGN_LEFT)
         header.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
         return header
@@ -372,12 +413,13 @@ class MatrixPrinter(BasePrinter):
         items_lines.append(self.escp_commands.CMD_BOLD_OFF)
         for item in data["items"]:
             item_line = ""
+            item_subtotal = InvoiceItem(item).subtotal  # Mismo cálculo que el modelo (redondeo por línea)
             values = [
                 str(item["item_ref"]),
                 str(item["item_name"]),
                 item["item_quantity"],
                 item["item_price"],
-                item["item_quantity"] * item["item_price"],
+                item_subtotal,
             ]
 
             for val, width, fmt in zip(values, self.column_widths, self.column_format):
@@ -393,7 +435,34 @@ class MatrixPrinter(BasePrinter):
                 comment_line = f"{'':8}Nota: {item['item_comment']}\n"
                 items_lines.append(comment_line.encode("ascii", errors="replace"))
 
+            adjustment = self._item_adjustment(item)
+            if adjustment is not None:
+                label, amount = adjustment
+                last_width = self.column_widths[-1]
+                prefix = f"{'':8}{label}"[: sum(self.column_widths) - last_width]
+                adjustment_line = f"{prefix:<{sum(self.column_widths) - last_width}}{amount:>{last_width}.2f}\n"
+                items_lines.append(adjustment_line.encode("ascii", errors="replace"))
+
         return items_lines
+
+    @staticmethod
+    def _item_adjustment(item: dict[str, Any]) -> tuple[str, float] | None:
+        """
+        Calcula la leyenda y el monto del descuento o recargo de un item.
+        Args:
+            item (dict): Item del documento
+        Returns:
+            tuple[str, float] | None: (leyenda, monto) o None si el item no tiene ajuste. El monto es
+            negativo para descuentos y positivo para recargos (subtotal - precio * cantidad).
+        """
+        discount = item.get("item_discount", 0) or 0
+        discount_type = item.get("item_discount_type", "")
+        if discount <= 0 or discount_type not in ADJUSTMENT_LABELS:
+            return None
+        word = ADJUSTMENT_LABELS[discount_type]
+        suffix = "%" if discount_type.endswith("_percentage") else ""
+        amount = round(InvoiceItem(item).subtotal - round(item["item_price"] * item["item_quantity"], 2), 2)
+        return f"{word} {discount:.2f}{suffix}", amount
 
     def _format_totals(self, data: Dict[str, Any]) -> List[bytes]:
         """
@@ -403,13 +472,20 @@ class MatrixPrinter(BasePrinter):
         Returns:
             List[bytes]: Líneas de totales
         """
-        totals = []  # Calcular totales
-        subtotal = sum(item["item_quantity"] * item["item_price"] for item in data["items"])
-        tax = sum(item["item_quantity"] * item["item_price"] * (item["item_tax"] / 100) for item in data["items"])
-        total = subtotal + tax
+        totals = []  # Calcular totales con el mismo modelo que valida Odoo (redondeo por línea)
+        invoice = Invoice(data)
+        subtotal = invoice.total_amount
+        tax = invoice.total_tax
+        total = invoice.total_with_tax
+        has_adjustment = any(self._item_adjustment(item) is not None for item in data["items"])
+        gross = sum(round(item["item_price"] * item["item_quantity"], 2) for item in data["items"])
+        # Ajustes netos con el mismo signo que las líneas de ítem: descuento negativo, recargo positivo
+        adjustments = round(subtotal - gross, 2)
         totals.append((self.separator * self.page_width + "\n").encode("ascii", errors="replace"))
         totals.append(self.escp_commands.CMD_ALIGN_RIGHT)
         totals.append(self.escp_commands.CMD_BOLD_ON)
+        if has_adjustment:
+            totals.append(f"AJUSTES: {adjustments:>14.2f}\n".encode("ascii", errors="replace"))
         totals.append(f"SUBTOTAL: {subtotal:>14.2f}\n".encode("ascii", errors="replace"))
         totals.append(f"IVA: {tax:>14.2f}\n".encode("ascii", errors="replace"))
         totals.append(f"TOTAL: {total:>14.2f}\n".encode("ascii", errors="replace"))

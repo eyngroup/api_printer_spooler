@@ -10,7 +10,8 @@ Clase para gestionar el contador fiscal usando un archivo JSON.
 import datetime
 import json
 import logging
-from typing import Dict
+import threading
+from typing import ClassVar, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,22 @@ class FiscalCounter:  # pylint: disable=R0903
     Clase para gestionar el contador fiscal usando un archivo JSON.
     Métodos:
     - update_counter: Actualiza los contadores y devuelve los datos actualizados.
+    - reserve_counter: Calcula el siguiente número sin escribirlo en disco.
+    - commit_counter: Persiste en disco los valores previamente reservados.
+
+    Atributos de clase:
+    - LOCK: cerrojo reentrante compartido por todas las instancias (cada petición crea la suya) para
+      serializar la secuencia reservar -> imprimir -> confirmar.
     """
+
+    LOCK = threading.RLock()
+
+    COUNTER_MAPPING: ClassVar[dict[str, str]] = {
+        "invoice": "document_invoice",
+        "credit": "document_credit",
+        "debit": "document_debit",
+        "note": "document_note",
+    }
 
     def __init__(self, template_file: str) -> None:
         """
@@ -133,4 +149,56 @@ class FiscalCounter:  # pylint: disable=R0903
 
         except Exception as e:
             logger.error("Error actualizando contador para %s: %s", document_type, str(e))
+            raise
+
+    def reserve_counter(self, document_type: str = "invoice") -> dict[str, str]:
+        """
+        Calcula los valores del siguiente documento SIN escribirlos en disco.
+        Relee el template del disco bajo el cerrojo, porque otra petición pudo confirmar un número
+        desde que se construyó esta instancia. Aplica la misma lógica que update_counter (cambio de
+        día del reporte y número de 8 dígitos).
+        Args:
+            document_type: Tipo de documento ('invoice', 'credit', 'debit', 'note')
+        Returns:
+            Dict[str, str]: Mismos datos que devuelve update_counter
+        """
+        with self.LOCK:
+            self.template = self._read_template()
+            counter = self.template["counter"]
+            fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")  # noqa: DTZ011 - fecha local, igual que update_counter
+            counter_key = self.COUNTER_MAPPING.get(document_type, "document_invoice")
+
+            if counter["document_date"] != fecha_hoy:
+                machine_report = str(int(counter["machine_report"]) + 1).zfill(4)
+            else:
+                machine_report = counter["machine_report"].zfill(4)
+
+            return {
+                "document_date": fecha_hoy,
+                "document_number": str(int(counter[counter_key]) + 1).zfill(8),
+                "machine_serial": counter["machine_serial"],
+                "machine_report": machine_report,
+            }
+
+    def commit_counter(self, document_type: str, reserved: dict[str, str]) -> None:
+        """
+        Persiste en disco los valores obtenidos con reserve_counter.
+        Relee el template bajo el cerrojo antes de escribir para no pisar cambios ajenos.
+        Args:
+            document_type: Tipo de documento ('invoice', 'credit', 'debit', 'note')
+            reserved: Diccionario devuelto por reserve_counter
+        """
+        try:
+            with self.LOCK:
+                self.template = self._read_template()
+                counter = self.template["counter"]
+                counter_key = self.COUNTER_MAPPING.get(document_type, "document_invoice")
+
+                counter["document_date"] = reserved["document_date"]
+                counter["machine_report"] = reserved["machine_report"]
+                counter[counter_key] = reserved["document_number"]
+                self._write_template(self.template)
+                logger.info("Contador %s confirmado: %s", counter_key, reserved["document_number"])
+        except Exception as e:
+            logger.error("Error confirmando contador para %s: %s", document_type, str(e))
             raise

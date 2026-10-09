@@ -5,7 +5,7 @@
     "company": "NOMBRE DE LA EMPRESA, C.A.",
     "address": "Av. Principal, Local 1",
     "phone": "Telf: (0212) 555-5555",
-    "type": "*",
+    "type": "NOTA DE ENTREGA",
     "columns": [
       "CODIGO",
       "DESCRIPCION",
