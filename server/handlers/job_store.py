@@ -11,6 +11,8 @@ import json
 import logging
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -41,12 +43,21 @@ CREATE TABLE IF NOT EXISTS print_jobs (
 _CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_doc_op ON print_jobs (document_id, operation_type)"
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(_DB_PATH), timeout=5.0)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=3000")
-    conn.row_factory = sqlite3.Row
-    return conn
+@contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
+    """
+    Abre una conexión a la base de trabajos como context manager.
+
+    Hace commit al salir sin errores, rollback ante una excepción y SIEMPRE cierra
+    la conexión. El `with sqlite3.connect()` nativo solo gestiona la transacción y deja
+    la conexión abierta, lo que en Windows mantiene bloqueado el archivo .db.
+    """
+    with closing(sqlite3.connect(str(_DB_PATH), timeout=5.0)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=3000")
+        conn.row_factory = sqlite3.Row
+        with conn:
+            yield conn
 
 
 def init_db() -> None:
@@ -122,7 +133,7 @@ def acquire_job(document_id: str, operation_type: str) -> tuple[str, dict[str, A
 def complete_job(document_id: str, operation_type: str, response: dict[str, Any]) -> None:
     """Mark a job as successfully completed and persist the response."""
     now = datetime.now().isoformat(timespec="seconds")
-    with _connect() as conn:
+    with _lock, _connect() as conn:
         conn.execute(
             "UPDATE print_jobs SET status='completed', response=?, updated_at=?"
             " WHERE document_id=? AND operation_type=?",
@@ -134,7 +145,7 @@ def complete_job(document_id: str, operation_type: str, response: dict[str, Any]
 def fail_job(document_id: str, operation_type: str, error_message: str) -> None:
     """Mark a job as failed. The next request for the same document will be retried."""
     now = datetime.now().isoformat(timespec="seconds")
-    with _connect() as conn:
+    with _lock, _connect() as conn:
         conn.execute(
             "UPDATE print_jobs SET status='failed', error_message=?, updated_at=?"
             " WHERE document_id=? AND operation_type=?",
@@ -158,7 +169,7 @@ def backup_db(target_path: str | Path | None = None) -> Path:
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
     with _lock, _connect() as src_conn:
-        with sqlite3.connect(str(target_path)) as dst_conn:
+        with closing(sqlite3.connect(str(target_path))) as dst_conn:
             src_conn.backup(dst_conn)
 
     logger.info("Respaldo de base de datos generado: %s", target_path)
@@ -175,7 +186,7 @@ def restore_db(backup_path: str | Path) -> None:
         raise FileNotFoundError(f"Archivo de respaldo no encontrado: {backup_file}")
 
     # Integrity check of the backup file before restoring
-    with sqlite3.connect(str(backup_file)) as test_conn:
+    with closing(sqlite3.connect(str(backup_file))) as test_conn:
         test_conn.row_factory = sqlite3.Row
         check = test_conn.execute("PRAGMA integrity_check").fetchone()
         if not check or check[0] != "ok":
@@ -184,9 +195,8 @@ def restore_db(backup_path: str | Path) -> None:
     # Ensure target parent directory exists and perform atomic restore
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        with sqlite3.connect(str(backup_file)) as src_conn:
+        with closing(sqlite3.connect(str(backup_file))) as src_conn:
             with _connect() as dst_conn:
                 src_conn.backup(dst_conn)
 
     logger.info("Base de datos restaurada exitosamente desde: %s", backup_file)
-

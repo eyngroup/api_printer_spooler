@@ -2,6 +2,8 @@
 Unit tests for the SQLite job store (idempotency engine).
 """
 
+import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
@@ -108,3 +110,58 @@ def test_restore_corrupt_file_rejected(tmp_path: Path):
 
     with pytest.raises(Exception):
         job_store.restore_db(fake_file)
+
+
+@pytest.fixture
+def tracked_connections(monkeypatch: pytest.MonkeyPatch) -> list[sqlite3.Connection]:
+    """Record every SQLite connection opened by the job store."""
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def _tracking_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(job_store.sqlite3, "connect", _tracking_connect)
+    return opened
+
+
+def _is_closed(conn: sqlite3.Connection) -> bool:
+    """Return True when the connection has been closed."""
+    try:
+        conn.execute("SELECT 1")
+    except sqlite3.ProgrammingError:
+        return True
+    return False
+
+
+def test_connections_are_closed(tmp_path: Path, tracked_connections: list[sqlite3.Connection]):
+    """Every connection opened by the store must be closed (avoids file locks on Windows)."""
+    job_store.acquire_job("INV-CLOSE-01", "invoice")
+    job_store.complete_job("INV-CLOSE-01", "invoice", {"status": True})
+    job_store.acquire_job("INV-CLOSE-02", "invoice")
+    job_store.fail_job("INV-CLOSE-02", "invoice", "error")
+    backup_file = job_store.backup_db(tmp_path / "close_backup.db")
+    job_store.restore_db(backup_file)
+
+    assert tracked_connections
+    assert all(_is_closed(conn) for conn in tracked_connections)
+
+
+@pytest.mark.parametrize("operation", ["complete", "fail"])
+def test_job_updates_wait_for_lock(operation: str):
+    """complete_job and fail_job must serialize through the process-level lock."""
+    job_store.acquire_job("INV-LOCK-01", "invoice")
+    if operation == "complete":
+        worker = threading.Thread(target=job_store.complete_job, args=("INV-LOCK-01", "invoice", {"status": True}))
+    else:
+        worker = threading.Thread(target=job_store.fail_job, args=("INV-LOCK-01", "invoice", "error"))
+
+    with job_store._lock:
+        worker.start()
+        worker.join(timeout=0.3)
+        assert worker.is_alive(), "La actualización no esperó al lock"
+
+    worker.join(timeout=2)
+    assert not worker.is_alive()
