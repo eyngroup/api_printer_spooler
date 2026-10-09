@@ -426,3 +426,26 @@ def test_ping_falls_back_to_configured_serial(app_client, monkeypatch):
     monkeypatch.setattr(server_api, "_configured_serial", lambda: "Z1B9999999")
     body = app_client.get("/api/ping").get_json()
     assert body == {"status": "success", "message": "Z1B9999999"}
+
+
+def test_printed_without_number_is_never_reprinted(app_client, sample_invoice_payload, monkeypatch):
+    """Impreso sin número fiscal: status false para Odoo, trabajo completado y el reintento no reimprime."""
+    from server.handlers import document_handler
+
+    printer = MagicMock()
+    printer.print_document.return_value = {
+        "status": False,
+        "printed": True,
+        "message": "Documento impreso, pero no se pudo leer el número fiscal; verifíquelo en la máquina",
+        "data": {"Estado": "Documento impreso", "Error": "No se pudo leer el número fiscal; verifíquelo en la máquina"},
+    }
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+
+    first = app_client.post("/api/printers", json=sample_invoice_payload).get_json()
+    assert first["status"] is False
+    assert first["data"]["Estado"] == "Documento impreso"
+    assert _job_status("TEST-0099") == "completed"
+
+    retry = app_client.post("/api/printers", json=sample_invoice_payload).get_json()
+    assert retry == first
+    assert printer.print_document.call_count == 1

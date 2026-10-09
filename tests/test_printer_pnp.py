@@ -92,7 +92,7 @@ def test_extract_document_number_per_type(printer: PnpPrinter, doc_type: str, re
 def test_extract_document_number_short_response(printer: PnpPrinter):
     """A short close response (older firmware) falls back without raising."""
     printer._type_doc = "credit"
-    assert printer._extract_document_number(["0080", "0600", "0003", "0000001234"]) == "0000000000"
+    assert printer._extract_document_number(["0080", "0600", "0003", "0000001234"]) == ""  # nunca se inventa un número
 
 
 @pytest.mark.parametrize(
@@ -212,3 +212,30 @@ def test_print_document_full_flow_with_discount(printer: PnpPrinter):
     assert result["status"] is True
     assert result["data"]["document_number"] == "0000001234"
     assert _item_cmd(printer, "900", "2000") in printer._printer.sent
+
+
+def test_short_close_response_reports_printed_without_number(printer: PnpPrinter, caplog):
+    """Cierre corto: nunca se inventa un número; se informa 'impreso sin número' y se registran los contadores."""
+    printer._printer = FakeController(responses={PNPcmd.CLOSE_TOTAL: ["0080", "0600", "0003", "0000001234"]})
+    printer._type_doc = "credit"
+    printer._counters_before = {"facturas": "00000010"}
+    printer._process_payments({"payments": [{"payment_method": "01", "payment_amount": 10.0}]})
+    assert printer._last_document == ""
+
+    with caplog.at_level("WARNING"):
+        result = printer._process_send_data()
+    assert result["status"] is False
+    assert result["printed"] is True
+    assert result["data"]["Estado"] == "Documento impreso"
+    assert "document_number" not in result["data"]
+    assert "Contadores 8|N antes" in caplog.text
+
+
+def test_complete_close_response_still_succeeds(printer: PnpPrinter):
+    """Con el cierre completo el flujo normal no cambia: status True y el número del Campo 4."""
+    printer._printer = FakeController(responses={PNPcmd.CLOSE_TOTAL: CLOSE_0x45})
+    printer._type_doc = "invoice"
+    printer._process_payments({"payments": [{"payment_method": "01", "payment_amount": 10.0}]})
+    result = printer._process_send_data()
+    assert result["status"] is True
+    assert result["data"]["document_number"] == "0000001234"

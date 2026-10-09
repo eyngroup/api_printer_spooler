@@ -43,6 +43,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
         self._type_doc = None
         self._last_document = "0000000000"
         self._last_response: list[str] = []  # Última respuesta recibida de la impresora
+        self._counters_before: dict[str, Any] | None = None  # Contadores 8|N antes del documento (diagnóstico)
 
         self._initialize_printer()
         if not self.connect():
@@ -208,12 +209,13 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
         Obtiene el número del documento emitido desde la respuesta del comando de cierre.
 
         Si la respuesta no trae el campo esperado (p. ej. firmware anterior a 2021-05-05),
-        se devuelve "0000000000" y se registra un aviso: el documento ya fue impreso, por lo
+        se devuelve "" y se registra un aviso (antes "0000000000", que Odoo guardaba como número fiscal
+        y luego rechazaba por duplicado): el documento ya fue impreso, por lo
         que reportar un error provocaría un reintento y una doble impresión fiscal.
         Args:
             result (list[str]): Campos de la respuesta del cierre (sin el byte de comando)
         Returns:
-            str: Número de documento o "0000000000" si no está disponible
+            str: Número de documento, o "" si no está disponible (nunca se inventa un número)
         """
         index = self._DOCUMENT_NUMBER_INDEX.get(self._type_doc)
         if index is None or len(result) <= index:
@@ -222,7 +224,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                 self._type_doc,
                 result,
             )
-            return "0000000000"
+            return ""
         return result[index]
 
     def check_status(self) -> bool:
@@ -352,7 +354,10 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             logger.info(message_info)
             self._type_doc = operation_type
             # La instancia es singleton: evitar arrastrar el número del documento anterior
-            self._last_document = "0000000000"
+            self._last_document = ""
+            # Contadores 8|N antes del documento: si el cierre no informa el número, se registran junto
+            # con los posteriores para identificar en datos reales el campo del número fiscal (C11).
+            self._counters_before = self._read_counters_safely()
             self._process_customer_data(data)  # Procesar datos del cliente
             self._process_items(data)  # Procesar ítems
             self._process_footer(data)  # Procesar pie de página
@@ -597,6 +602,18 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             self._last_document = self._extract_document_number(self._last_response)
             logger.info("Documento Fiscal: %s", self._last_document)
 
+    def _read_counters_safely(self) -> dict[str, Any] | None:
+        """
+        Lee los contadores 8|N sin interrumpir la impresión ante cualquier falla.
+        Returns:
+            dict | None: Contadores leídos o None si no se pudieron obtener
+        """
+        try:
+            return self._printer.get_counters()
+        except Exception as e:  # noqa: BLE001 - lectura de diagnóstico: nunca debe interrumpir la impresión
+            logger.warning("No se pudieron leer los contadores 8|N: %s", e)
+            return None
+
     def _process_send_data(self) -> dict[str, Any]:
         """Obtiene los datos finales después de la impresión."""
         logger.debug("Obteniendo datos de los contadores finales %s", self._type_doc)
@@ -604,6 +621,28 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             data = self._printer.get_counters()
             daily_closure = data["ultimo_z"]
             daily_closure = int(daily_closure) + 1
+
+            if not self._last_document:
+                # El documento salió impreso pero la máquina no informó su número: nunca se inventa uno.
+                # status False + printed True: el handler marca el trabajo como completado (sin reimpresión).
+                logger.warning(
+                    "Documento %s impreso sin número fiscal. Contadores 8|N antes: %s | después: %s",
+                    self._type_doc,
+                    self._counters_before,
+                    data,
+                )
+                return {
+                    "status": False,
+                    "printed": True,
+                    "message": "Documento impreso, pero no se pudo leer el número fiscal; verifíquelo en la máquina",
+                    "data": {
+                        "Estado": "Documento impreso",
+                        "Error": "No se pudo leer el número fiscal; verifíquelo en la máquina",
+                        "document_date": data["fecha_formateada"],
+                        "machine_serial": self._serial,
+                        "machine_report": str(daily_closure).zfill(4),
+                    },
+                }
 
             return {
                 "status": True,

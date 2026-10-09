@@ -330,6 +330,18 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
             return jsonify(response_payload)
 
         error_msg = result.get("message", "Error desconocido al imprimir")
+        if result.get("printed"):
+            # El documento salió impreso pero sin número fiscal (p. ej. PNP con respuesta de cierre corta):
+            # se guarda la respuesta como completada para que un reintento de Odoo nunca lo reimprima.
+            failure_payload = {
+                "status": False,
+                "message": error_msg,
+                "data": _normalize_failure_data(result.get("data"), error_msg, "Documento impreso"),
+            }
+            _complete_job_safely(invoice.document_number, invoice.operation_type, failure_payload)
+            logger.error("Documento %s impreso sin número fiscal: %s", invoice.document_number, error_msg)
+            return jsonify(failure_payload), HTTP_BAD_REQUEST
+
         _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
         return error_response(
             error_msg,
