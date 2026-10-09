@@ -71,6 +71,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         self._flag_30 = None  # código de barra con el número asociado bajo él código
         self._flag_43 = None  # Se activa el codigo
         self._flag_50 = None  # Estado de IGTF
+        self._printed_total: float | None = None  # Total impreso con IGTF (campo 2 de S2 antes del cierre)
 
         self._initialize_printer()
         if not self.connect():
@@ -425,6 +426,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
                 }
 
             logger.info(message_info)
+            self._printed_total = None  # Instancia singleton: no arrastrar el total del documento anterior
             self._process_customer_data(data, operation_type)  # Procesar datos del cliente
             self._process_items(data, operation_type)  # Procesar ítems
             self._process_footer(data, operation_type)  # Procesar pie de página
@@ -705,8 +707,37 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
                     raise RuntimeError("Error en pago final")
 
             if self._flag_50 == "01":
+                # Con flag 50 = 01 el documento sigue abierto tras los pagos: es el único momento en que
+                # S2 refleja el total impreso con IGTF (verificado en HKA80, ver _read_printed_total).
+                self._printed_total = self._read_printed_total()
                 if not self.send_command(HKAcmd.IGTF_CLOSE):
                     raise RuntimeError("Error al ejecutar codigo de cierre con IGTF")
+
+    def _read_printed_total(self) -> float | None:
+        """
+        Lee el total del documento en curso, con IGTF, desde el status S2.
+
+        El campo 2 de S2 (que el manual v8.5.0, pág. 55, describe como "para uso futuro") contiene el
+        TOTAL que se imprime, incluido el IGTF, una vez registrados todos los pagos. Antes de los pagos
+        solo es una proyección y tras el cierre (199) S2 vuelve a cero, por eso se lee justo antes del
+        cierre. Verificado en una HKA80 con pago en divisa (TOTAL 1,03) y mixto Bs + divisa (TOTAL 2,03).
+
+        Es una lectura informativa: ante cualquier falla devuelve None y la impresión continúa.
+        Returns:
+            float | None: Total impreso con 2 decimales, o None si no se pudo obtener
+        """
+        try:
+            s2 = self._printer.get_s2()
+            raw_total = (s2 or {}).get("uso_futuro", "").strip()
+            if not raw_total.isdigit():
+                logger.warning("No se pudo leer el total del documento desde S2: %s", s2)
+                return None
+            total = Decimal(raw_total) / 100
+            logger.info("Total impreso (con IGTF) leído de S2: %s", total)
+            return float(total)
+        except Exception as e:  # noqa: BLE001 - lectura informativa, nunca debe interrumpir la impresión
+            logger.warning("Error leyendo el total del documento desde S2: %s", e)
+            return None
 
     def _process_send_data(self, operation_type: str) -> dict[str, Any]:
         """Obtiene los datos fiscales finales después de la impresión."""
@@ -733,15 +764,19 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
             }
 
             last_document = document_counters.get(operation_type, 0)
+            response_data = {
+                "document_date": current_datetime,
+                "document_number": str(last_document).zfill(8),
+                "machine_serial": machine_number,
+                "machine_report": str(daily_closure).zfill(4),
+            }
+            # Total impreso con IGTF (contrato Odoo §3): solo si se pudo leer de la máquina
+            if self._printed_total is not None:
+                response_data["total"] = self._printed_total
             return {
                 "status": True,
                 "message": "Impresión finalizada exitosamente",
-                "data": {
-                    "document_date": current_datetime,
-                    "document_number": str(last_document).zfill(8),
-                    "machine_serial": machine_number,
-                    "machine_report": str(daily_closure).zfill(4),
-                },
+                "data": response_data,
             }
         except KeyError as e:
             raise KeyError(f"Campo faltante en datos fiscales: {str(e)}") from e
