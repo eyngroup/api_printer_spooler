@@ -17,7 +17,7 @@ from logging.config import dictConfig
 from logging.handlers import TimedRotatingFileHandler
 
 from handy.runtime_files import ensure_runtime_files
-from handy.serial_scan import get_serial_scanner
+from handy.serial_scan import find_fiscal_port
 from handy.tools import get_base_path
 from handy.tray_system import TrayManager
 from handy.version import __version__
@@ -36,40 +36,30 @@ def autodetect_serial_port(config: dict) -> None:
 
     logger = logging.getLogger(__name__)
     logger.info("Iniciando auto-detección de puerto serial fiscal...")
-    scanner = get_serial_scanner()
 
-    # Escanear puertos disponibles
-    ports = scanner.scan_ports()
-
-    if not ports:
-        logger.warning("No se encontraron puertos seriales disponibles.")
+    # Estrategia de selección: se confirma cada candidato (puerto configurado, VID:PID conocidos y otros USB)
+    # con una consulta de estado de solo lectura; nunca se persiste un puerto sin confirmar.
+    # (Antes: 1. buscar "Prolific" o "USB Serial" en la descripción; 2. si no, tomar el primer puerto disponible.
+    # Fallaba en Windows en español y podía elegir un COM de Bluetooth.)
+    fiscal_config = config.get("printers", {}).get("fiscal", {})
+    current_port = fiscal_config.get("fiscal_port")
+    fiscal_name = str(fiscal_config.get("fiscal_name", "")).strip().lower()
+    if fiscal_name not in ("tfhka", "pnp"):
+        logger.warning("Auto-detección omitida: impresora fiscal '%s' no soportada.", fiscal_name)
         return
 
-    candidate_port = None
+    candidate_port = find_fiscal_port(
+        fiscal_name,
+        current_port,
+        int(fiscal_config.get("fiscal_baudrate", 9600)),
+        fiscal_config.get("fiscal_timeout", 1.0),
+    )
 
-    # Estrategia de selección:
-    # 1. Buscar "Prolific" o "USB Serial" en la descripción (común en adaptadores fiscales)
-    # 2. Si no, tomar el primer puerto disponible y validarlo intentando abrirlo
+    if not candidate_port:
+        logger.warning("No se confirmó un puerto fiscal; se mantiene la configuración actual (%s).", current_port)
+        return
 
-    for port in ports:
-        desc = port.get("description", "").lower()
-        port_name = port.get("port")
-
-        # Filtros heurísticos comunes para impresoras fiscales
-        is_prolific = "prolific" in desc or "usb-to-serial" in desc or "serial" in desc
-
-        # O simplemente probamos disponibilidad técnica del primero que responda
-        if scanner.check_port_availability(port_name):
-            if is_prolific:
-                candidate_port = port_name
-                logger.info(f"Candidato fuerte encontrado: {port_name} ({desc})")
-                break  # Priorizamos este
-            elif not candidate_port:
-                candidate_port = port_name  # Guardamos como fallback
-
-    current_port = config.get("printers", {}).get("fiscal", {}).get("fiscal_port")
-
-    if candidate_port and candidate_port != current_port:
+    if candidate_port != current_port:
         logger.info(f"Actualizando puerto fiscal: {current_port} -> {candidate_port}")
 
         # Actualizar estructura de configuración en memoria
@@ -81,8 +71,7 @@ def autodetect_serial_port(config: dict) -> None:
             logger.info("Configuración actualizada y guardada.")
         except Exception as e:
             logger.error(f"Error guardando configuración detectada: {e}")
-
-    elif candidate_port == current_port:
+    else:
         logger.info(f"El puerto actual ({current_port}) ya es el correcto.")
 
 
