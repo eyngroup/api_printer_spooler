@@ -26,7 +26,7 @@ class InvoiceItem:
         self.comment = data.get("item_comment", "")
 
     # Valores permitidos de impuesto (flexible para agregar si hay cambios)
-    ALLOWED_TAX_VALUES = [0, 8, 16, 31, 12]
+    ALLOWED_TAX_VALUES = (0, 8, 16, 31, 12)
 
     def validate(self) -> str | None:
         """Validar reglas de negocio del item"""
