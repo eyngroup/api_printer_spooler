@@ -10,7 +10,7 @@ import datetime
 import logging
 import time
 from decimal import ROUND_HALF_UP, Decimal, getcontext
-from typing import Any
+from typing import Any, ClassVar
 
 from controllers.pfpnp import FiscalPrinterPnp
 from handy.tools import format_time, normalize_date, normalize_number, normalize_text
@@ -42,6 +42,7 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
         self._serial = None  # Serial de la impresora
         self._type_doc = None
         self._last_document = "0000000000"
+        self._last_response: list[str] = []  # Última respuesta recibida de la impresora
 
         self._initialize_printer()
         if not self.connect():
@@ -170,7 +171,13 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             value = False
             logger.info("Comando  Enviado: %s", command)
             result = self._printer.send_cmd(command)
+            self._last_response = result or []
             logger.debug("Valores Recibidos: %s", result)
+            # Según el manual PNP (v5.4), antes que nada se debe verificar que la respuesta
+            # no contenga "ERROR": la respuesta negativa trae [estado, fiscal, nº error, "ERRORnn"].
+            if result and any("ERROR" in field for field in result):
+                logger.error("Respuesta negativa al comando %s: %s", command, result)
+                return False
             if result:
                 if result[0] == "0080" and result[1] == "2600":
                     value = True
@@ -178,19 +185,9 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                 if result[0] == "0080" and result[1] == "3600":
                     value = True
 
-                if result[0] == "0080" and result[1] == "0600" and len(result) == 2:
-                    value = True
-
-                if result[0] == "0080" and result[1] == "0600" and len(result) >= 3:
-                    if self._type_doc == "note":
-                        self._last_document = result[2]
-                    elif self._type_doc == "invoice":
-                        self._last_document = result[3]
-                    elif self._type_doc == "credit":
-                        self._last_document = result[4]
-                    else:
-                        self._last_document = "0000000000"
-                    logger.info("Documento Fiscal: %s", self._last_document)
+                # El número de documento ya no se extrae aquí: se obtiene únicamente de la
+                # respuesta de los comandos de cierre (ver _extract_document_number).
+                if result[0] == "0080" and result[1] == "0600":
                     value = True
 
                 if wait_time > 0:
@@ -200,6 +197,33 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
         except Exception as e:
             logger.error("Error al enviar comando %s: %s", command, str(e))
             return False
+
+    # Posición del número de documento en la respuesta del comando de cierre (manual PNP v5.4).
+    # 0x4A (cierre no fiscal): Campo 3. 0x45 (cierre fiscal): Campo 4 = factura, Campo 5 = nota de crédito.
+    # Las notas de débito se emiten como factura en PNP, por lo que usan el Campo 4.
+    _DOCUMENT_NUMBER_INDEX: ClassVar[dict[str, int]] = {"note": 2, "invoice": 3, "debit": 3, "credit": 4}
+
+    def _extract_document_number(self, result: list[str]) -> str:
+        """
+        Obtiene el número del documento emitido desde la respuesta del comando de cierre.
+
+        Si la respuesta no trae el campo esperado (p. ej. firmware anterior a 2021-05-05),
+        se devuelve "0000000000" y se registra un aviso: el documento ya fue impreso, por lo
+        que reportar un error provocaría un reintento y una doble impresión fiscal.
+        Args:
+            result (list[str]): Campos de la respuesta del cierre (sin el byte de comando)
+        Returns:
+            str: Número de documento o "0000000000" si no está disponible
+        """
+        index = self._DOCUMENT_NUMBER_INDEX.get(self._type_doc)
+        if index is None or len(result) <= index:
+            logger.warning(
+                "No se pudo leer el número de documento (%s) en la respuesta de cierre: %s",
+                self._type_doc,
+                result,
+            )
+            return "0000000000"
+        return result[index]
 
     def check_status(self) -> bool:
         """
@@ -327,6 +351,8 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
 
             logger.info(message_info)
             self._type_doc = operation_type
+            # La instancia es singleton: evitar arrastrar el número del documento anterior
+            self._last_document = "0000000000"
             self._process_customer_data(data)  # Procesar datos del cliente
             self._process_items(data)  # Procesar ítems
             self._process_footer(data)  # Procesar pie de página
@@ -505,6 +531,8 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             self.send_command(PNPcmd.DNF_TEXT.format(f"Monto Total: {total_amount}"))
             if not self.send_command(PNPcmd.DNF_CLOSE):
                 raise RuntimeError("Error al procesar cierre de documento NO fiscal")
+            self._last_document = self._extract_document_number(self._last_response)
+            logger.info("Documento NO Fiscal: %s", self._last_document)
         else:
             if payments:
                 mount_base = 0
@@ -523,6 +551,8 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             time.sleep(1)
             if not self.send_command(PNPcmd.CLOSE_TOTAL):
                 raise RuntimeError("Error al cerrar documento fiscal")
+            self._last_document = self._extract_document_number(self._last_response)
+            logger.info("Documento Fiscal: %s", self._last_document)
 
     def _process_send_data(self) -> dict[str, Any]:
         """Obtiene los datos finales después de la impresión."""
