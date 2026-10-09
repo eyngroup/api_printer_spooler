@@ -17,7 +17,12 @@ from flask_cors import CORS
 
 from handy.tools import get_base_path
 
-from .handlers.document_handler import handle_documents, handle_fiscal_commands, handle_reports
+from .handlers.document_handler import (
+    handle_clock_sync,
+    handle_documents,
+    handle_fiscal_commands,
+    handle_reports,
+)
 from .handlers.fiscal_monitor import FiscalMonitor
 from .handlers.job_store import init_db
 from .handlers.printer_manager import PrinterManager
@@ -274,3 +279,7 @@ def fiscal_command():
     return handle_fiscal_commands()
 
 
+@api.route("/fiscal/clock", methods=["POST"])
+def fiscal_clock():
+    """Ruta para ajustar el reloj de la impresora fiscal con la hora del servidor (body opcional {"force": true})"""
+    return handle_clock_sync()

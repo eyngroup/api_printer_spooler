@@ -240,7 +240,8 @@ function renderMachine(container, data) {
     const drift = Number(m.time_drift_seconds);
     if (isFinite(drift) && Math.abs(drift) > MONITOR_DRIFT_LIMIT_SECONDS) {
         const minutes = Math.round(Math.abs(drift) / 60);
-        container.appendChild(el('div', 'El reloj de la máquina difiere ' + minutes + ' min del servidor',
+        container.appendChild(el('div', 'El reloj de la máquina difiere ' + minutes
+            + ' min del servidor; se ajustará automáticamente en el próximo cierre Z.',
             'alert alert-warning mt-3 mb-0'));
     }
 }

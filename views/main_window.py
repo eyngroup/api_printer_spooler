@@ -1146,6 +1146,47 @@ class MainWindow:
             reports_btn_row, text="Imprimir Reporte Z", command=lambda: self._print_report("Z"), bootstyle="danger"
         ).pack(side=tbc.LEFT)
 
+        # --- Reloj de la impresora ---
+        clock_frame = tb.LabelFrame(parent, text="Reloj de la Impresora", bootstyle="secondary", padding=10)
+        clock_frame.pack(fill=tbc.X, padx=10, pady=10)
+
+        tb.Label(
+            clock_frame,
+            text=(
+                "Ajusta la fecha y hora de la máquina con las del servidor. La máquina solo lo permite "
+                "justo después de un cierre Z (también se hace automáticamente al emitir el Z)."
+            ),
+            wraplength=800,
+        ).pack(anchor=tbc.W, pady=(0, 5))
+        tb.Button(
+            clock_frame, text="Ajustar reloj de la impresora", command=self._sync_printer_clock, bootstyle="info"
+        ).pack(anchor=tbc.W, pady=5)
+
+    def _sync_printer_clock(self) -> None:
+        """Solicita al servidor el ajuste forzado del reloj de la impresora y muestra el resultado."""
+        title = "Reloj de la Impresora"
+        try:
+            import requests
+
+            config = ConfigManager.get_config()
+            port = config.get("server", {}).get("server_port", 5051)
+            resp = requests.post(f"http://127.0.0.1:{port}/api/fiscal/clock", json={"force": True}, timeout=30)
+            res_json = resp.json()
+            data = res_json.get("data") or {}
+            status = data.get("status")
+            if status == "adjusted":
+                Messagebox.show_info(f"Reloj ajustado. Diferencia previa: {data.get('drift_before')} s", title)
+            elif status == "in_sync":
+                Messagebox.show_info(f"El reloj ya está en hora (diferencia: {data.get('drift_seconds')} s).", title)
+            elif status == "rejected":
+                Messagebox.show_error(
+                    f"{data.get('message')}\nRealice el ajuste justo después del cierre Z.", title
+                )
+            else:
+                Messagebox.show_error(f"No se pudo ajustar el reloj:\n{res_json.get('message')}", title)
+        except Exception as e:  # noqa: BLE001 - cualquier fallo se muestra al usuario en un diálogo
+            Messagebox.show_error(f"Error al ajustar el reloj: {e}", title)
+
     def _send_commands(self) -> None:
         try:
             raw = self.commands_text.get("1.0", tbc.END).strip()

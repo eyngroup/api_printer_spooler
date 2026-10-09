@@ -7,6 +7,8 @@ Document Handler Module, responsable de la gestión de las operaciones relaciona
 """
 
 import logging
+import re
+import time
 from typing import Any
 
 from flask import Response, current_app, jsonify, request
@@ -38,6 +40,11 @@ PRINTER_FISCAL_TYPES = {
 }
 
 logger = logging.getLogger(__name__)
+
+# Comando directo de cierre Z (I0Z, I1Z, I2Z, I3Z): tras él se ajusta el reloj de la máquina
+Z_COMMAND_PATTERN = re.compile(r"I\dZ", re.IGNORECASE)
+# Espera tras un Z enviado como comando directo (el driver de reportes ya espera 3 s por su cuenta)
+CLOCK_SYNC_DELAY_SECONDS = 2
 
 
 def find_value(dictionary: dict[str, Any], key: str) -> Any | None:
@@ -600,6 +607,63 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
         return error_response(f"Error interno del servidor: {str(e)}", HTTP_INTERNAL_ERROR)
 
 
+def _sync_clock_after_z(printers_config: dict[str, Any], wait_seconds: float = 0) -> dict[str, Any] | None:
+    """
+    Ajusta el reloj de la impresora HKA justo después de un reporte Z exitoso.
+
+    Un fallo del ajuste NUNCA debe convertir en falla un Z que ya se emitió: el resultado (incluso un error)
+    se devuelve para informarlo en la respuesta. Solo aplica a la impresora fiscal tfhka.
+    Args:
+        printers_config: Configuración de impresoras de la aplicación.
+        wait_seconds: Espera previa al ajuste (para dar tiempo a que la máquina termine el cierre).
+    Returns:
+        dict | None: Resultado de PrinterManager.sync_clock, o None si no aplica (no es tfhka).
+    """
+    try:
+        fiscal_config = printers_config.get("fiscal", {})
+        fiscal_name = str(fiscal_config.get("fiscal_name", "")).strip().lower()
+        if fiscal_name != "tfhka":
+            return None
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
+        return PrinterManager.sync_clock(fiscal_name, fiscal_config)
+    except Exception as e:  # noqa: BLE001 - el ajuste de reloj jamás debe romper la respuesta del Z
+        logger.warning("No se pudo ajustar el reloj tras el Z: %s", e)
+        return {"status": "error", "message": str(e)}
+
+
+def handle_clock_sync() -> tuple[Response, int]:
+    """
+    Ajusta manualmente el reloj de la impresora fiscal con la hora del servidor.
+    Body opcional: {"force": true} para ajustar aunque el desfase esté dentro del umbral.
+    Returns:
+        tuple[Response, int]: Resultado de sync_clock; status true si quedó en hora (adjusted/in_sync).
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        force = bool(body.get("force", False)) if isinstance(body, dict) else False
+
+        printers_config = current_app.config.get("printers", {})
+        fiscal_config = printers_config.get("fiscal", {})
+        if not fiscal_config or not fiscal_config.get("fiscal_enabled", False):
+            return error_response("Impresora fiscal no está habilitada", state="Impresora no disponible")
+
+        fiscal_name = str(fiscal_config.get("fiscal_name", "")).strip().lower()
+        result = PrinterManager.sync_clock(fiscal_name, fiscal_config, force=force)
+        status = result.get("status")
+
+        if status in ("adjusted", "in_sync"):
+            message = "Reloj de la impresora ajustado" if status == "adjusted" else "El reloj ya está en hora"
+            return jsonify({"status": True, "message": message, "data": result}), 200
+
+        message = result.get("message") or "Esta impresora no soporta el ajuste de reloj"
+        http_status = HTTP_INTERNAL_ERROR if status == "error" else HTTP_BAD_REQUEST
+        return error_response(message, http_status, data=result, state="Ajuste de reloj rechazado")
+
+    except Exception as e:  # noqa: BLE001 - la ruta siempre responde con el contrato de error
+        return error_response(f"Error al ajustar el reloj: {e}", HTTP_INTERNAL_ERROR)
+
+
 def handle_reports(report_type: str) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de reportes fiscales.
@@ -635,15 +699,12 @@ def handle_reports(report_type: str) -> tuple[Response, int]:
         result = getattr(printer, method)()
 
         if result:
-            return (
-                jsonify(
-                    {
-                        "status": True,
-                        "message": f"Reporte {report_type} impreso correctamente",
-                    }
-                ),
-                200,
-            )
+            response: dict[str, Any] = {"status": True, "message": f"Reporte {report_type} impreso correctamente"}
+            if report_type.upper() == "Z":
+                clock_sync = _sync_clock_after_z(printers_config)  # el driver ya esperó 3 s tras el Z
+                if clock_sync is not None:
+                    response["data"] = {"clock_sync": clock_sync}
+            return jsonify(response), 200
         return error_response(f"Error al imprimir reporte {report_type}")
 
     except Exception as e:
@@ -708,17 +769,26 @@ def handle_fiscal_commands() -> tuple[Response, int]:
             success = printer.send_command(cmd)
             results.append({"command": cmd, "success": success})
 
+        # Un Z enviado como comando directo también deja la máquina lista para ajustar su reloj
+        clock_sync = None
+        if any(r["success"] and Z_COMMAND_PATTERN.match(str(r["command"]).strip()) for r in results):
+            clock_sync = _sync_clock_after_z(printers_config, CLOCK_SYNC_DELAY_SECONDS)
+
         # El estado global refleja el resultado real: Odoo envía un comando por llamada y no debe
         # recibir un éxito si la impresora lo rechazó (el detalle por comando se mantiene en data).
         rejected = [result["command"] for result in results if not result["success"]]
         if rejected:
             return error_response(
                 f"Comando(s) rechazado(s) por la impresora: {', '.join(rejected)}",
-                data=results,
+                data=results if clock_sync is None else {"results": results, "clock_sync": clock_sync},
                 state="Comando rechazado",
             )
 
-        return jsonify({"status": True, "message": "Comandos procesados", "data": results}), 200
+        response = {"status": True, "message": "Comandos procesados", "data": results}
+        if clock_sync is not None:
+            # "data" sigue siendo la lista de resultados (contrato de Odoo); el ajuste va aparte
+            response["clock_sync"] = clock_sync
+        return jsonify(response), 200
 
     except Exception as e:
         return error_response(f"Error procesando comandos: {str(e)}", HTTP_INTERNAL_ERROR)

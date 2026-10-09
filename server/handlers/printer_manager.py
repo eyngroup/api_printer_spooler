@@ -425,3 +425,99 @@ class PrinterManager:
                     controller.close_port()
                 except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
                     logger.warning("Error al cerrar el puerto tras leer el monitor fiscal: %s", e)
+
+    # Mensaje cuando la máquina no acepta el ajuste de reloj (solo se permite justo después de un reporte Z)
+    CLOCK_REJECTED_MESSAGE: ClassVar[str] = "La impresora solo permite ajustar la hora justo después de un reporte Z"
+
+    @staticmethod
+    def _now() -> datetime:
+        """Hora local del servidor (referencia del reloj); punto único para poder fijarla en las pruebas."""
+        return datetime.now()  # noqa: DTZ005 - hora local, comparable con la de la máquina
+
+    @classmethod
+    def sync_clock(
+        cls,
+        printer_type: str,
+        printer_config: dict[str, Any],
+        threshold_seconds: int = 120,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Ajusta el reloj de la impresora fiscal HKA con la hora del servidor (referencia sincronizada por NTP).
+
+        Lee S1 (fecha y hora de la máquina) y calcula el desfase (máquina - servidor). Si el desfase no supera
+        el umbral y no se fuerza, no envía nada. En otro caso envía PF (hora, HHMMSS) y PG (fecha, DDMMAA) con
+        la hora local actual. El manual (Tabla 18) exige hacerlo justo después de un reporte Z; si la máquina
+        rechaza alguno de los comandos se informa "rejected". Todo el acceso serial ocurre bajo el lock del
+        manager; con instancia viva usa su controlador, sin instancia abre uno temporal y lo cierra siempre.
+        Solo HKA. Nunca lanza excepciones.
+        Args:
+            printer_type: Tipo de impresora fiscal (solo "tfhka").
+            printer_config: Configuración (fiscal_port, fiscal_baudrate, fiscal_timeout).
+            threshold_seconds: Desfase máximo tolerado sin ajustar.
+            force: Si es True ajusta aunque el desfase esté dentro del umbral.
+        Returns:
+            dict: {"status": "unsupported"} | {"status": "in_sync", "drift_seconds"} |
+            {"status": "adjusted", "drift_before", "drift_after"} |
+            {"status": "rejected", "drift_seconds", "message"} | {"status": "error", "message"}
+        """
+        controller = None
+        try:
+            if printer_type.lower() != "tfhka":
+                return {"status": "unsupported"}
+
+            from server.handlers.fiscal_monitor import machine_datetime
+
+            with cls._lock:
+                instance = cls._instances.get("tfhka")
+                if instance is not None:
+                    reader = instance._printer
+                    if not getattr(reader.serial_printer, "is_open", False):
+                        return {"status": "error", "message": "El puerto de la impresora no está abierto"}
+                else:
+                    from controllers.pfhka import FiscalPrinterHka
+
+                    controller = FiscalPrinterHka(
+                        printer_config.get("fiscal_port"),
+                        printer_config.get("fiscal_baudrate", 9600),
+                        printer_config.get("fiscal_timeout", 2),
+                    )
+                    if not controller.open_port():
+                        logger.warning("No se pudo abrir el puerto para ajustar el reloj de tfhka")
+                        return {"status": "error", "message": "No se pudo abrir el puerto de la impresora"}
+                    reader = controller
+
+                machine_dt = machine_datetime(reader.get_s1() or {})
+                if machine_dt is None:
+                    return {"status": "error", "message": "No se pudo leer la fecha y hora de la máquina"}
+                drift = round((machine_dt - cls._now()).total_seconds())
+
+                if abs(drift) <= threshold_seconds and not force:
+                    logger.info("Reloj de la impresora en hora (desfase %s s); no se ajusta", drift)
+                    return {"status": "in_sync", "drift_seconds": drift}
+
+                target = cls._now()
+                accepted = bool(reader.send_cmd(target.strftime("PF%H%M%S"))) and bool(
+                    reader.send_cmd(target.strftime("PG%d%m%y"))
+                )
+                if not accepted:
+                    logger.warning(
+                        "La impresora rechazó el ajuste de reloj (desfase %s s); solo se permite tras un Z", drift
+                    )
+                    return {"status": "rejected", "drift_seconds": drift, "message": cls.CLOCK_REJECTED_MESSAGE}
+
+                after_dt = machine_datetime(reader.get_s1() or {})
+                drift_after = round((after_dt - cls._now()).total_seconds()) if after_dt else None
+                logger.info("Reloj de la impresora ajustado: desfase %s s -> %s s", drift, drift_after)
+                if drift_after is None or abs(drift_after) > 5:
+                    logger.warning("Tras el ajuste el reloj de la impresora sigue desfasado: %s s", drift_after)
+                return {"status": "adjusted", "drift_before": drift, "drift_after": drift_after}
+        except Exception as e:  # noqa: BLE001 - nunca debe lanzar: cualquier fallo se informa en el resultado
+            logger.warning("No se pudo ajustar el reloj de la impresora %s: %s", printer_type, e)
+            return {"status": "error", "message": str(e)}
+        finally:
+            if controller is not None:
+                try:
+                    controller.close_port()
+                except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
+                    logger.warning("Error al cerrar el puerto tras ajustar el reloj: %s", e)
