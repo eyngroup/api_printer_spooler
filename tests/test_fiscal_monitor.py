@@ -340,3 +340,82 @@ def test_parse_s3_controller_dict_uses_verified_rate_type():
     result = parse_s3(controller_dict)
     assert result["rates"][0] == {"name": "General", "type": "Excluido", "percent": 16.0}
     assert result["flags"] == {"50": "01"}
+
+
+# --- Etiquetas de medios de pago ---------------------------------------------------------------------
+
+
+def test_defaults_file_has_24_labels_and_passes_schema():
+    """El archivo de defaults trae las 24 etiquetas y cumple el esquema de configuración."""
+    import json
+    import os
+
+    from jsonschema import validate
+
+    from handy.runtime_files import default_path_for
+    from handy.tools import get_base_path
+    from server.config_loader import CONFIG_SCHEMA, FALLBACK_PAYMENT_LABELS
+
+    path = os.path.join(get_base_path(), *default_path_for("config/config.json").split("/"))
+    with open(path, encoding="utf-8") as f:
+        defaults = json.load(f)
+    validate(defaults, CONFIG_SCHEMA)
+    labels = defaults["printers"]["fiscal"]["payment_labels"]
+    assert list(labels) == [f"{n:02d}" for n in range(1, 25)]
+    assert labels["04"] == "Contado" and labels["24"] == "DivisaCashea"
+    assert labels == FALLBACK_PAYMENT_LABELS
+
+
+def test_schema_rejects_bad_payment_labels():
+    """El esquema rechaza códigos fuera de 01..24 y valores que no son texto."""
+    import copy
+    import json
+    import os
+
+    from jsonschema import ValidationError, validate
+
+    from handy.runtime_files import default_path_for
+    from handy.tools import get_base_path
+    from server.config_loader import CONFIG_SCHEMA
+
+    with open(os.path.join(get_base_path(), *default_path_for("config/config.json").split("/")), encoding="utf-8") as f:
+        base = json.load(f)
+    for bad in ({"25": "x"}, {"1": "x"}, {"01": 5}):
+        cfg = copy.deepcopy(base)
+        cfg["printers"]["fiscal"]["payment_labels"] = bad
+        with pytest.raises(ValidationError):
+            validate(cfg, CONFIG_SCHEMA)
+    cfg = copy.deepcopy(base)
+    del cfg["printers"]["fiscal"]["payment_labels"]
+    validate(cfg, CONFIG_SCHEMA)  # es opcional
+
+
+def test_get_payment_labels_merges_overrides_and_fallbacks(monkeypatch):
+    """Los overrides pisan por código (vacío = sin etiqueta); sin clave o sin archivo se usan los defaults."""
+    from server import config_loader as cl
+
+    assert cl.get_payment_labels({})["04"] == "Contado"
+    assert cl.get_payment_labels(None)["01"] == "Efectivo"
+    cfg = {"printers": {"fiscal": {"payment_labels": {"04": "Caja", "05": "", "99": "x"}}}}
+    labels = cl.get_payment_labels(cfg)
+    assert labels["04"] == "Caja" and labels["05"] == "" and labels["01"] == "Efectivo" and "99" not in labels
+
+    monkeypatch.setattr(cl, "get_base_path", lambda: "/ruta/que/no/existe")
+    fallback = cl.get_payment_labels({"printers": {"fiscal": {"payment_labels": {"04": "Caja"}}}})
+    assert fallback["04"] == "Caja" and fallback["24"] == "DivisaCashea" and len(fallback) == 24
+
+
+def test_snapshot_payments_include_labels():
+    """build_snapshot y get_snapshot agregan "label" a cada pago."""
+    snap = fm.build_snapshot(_raw(), payment_labels={"04": "Contado"})
+    assert snap["payments"][3]["label"] == "Contado" and snap["payments"][0]["label"] == ""
+    assert all("label" in p for p in snap["payments"])
+
+
+def test_get_snapshot_applies_current_labels(monitor):
+    """El monitor aplica las etiquetas vigentes de la configuración, incluso sobre la caché."""
+    fiscal = {"fiscal_enabled": True, "fiscal_name": "TFHKA"}
+    first = FiscalMonitor.get_snapshot({"fiscal": fiscal})
+    assert first["payments"][3]["label"] == "Contado"
+    second = FiscalMonitor.get_snapshot({"fiscal": {**fiscal, "payment_labels": {"04": "Caja"}}})
+    assert second["payments"][3]["label"] == "Caja"

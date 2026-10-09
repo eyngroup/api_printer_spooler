@@ -15,6 +15,8 @@ import time
 from datetime import datetime
 from typing import Any
 
+from server.config_loader import get_payment_labels
+
 from . import job_store
 from .printer_manager import PrinterManager
 
@@ -146,6 +148,20 @@ def parse_s4(source: str | dict[str, str]) -> list[dict[str, Any]]:
     ]
 
 
+def apply_payment_labels(snapshot: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
+    """
+    Agrega "label" a cada pago del snapshot (cadena vacía si el código no tiene etiqueta). Modifica el snapshot.
+    Args:
+        snapshot: Snapshot con la lista "payments"
+        labels: Etiquetas por código ("01".."24")
+    Returns:
+        dict: El mismo snapshot
+    """
+    for payment in snapshot.get("payments") or []:
+        payment["label"] = labels.get(payment.get("code", ""), "")
+    return snapshot
+
+
 def parse_s5(source: str | dict[str, str]) -> dict[str, Any]:
     """
     Interpreta S5 (memoria de auditoría y datos de la máquina).
@@ -222,7 +238,9 @@ def machine_datetime(s1: dict[str, str]) -> datetime | None:
         return None
 
 
-def build_snapshot(raw: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+def build_snapshot(
+    raw: dict[str, Any], now: datetime | None = None, payment_labels: dict[str, str] | None = None
+) -> dict[str, Any]:
     """
     Construye el snapshot a partir de las lecturas crudas de la máquina y calcula los campos derivados:
     venta neta (ventas - notas de crédito + notas de débito), total de pagos locales, total en divisa y
@@ -230,6 +248,7 @@ def build_snapshot(raw: dict[str, Any], now: datetime | None = None) -> dict[str
     Args:
         raw: Lecturas crudas: s1, s3, s4, s5, sv (diccionarios del controlador) y u0x (texto)
         now: Hora local del servidor (solo para pruebas)
+        payment_labels: Etiquetas de los medios de pago por código (si es None, quedan sin etiqueta)
     Returns:
         dict: Snapshot con machine, counters, pre_z, payments, payments_total y divisa_total
     """
@@ -245,7 +264,7 @@ def build_snapshot(raw: dict[str, Any], now: datetime | None = None) -> dict[str
     sv = raw.get("sv") or {}
     net = round(x["sales"]["total"] - x["credit"]["total"] + x["debit"]["total"], 2)
 
-    return {
+    snapshot = {
         "available": True,
         "read_at": now.isoformat(timespec="seconds"),
         "stale": False,
@@ -287,6 +306,7 @@ def build_snapshot(raw: dict[str, Any], now: datetime | None = None) -> dict[str
         "payments_total": round(sum(p["amount"] for p in payments if not p["divisa"]), 2),
         "divisa_total": round(sum(p["amount"] for p in payments if p["divisa"]), 2),
     }
+    return apply_payment_labels(snapshot, payment_labels or {})
 
 
 class FiscalMonitor:
@@ -323,6 +343,22 @@ class FiscalMonitor:
     @classmethod
     def get_snapshot(cls, printers_config: dict[str, Any], force: bool = False) -> dict[str, Any]:
         """
+        Devuelve el snapshot fiscal con las etiquetas de pago vigentes de la configuración (se aplican en cada
+        respuesta, así un cambio de etiquetas se ve sin esperar a que venza la caché). Nunca lanza excepciones.
+        Args:
+            printers_config: Sección "printers" de la configuración
+            force: True para pedir una lectura nueva (sujeta al mínimo entre lecturas)
+        Returns:
+            dict: Snapshot, o {"available": False, "reason": ...}
+        """
+        snapshot = cls._get_snapshot(printers_config, force)
+        if snapshot.get("available"):
+            apply_payment_labels(snapshot, get_payment_labels({"printers": printers_config or {}}))
+        return snapshot
+
+    @classmethod
+    def _get_snapshot(cls, printers_config: dict[str, Any], force: bool = False) -> dict[str, Any]:
+        """
         Devuelve el snapshot fiscal, leyendo la máquina solo si la caché venció (60 s) o si se fuerza
         (nunca más de una vez cada 10 s). Nunca lee durante una impresión. Nunca lanza excepciones.
         Args:
@@ -352,7 +388,7 @@ class FiscalMonitor:
                     message = "No se pudo leer la máquina fiscal"
                     return cls._stale_copy(message) or {"available": False, "reason": message}
 
-                cls._snapshot = build_snapshot(raw)
+                cls._snapshot = build_snapshot(raw, payment_labels=get_payment_labels({"printers": printers_config}))
                 cls._read_ts = time.monotonic()
                 return copy.deepcopy(cls._snapshot)
         except Exception as e:  # noqa: BLE001 - nunca debe lanzar: el monitor es informativo
