@@ -101,6 +101,9 @@ class ESCPOScmd:  # pylint: disable=R0903
         # Comandos básicos
         self.CMD_INIT = self.command("\x1b\x40")  # Inicializar impresora
         self.CMD_CHARSET = self.command("\x1b\x74\x12")  # character code table (PC850)
+        # Nota: ESC t 18 (0x12) es PC852 (centroeuropeo), no PC850: verificado en una tiquera POS80 (ñ salía "ą").
+        # ESC t 2 es PC850 (numeración Epson ESC/POS, verificado en POS80).
+        self.CMD_CHARSET_PC850 = self.command("\x1b\x74\x02")
         self.CMD_CUT = self.command("\x1d\x56\x41\x00")  # Cut paper
         self.CMD_FEED = self.command("\x0a")  # Avanzar alimentador
 

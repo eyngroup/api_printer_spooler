@@ -19,7 +19,7 @@ import subprocess
 
 if sys.platform == "win32":
     import win32print
-from handy.tools import get_base_path, normalize_text, format_multiline
+from handy.tools import get_base_path, format_multiline
 
 from models.model_invoice import InvoiceItem
 
@@ -28,6 +28,22 @@ from .printer_commands import ESCPOScmd
 from .printer_counter import FiscalCounter
 
 logger = logging.getLogger(__name__)
+
+# Codificación del texto del ticket: CP850 (ñ, acentos en minúscula y mayúscula, ¡ ¿), seleccionada en la
+# impresora con ESCPOScmd.CMD_CHARSET_PC850 (ESC t 2). Verificado en una tiquera POS80.
+TEXT_ENCODING = "cp850"
+
+
+def _clean_text(text: str) -> str:
+    """
+    Limpia espacios repetidos sin quitar acentos ni signos: el texto se imprime tal cual en CP850.
+    Args:
+        text: Texto a limpiar.
+    Returns:
+        str: Texto con los espacios normalizados.
+    """
+    return " ".join(str(text or "").split())
+
 
 # Leyenda impresa según el tipo de ajuste del item (mismos criterios que la impresora matricial)
 ADJUSTMENT_LABELS = {
@@ -146,7 +162,9 @@ class TicketPrinter(BasePrinter):
                                 doc_info = ("Ticket", None, "RAW")  # (nombre_doc, nombre_output, tipo_datos)
                                 win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
                                 win32print.StartPagePrinter(self.printer_handle)  # Inicia
-                                win32print.WritePrinter(self.printer_handle, document_content.encode("utf-8"))  # Envía
+                                win32print.WritePrinter(
+                                    self.printer_handle, document_content.encode(TEXT_ENCODING, errors="replace")
+                                )  # Envía
                                 win32print.EndPagePrinter(self.printer_handle)  # Finaliza
                                 win32print.EndDocPrinter(self.printer_handle)  # Finaliza
                             else:
@@ -155,7 +173,9 @@ class TicketPrinter(BasePrinter):
                                 process = subprocess.Popen(
                                     cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
                                 )
-                                stdout, stderr = process.communicate(input=document_content.encode("utf-8"))
+                                stdout, stderr = process.communicate(
+                                    input=document_content.encode(TEXT_ENCODING, errors="replace")
+                                )
 
                                 if process.returncode != 0:
                                     raise Exception(f"lpr error: {stderr.decode()}")
@@ -176,8 +196,8 @@ class TicketPrinter(BasePrinter):
 
                 try:
                     os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-                    with open(self.output_file, "w", encoding="utf-8") as f:
-                        f.write(document_content)  # Escribir
+                    with open(self.output_file, "wb") as f:  # Mismos bytes que recibiría la impresora (CP850)
+                        f.write(document_content.encode(TEXT_ENCODING, errors="replace"))  # Escribir
 
                     logger.info("Documento guardado en: %s", self.output_file)
                 except Exception as e:
@@ -477,7 +497,7 @@ class TicketPrinter(BasePrinter):
         customer.extend([f"RIF/C.I.: {customer_vat}\n", f"RAZON SOCIAL: {customer_name}\n"])
 
         if data["customer"].get("customer_address") and self.template["format"]["show_customer_address"]:
-            address_format = normalize_text(f"DIR: {data['customer']['customer_address']}")
+            address_format = _clean_text(f"DIR: {data['customer']['customer_address']}")
             address_lines = format_multiline(address_format, width)
             for line in address_lines:
                 customer.append(f"{line}\n")
@@ -498,7 +518,7 @@ class TicketPrinter(BasePrinter):
             customer.append(f"DOC: {data['document']['document_name']}\n")
 
         if self.template["format"].get("show_document_cashier", False) and data["document"].get("document_cashier"):
-            normalized_cashier = normalize_text(data["document"]["document_cashier"])
+            normalized_cashier = _clean_text(data["document"]["document_cashier"])
             customer.append(f"CAJ: {normalized_cashier}\n")
 
         return customer
@@ -529,7 +549,7 @@ class TicketPrinter(BasePrinter):
             if quantity > 1:  # Si es más de 1 item, mostrar cantidad y precio unitario
                 items.append(f"{quantity}x{symbol} {price:.2f}\n")
 
-            item_name = normalize_text(item.get("item_name", ""))
+            item_name = _clean_text(item.get("item_name", ""))
             if self.template["format"].get("combine_item_ref", False) and item.get("item_ref"):
                 item_name = f"{item['item_ref']} {item_name}"
 
@@ -691,7 +711,7 @@ class TicketPrinter(BasePrinter):
             "delivery_comments"
         ):
             for comment in data["delivery"]["delivery_comments"]:
-                comment_format = normalize_text(comment)
+                comment_format = _clean_text(comment)
                 footer.append(f"{comment_format}\n")
 
         if data.get("delivery", {}).get("delivery_barcode") and self.config.get("barcode_enabled", False):
@@ -779,7 +799,7 @@ class TicketPrinter(BasePrinter):
         content.extend(
             [
                 self.escpos_commands.CMD_INIT,
-                self.escpos_commands.CMD_CHARSET,
+                self.escpos_commands.CMD_CHARSET_PC850,  # ESC t 2 = PC850 (ESC t 18 era PC852)
                 font_cmd,
                 self.escpos_commands.CMD_FONT_NORMAL,
             ]

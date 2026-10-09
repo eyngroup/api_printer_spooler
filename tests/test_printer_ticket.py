@@ -60,8 +60,8 @@ def counter_on_disk(template: Path) -> str:
 
 
 def printed(output: Path) -> str:
-    """Texto impreso (UTF-8) sin los comandos ESC/GS, para comparar solo el contenido legible."""
-    text = output.read_text(encoding="utf-8")
+    """Texto impreso (CP850) sin los comandos ESC/GS, para comparar solo el contenido legible."""
+    text = output.read_bytes().decode("cp850")
     return re.sub(r"\x1b[!-~]?[\x00-\x03]?|\x1d[V-~][\x00-\x41]?", "", text)
 
 
@@ -202,3 +202,19 @@ def test_concurrent_prints_get_consecutive_numbers(env):
 
     assert sorted(numbers) == ["00000001", "00000002"]
     assert counter_on_disk(template) == "00000002"
+
+
+def test_spanish_characters_printed_in_cp850(env):
+    """ñ, acentos (también en mayúscula), ¡ y ¿ se envían en CP850 tras ESC t 2 (verificado en tiquera POS80)."""
+    config, _, output = env
+    document = make_document([{**make_item(10.0), "item_name": "Café Añejo ÍÓÚ"}])
+    document["customer"].update({"customer_name": "JOSÉ MUÑOZ ÁLVAREZ", "customer_address": "Av. Bolívar, Caño"})
+    document["document"]["document_cashier"] = "María Pérez"
+    TicketPrinter(config).print_document(document)
+    raw = output.read_bytes()
+
+    assert b"\x1bt\x02" in raw  # ESC t 2 = PC850
+    assert b"\x1bt\x12" not in raw  # ESC t 18 (PC852) ya no se usa
+    for text in ("JOSÉ MUÑOZ ÁLVAREZ", "Café Añejo ÍÓÚ", "Av. Bolívar, Caño", "María Pérez"):
+        assert text.encode("cp850") in raw, text  # sin quitar acentos ni puntos
+    assert "JOSÉ".encode("utf-8") not in raw  # ya no se envía UTF-8
