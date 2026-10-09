@@ -186,3 +186,22 @@ def test_invoice_excessive_difference_rejected(valid_document_payload):
     err = inv.validate()
     assert err is not None
     assert "superando la tolerancia permitida" in err
+
+
+def test_invoice_rejects_invalid_payment_method(valid_document_payload):
+    """Invoice validation must reject a payment method outside 01-24."""
+    valid_document_payload["payments"][0]["payment_method"] = "99"
+    inv = Invoice(valid_document_payload)
+    err = inv.validate()
+    assert err is not None
+    assert "pago 1" in err.lower()
+    assert "entre 01 y 24" in err
+
+
+def test_invoice_normalizes_payment_method_in_raw_data(valid_document_payload):
+    """Normalized two-digit payment method must reach the raw payload read by drivers."""
+    valid_document_payload["payments"][0]["payment_method"] = "1"
+    inv = Invoice(valid_document_payload)
+    assert inv.validate() is None
+    assert inv.payments[0].method == "01"
+    assert valid_document_payload["payments"][0]["payment_method"] == "01"
