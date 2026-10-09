@@ -102,7 +102,7 @@ def test_invoice_item_invalid_tax():
             "item_name": "Articulo",
             "item_quantity": 1,
             "item_price": 5.0,
-            "item_tax": 99,  # 99% is not in ALLOWED_TAX_VALUES (0, 8, 16, 31, 12)
+            "item_tax": 99,  # 99% is not in ALLOWED_TAX_VALUES (0, 8, 16, 31)
         }
     )
     err = item.validate()
@@ -212,3 +212,17 @@ def test_invoice_normalizes_payment_method_in_raw_data(valid_document_payload):
     assert inv.validate() is None
     assert inv.payments[0].method == "01"
     assert valid_document_payload["payments"][0]["payment_method"] == "01"
+
+
+@pytest.mark.parametrize("tax", [12, 12.0, 22])
+def test_invoice_item_rejects_rates_outside_contract(tax):
+    """Only the contract rates (0, 8, 16, 31) are accepted; legacy 12% must be rejected up front."""
+    item = InvoiceItem({"item_name": "Articulo", "item_quantity": 1, "item_price": 5.0, "item_tax": tax})
+    assert item.validate() is not None
+
+
+@pytest.mark.parametrize("tax", [0.0, 8.0, 16.0, 31.0])
+def test_invoice_item_accepts_contract_rates_as_float(tax):
+    """Odoo sends the tax percent as a float (16.0); every contract rate is accepted."""
+    item = InvoiceItem({"item_name": "Articulo", "item_quantity": 1, "item_price": 5.0, "item_tax": tax})
+    assert item.validate() is None
