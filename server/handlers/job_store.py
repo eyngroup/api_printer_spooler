@@ -298,6 +298,19 @@ def completed_since(operation_type: str, since_iso: str, exclude_document_id: st
     return int(row["total"])
 
 
+def has_processing_jobs() -> bool:
+    """
+    Indica si hay alguna impresión en curso (trabajo en 'processing' no huérfano). Solo lee.
+    Los trabajos huérfanos (más de STALE_PROCESSING_SECONDS sin actualizarse) no cuentan: el proceso
+    murió a mitad de la impresión y bloquearían el monitor indefinidamente.
+    Returns:
+        bool: True si existe al menos un trabajo en curso reciente
+    """
+    with _lock, _connect() as conn:
+        rows = conn.execute("SELECT updated_at FROM print_jobs WHERE status='processing'").fetchall()
+    return any(not _is_stale(row["updated_at"]) for row in rows)
+
+
 def restart_job(document_id: str, operation_type: str) -> bool:
     """
     Reabre como 'processing' un trabajo 'unknown' que se comprobó que NO se emitió (reintento seguro).

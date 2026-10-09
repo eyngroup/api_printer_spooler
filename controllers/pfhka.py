@@ -515,3 +515,114 @@ class FiscalPrinterHka:
         except Exception as e:
             logging.error("Error leyendo estado S5 de la impresora: %s", e)
             return None
+
+    # Comandos de extracción de información permitidos en upload_report (solo lectura; nunca cierres Z)
+    _UPLOAD_ALLOWED = frozenset({"U0X", "U0X4", "U0X5", "U0X6", "U0X7"})
+
+    def get_s4(self) -> dict[str, str] | None:
+        """
+        Obtiene los 24 acumuladores de formas de pago usando el comando S4 (solo lectura).
+        S4 no pasa por send_cmd: se lee directamente con _read_status, igual que S1/S3/S5.
+        Returns:
+            Optional[Dict[str, str]]: Acumuladores por código "01".."24" (13 dígitos, 2 decimales
+            implícitos) o None en caso de error.
+        """
+        try:
+            response = self._read_status("S4")
+            logger.debug("S4: %s", response)
+            if response:
+                lines = self._clean_response(response, "S4")
+                return {f"{i:02d}": line for i, line in enumerate(lines[:24], start=1)}
+            return None
+        except Exception as e:  # noqa: BLE001 - lectura informativa: cualquier fallo devuelve None
+            logger.error("Error leyendo estado S4 de la impresora: %s", e)
+            return None
+
+    def _read_info_frame(self, timeout: float = 5.0) -> tuple[str, str] | None:
+        """
+        Lee un bloque de una extracción de información: EOT, o una trama STX...ETX|ETB LRC verificada.
+        Responde NAK si el LRC no coincide.
+        Args:
+            timeout (float): Segundos máximos de espera del bloque.
+        Returns:
+            Optional[Tuple[str, str]]: ("EOT", "") al terminar, ("ETX"|"ETB", texto) con la carga útil
+            (latin-1, sin STX/terminador/LRC), o None por timeout, trama inválida o LRC incorrecto.
+        """
+        buffer = bytearray()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            waiting = self.serial_printer.in_waiting
+            chunk = self.serial_printer.read(waiting if waiting > 0 else 1)
+            if chunk:
+                buffer.extend(chunk)
+            if buffer[:1] == b"\x04":  # EOT: fin de la extracción
+                return "EOT", ""
+            if buffer[:1] != b"\x02":
+                if buffer:
+                    logger.debug("Byte inesperado al leer la extracción: %s", bytes(buffer).hex())
+                    return None
+                continue
+            end = next((i for i in range(1, len(buffer)) if buffer[i] in (0x03, 0x17)), -1)
+            if end != -1 and len(buffer) > end + 1:
+                body = bytes(buffer[1 : end + 1])  # Carga útil + terminador (el LRC los incluye)
+                lrc = 0
+                for byte in body:
+                    lrc ^= byte
+                if lrc != buffer[end + 1]:
+                    logger.debug("LRC inválido en la extracción: calculado=%02X recibido=%02X", lrc, buffer[end + 1])
+                    self.serial_printer.write(b"\x15")
+                    return None
+                return ("ETX" if buffer[end] == 0x03 else "ETB"), body[:-1].decode("latin-1")
+        logger.debug("Timeout leyendo bloque de la extracción")
+        return None
+
+    def upload_report(self, command: str) -> str | None:
+        """
+        Extrae información de la máquina con un comando U0X* (solo lectura, protocolo ENQ/ACK).
+        Flujo: envía la trama, la impresora responde ENQ (0x05), el PC responde ACK, la impresora envía
+        la trama de datos, el PC verifica el LRC y responde ACK. Si el terminador es ETB hay más bloques:
+        se confirman con ACK hasta recibir EOT o un ETX final. Nunca envía cierres Z.
+        Args:
+            command (str): Uno de U0X, U0X4, U0X5, U0X6, U0X7.
+        Returns:
+            Optional[str]: Texto concatenado de la carga útil (latin-1) o None si hubo timeout, NAK o LRC
+            incorrecto.
+        Raises:
+            ValueError: Si el comando no está en la lista de extracciones permitidas.
+        """
+        if command not in self._UPLOAD_ALLOWED:
+            raise ValueError(f"Comando de extracción no permitido: {command}")
+        try:
+            if not self._handle_cts_rts():
+                return None
+
+            self._build_cmd(command)
+            first = self.serial_printer.read(1)  # La impresora pregunta ENQ "¿listo?"; sin ACK a tiempo envía NAK
+            if first not in (b"\x05", b"\x06"):
+                logger.debug("Respuesta inesperada a %s: %s", command, first.hex() if first else "timeout")
+                return None
+            self.serial_printer.write(b"\x06")
+
+            parts: list[str] = []
+            for _ in range(200):  # Límite de seguridad de bloques
+                frame = self._read_info_frame()
+                if frame is None:
+                    return None
+                kind, text = frame
+                if kind == "EOT":
+                    break
+                parts.append(text)
+                self.serial_printer.write(b"\x06")
+                if kind == "ETX":
+                    break
+            else:
+                return None
+            return "".join(parts) if parts else None
+        except Exception as e:  # noqa: BLE001 - lectura informativa: cualquier fallo devuelve None
+            logger.error("Error extrayendo información %s: %s", command, e)
+            return None
+        finally:
+            try:
+                self.serial_printer.setRTS(False)
+            except Exception as e:  # noqa: BLE001 - fallo al liberar RTS no debe propagarse
+                logger.debug("No se pudo liberar RTS: %s", e)

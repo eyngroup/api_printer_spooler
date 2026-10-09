@@ -18,6 +18,7 @@ from flask_cors import CORS
 from handy.tools import get_base_path
 
 from .handlers.document_handler import handle_documents, handle_fiscal_commands, handle_reports
+from .handlers.fiscal_monitor import FiscalMonitor
 from .handlers.job_store import init_db
 from .handlers.printer_manager import PrinterManager
 from .handlers.proxy_handler import ProxyHandler
@@ -237,6 +238,14 @@ def get_status():
             ),
             500,
         )
+
+
+@api.route("/monitor", methods=["GET"])
+def fiscal_monitor():
+    """Monitor fiscal de solo lectura (pre-Z, contadores, pagos, máquina). `?refresh=1` fuerza una lectura nueva."""
+    force = request.args.get("refresh", "").strip().lower() in ("1", "true", "yes")
+    printers_config = current_app.config.get("printers", {})
+    return jsonify(FiscalMonitor.get_snapshot(printers_config, force=force))
 
 
 @api.route("/printers", methods=["POST"])

@@ -8,6 +8,7 @@ Clase Singleton para manejar las instancias de impresoras.
 
 import logging
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, ClassVar
 
@@ -356,3 +357,71 @@ class PrinterManager:
                     controller.close_port()
                 except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
                     logger.warning("Error al cerrar el puerto tras leer S1: %s", e)
+
+    @classmethod
+    def read_monitor_data(
+        cls,
+        printer_type: str,
+        printer_config: dict[str, Any],
+        is_busy: Callable[[], bool] | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Lee de la máquina HKA los datos del monitor fiscal (solo lectura): S1, S3, S4, S5, SV y U0X.
+
+        Todo el acceso serial ocurre bajo el lock del manager. Con instancia viva usa su controlador
+        (puerto ya abierto); sin instancia abre un controlador temporal y lo cierra siempre. Si is_busy
+        indica una impresión en curso (se reevalúa ya con el lock tomado) no toca el puerto. Solo HKA.
+        Nunca lanza excepciones.
+        Args:
+            printer_type: Tipo de impresora fiscal (solo "tfhka").
+            printer_config: Configuración (fiscal_port, fiscal_baudrate, fiscal_timeout).
+            is_busy: Función opcional que indica si hay una impresión en curso.
+        Returns:
+            dict | None: Textos/diccionarios crudos (s1, s3, s4, s5, sv, u0x), {"busy": True} si hay una
+            impresión en curso, o None si no se pudo leer.
+        """
+        controller = None
+        try:
+            if printer_type.lower() != "tfhka":
+                return None
+
+            with cls._lock:
+                if is_busy is not None and is_busy():
+                    return {"busy": True}
+
+                instance = cls._instances.get("tfhka")
+                if instance is not None:
+                    reader = instance._printer
+                    if not getattr(reader.serial_printer, "is_open", False):
+                        return None
+                else:
+                    from controllers.pfhka import FiscalPrinterHka
+
+                    controller = FiscalPrinterHka(
+                        printer_config.get("fiscal_port"),
+                        printer_config.get("fiscal_baudrate", 9600),
+                        printer_config.get("fiscal_timeout", 2),
+                    )
+                    if not controller.open_port():
+                        logger.warning("No se pudo abrir el puerto para leer el monitor fiscal de tfhka")
+                        return None
+                    reader = controller
+
+                data = {
+                    "s1": reader.get_s1(),
+                    "s3": reader.get_s3(flags_to_read=list(range(64))),
+                    "s4": reader.get_s4(),
+                    "s5": reader.get_s5(),
+                    "sv": reader.get_sv(),
+                    "u0x": reader.upload_report("U0X"),
+                }
+                return data if data["s1"] and data["u0x"] else None
+        except Exception as e:  # noqa: BLE001 - nunca debe lanzar: cualquier fallo devuelve None
+            logger.warning("No se pudo leer el monitor fiscal de %s: %s", printer_type, e)
+            return None
+        finally:
+            if controller is not None:
+                try:
+                    controller.close_port()
+                except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
+                    logger.warning("Error al cerrar el puerto tras leer el monitor fiscal: %s", e)
