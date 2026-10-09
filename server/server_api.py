@@ -62,7 +62,17 @@ def handle_error(error):
     server_state.last_errors.append(error_info)
     if len(server_state.last_errors) > 10:  # Mantener solo los últimos 10 errores
         server_state.last_errors.pop(0)
-    return jsonify({"status": "error", "message": str(error)}), 500
+    # status debe ser booleano (contrato con Odoo) y data siempre lleva Estado/Error
+    return (
+        jsonify(
+            {
+                "status": False,
+                "message": str(error),
+                "data": {"Estado": "Error interno", "Error": str(error)},
+            }
+        ),
+        500,
+    )
 
 
 def create_app(config):

@@ -51,21 +51,81 @@ def find_value(dictionary: dict[str, Any], key: str) -> Any | None:
     return None
 
 
-def error_response(message: str, status_code: int = HTTP_BAD_REQUEST, data: Any = None) -> tuple[Response, int]:
+def failure_data(state: str, error: str, /, **extra: Any) -> dict[str, Any]:
+    """
+    Construye el bloque de datos de una falla con el contrato que espera Odoo (Estado y Error).
+    Args:
+        state: Texto del estado (se envía como "Estado").
+        error: Texto del error (se envía como "Error").
+        **extra: Claves adicionales a conservar en el bloque.
+    Returns:
+        dict[str, Any]: Diccionario con "Estado", "Error" y las claves adicionales.
+    """
+    return {"Estado": state, "Error": error, **extra}
+
+
+def _normalize_failure_data(data: Any, message: str, state: str) -> dict[str, Any]:
+    """
+    Garantiza que los datos de una respuesta de falla sean siempre un diccionario con Estado y Error.
+    Args:
+        data: Datos originales (None, lista, diccionario u otro valor).
+        message: Mensaje de la falla, usado como Error cuando los datos no lo traen.
+        state: Estado por defecto cuando los datos no lo traen.
+    Returns:
+        dict[str, Any]: Diccionario con "Estado" y "Error" siempre presentes.
+    """
+    if data is None:
+        return failure_data(state, message)
+    if isinstance(data, list):
+        return failure_data(state, message, results=data)
+    if isinstance(data, dict):
+        if "Estado" in data and "Error" in data:
+            return data
+        return {**data, "Estado": data.get("Estado", state), "Error": data.get("Error", message)}
+    return failure_data(state, message, results=data)
+
+
+def error_response(
+    message: str, status_code: int = HTTP_BAD_REQUEST, data: Any = None, state: str = "Error interno"
+) -> tuple[Response, int]:
     """
     Crea una respuesta de error estandarizada.
+    El campo data siempre es un diccionario con "Estado" y "Error" (Odoo los lee cuando status es false).
     Args:
         message: Mensaje de error.
         status_code: Código HTTP de error.
-        data: Datos adicionales opcionales.
+        data: Datos adicionales opcionales. Una lista se conserva bajo la clave "results".
+        state: Estado por defecto cuando los datos no incluyen "Estado".
     Returns:
         tuple[Response, int]: Respuesta JSON y código de estado.
     """
-    if data:
-        logger.error("%s - %s", message, data)
-    else:
-        logger.error("%s", message)
+    data = _normalize_failure_data(data, message, state)
+    logger.error("%s - %s", message, data)
     return jsonify({"status": False, "message": message, "data": data}), status_code
+
+
+def _fill_status_from_printer(printer: Any, data: Any) -> Any:
+    """
+    Completa Estado/Error de una falla de impresión con el estado actual de la impresora.
+    Hace un único intento y nunca lanza excepciones: la respuesta de error no debe fallar por esto.
+    Args:
+        printer: Instancia de la impresora (puede ser None).
+        data: Datos de la falla devueltos por el driver (puede ser None).
+    Returns:
+        Any: Los datos originales, o un diccionario con Estado/Error si se pudo leer el estado.
+    """
+    if printer is None or (isinstance(data, dict) and "Estado" in data and "Error" in data):
+        return data
+    try:
+        status = printer.get_printer_status()
+        state, error = printer.format_status_message(status)
+        if not isinstance(state, str) or not isinstance(error, str):
+            return data
+        base = data if isinstance(data, dict) else {}
+        return {**base, "Estado": state, "Error": error}
+    except Exception as e:  # noqa: BLE001 - mejora opcional: cualquier fallo al leer el estado se ignora
+        logger.warning("No se pudo leer el estado de la impresora tras la falla: %s", e)
+        return data
 
 
 def printer_instance(
@@ -94,15 +154,19 @@ def printer_instance(
             except ValueError as e:
                 error_msg = str(e)
                 if "Estado:" in error_msg and "Error:" in error_msg:
-                    state = error_msg.split("Estado:")[1].split(",")[0].strip()
-                    error = error_msg.split("Error:")[1].strip()
-                    return None, {
-                        "printer_type": printer_fiscal_name,
-                        "state": state,
-                        "error": error,
-                        "message": error_msg,
-                    }
-                return None, {"printer_type": printer_fiscal_name, "message": error_msg}
+                    state = error_msg.rsplit("Estado:", 1)[1].split(",")[0].strip()
+                    error = error_msg.rsplit("Error:", 1)[1].strip()
+                    return None, failure_data(
+                        state,
+                        error,
+                        printer_type=printer_fiscal_name,
+                        state=state,
+                        error=error,
+                        message=error_msg,
+                    )
+                return None, failure_data(
+                    "Impresora no disponible", error_msg, printer_type=printer_fiscal_name, message=error_msg
+                )
 
         if printer_matrix_enabled:
             from printers.printer_dotmatrix import MatrixPrinter
@@ -114,10 +178,12 @@ def printer_instance(
 
             return TicketPrinter(find_value(printer_config, PRINTER_TYPE_TICKET)), None
 
-        return None, {"message": "No hay impresoras configuradas"}
+        return None, failure_data(
+            "Impresora no disponible", "No hay impresoras configuradas", message="No hay impresoras configuradas"
+        )
 
     except Exception as e:
-        return None, {"message": str(e)}
+        return None, failure_data("Impresora no disponible", str(e), message=str(e))
 
 
 def _complete_job_safely(document_id: str, operation_type: str, response: dict[str, Any]) -> bool:
@@ -180,17 +246,21 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
         logger.debug("Datos recibidos en handle_print_document: %s", data)
 
         if not data:
-            return error_response("No se recibieron datos en la solicitud")
+            return error_response("No se recibieron datos en la solicitud", state="Documento rechazado")
 
         try:
             validate_document(data)
         except ValidationError as e:
-            return error_response(f"Error de validación en el formato del documento: {str(e)}")
+            return error_response(
+                f"Error de validación en el formato del documento: {str(e)}", state="Documento rechazado"
+            )
 
         try:  # Validar reglas de negocio del documento
             invoice = Invoice(data)
             if validation_error := invoice.validate():
-                return error_response(f"Error de validación de negocio: {validation_error}")
+                return error_response(
+                    f"Error de validación de negocio: {validation_error}", state="Documento rechazado"
+                )
 
             logger.info(
                 "Documento validado: %s - Tipo: %s",
@@ -198,7 +268,9 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
                 invoice.operation_type,
             )
         except Exception as e:
-            return error_response(f"Error al validar reglas de negocio del documento: {str(e)}")
+            return error_response(
+                f"Error al validar reglas de negocio del documento: {str(e)}", state="Documento rechazado"
+            )
 
         # Idempotency check — must happen before touching the serial port
         acquire_result, cached_response = acquire_job(invoice.document_number, invoice.operation_type)
@@ -215,6 +287,7 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
         # acquire_result is 'new' or 'retry' — proceed
         # Desde aquí el trabajo está en 'processing': toda salida debe dejarlo en un estado final,
         # o Odoo recibiría 409 indefinidamente para este documento.
+        printer = None
         try:
             printers_config = current_app.config.get("printers", {})  # Obtener configuración de impresoras
             printer, error_data = printer_instance(printers_config)
@@ -227,9 +300,11 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
                     else:
                         message = error_data.get("message", "Error desconocido al obtener la impresora")
                     fail_job(invoice.document_number, invoice.operation_type, message)
-                    return error_response(message, data=error_data)
+                    return error_response(message, data=error_data, state="Impresora no disponible")
                 fail_job(invoice.document_number, invoice.operation_type, "No hay impresoras habilitadas")
-                return error_response("No hay impresoras habilitadas para procesar el documento")
+                return error_response(
+                    "No hay impresoras habilitadas para procesar el documento", state="Impresora no disponible"
+                )
 
             result = printer.print_document(data)  # Procesar el documento
             logger.debug("Documento result= %s", result)
@@ -239,7 +314,8 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
             error_msg = f"Error interno durante la impresión: {e!s}"
             logger.exception("Documento %s: %s", invoice.document_number, error_msg)
             _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
-            return error_response(error_msg, HTTP_INTERNAL_ERROR)
+            # Si la impresora existe, se intenta informar su estado real (una sola lectura, sin fallar).
+            return error_response(error_msg, HTTP_INTERNAL_ERROR, data=_fill_status_from_printer(printer, None))
 
         if result.get("status", False):
             response_payload = {
@@ -255,7 +331,11 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
 
         error_msg = result.get("message", "Error desconocido al imprimir")
         _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
-        return error_response(error_msg, data=result.get("data"))
+        return error_response(
+            error_msg,
+            data=_fill_status_from_printer(printer, result.get("data")),
+            state="Error de impresión",
+        )
 
     except Exception as e:
         return error_response(f"Error interno del servidor: {str(e)}", HTTP_INTERNAL_ERROR)
@@ -276,17 +356,17 @@ def handle_reports(report_type: str) -> tuple[Response, int]:
         fiscal_config = printers_config.get("fiscal", {})
 
         if not fiscal_config or not fiscal_config.get("fiscal_enabled", False):
-            return error_response("Impresora fiscal no está habilitada")
+            return error_response("Impresora fiscal no está habilitada", state="Impresora no disponible")
 
         printer, error_data = printer_instance(printers_config)
 
         if not printer:
             if error_data:
-                return error_response(error_data["message"], data=error_data)
-            return error_response("No se pudo obtener la impresora fiscal")
+                return error_response(error_data["message"], data=error_data, state="Impresora no disponible")
+            return error_response("No se pudo obtener la impresora fiscal", state="Impresora no disponible")
 
         if not printer.check_status():  # Verificar que la impresora está lista
-            return error_response("La impresora fiscal no está lista")
+            return error_response("La impresora fiscal no está lista", state="Impresora no disponible")
 
         method = f"report_{report_type.lower()}"  # Imprimir reporte
         if not hasattr(printer, method):
@@ -331,7 +411,7 @@ def handle_fiscal_commands() -> tuple[Response, int]:
         commands = data.get("commands")
 
         if not isinstance(commands, list) or not commands:
-            return error_response("'commands' debe ser una lista no vacía")
+            return error_response("'commands' debe ser una lista no vacía", state="Comando rechazado")
 
         logger.info("Recibida solicitud de comandos directos: %s", commands)
 
@@ -339,7 +419,7 @@ def handle_fiscal_commands() -> tuple[Response, int]:
         fiscal_config = printers_config.get("fiscal", {})
 
         if not fiscal_config or not fiscal_config.get("fiscal_enabled", False):
-            return error_response("Impresora fiscal no está habilitada")
+            return error_response("Impresora fiscal no está habilitada", state="Impresora no disponible")
 
         printer, error_data = printer_instance(printers_config)
         if not printer:
@@ -348,7 +428,7 @@ def handle_fiscal_commands() -> tuple[Response, int]:
                 if error_data
                 else "No se pudo obtener la impresora fiscal"
             )
-            return error_response(message, data=error_data)
+            return error_response(message, data=error_data, state="Impresora no disponible")
 
         if not printer.check_status():
             fiscal_name = printers_config.get("fiscal", {}).get("fiscal_name", "").strip().lower()
@@ -360,9 +440,9 @@ def handle_fiscal_commands() -> tuple[Response, int]:
                     if error_data
                     else "No se pudo reconectar con la impresora fiscal"
                 )
-                return error_response(message, data=error_data)
+                return error_response(message, data=error_data, state="Impresora no disponible")
             if not printer.check_status():
-                return error_response("La impresora fiscal no está lista")
+                return error_response("La impresora fiscal no está lista", state="Impresora no disponible")
 
         results = []
         for cmd in commands:
@@ -373,7 +453,11 @@ def handle_fiscal_commands() -> tuple[Response, int]:
         # recibir un éxito si la impresora lo rechazó (el detalle por comando se mantiene en data).
         rejected = [result["command"] for result in results if not result["success"]]
         if rejected:
-            return error_response(f"Comando(s) rechazado(s) por la impresora: {', '.join(rejected)}", data=results)
+            return error_response(
+                f"Comando(s) rechazado(s) por la impresora: {', '.join(rejected)}",
+                data=results,
+                state="Comando rechazado",
+            )
 
         return jsonify({"status": True, "message": "Comandos procesados", "data": results}), 200
 

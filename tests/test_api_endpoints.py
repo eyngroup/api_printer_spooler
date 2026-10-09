@@ -284,7 +284,8 @@ def test_command_rejected_reports_status_false(app_client, monkeypatch):
     body = resp.get_json()
     assert body["status"] is False
     assert "RF00010030001003" in body["message"]
-    assert body["data"] == [{"command": "RF00010030001003", "success": False}]
+    assert body["data"]["results"] == [{"command": "RF00010030001003", "success": False}]
+    assert body["data"]["Estado"] == "Comando rechazado"
 
 
 def test_command_partial_failure_reports_status_false(app_client, monkeypatch):
@@ -295,4 +296,113 @@ def test_command_partial_failure_reports_status_false(app_client, monkeypatch):
     monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
     body = app_client.post("/api/command", json={"commands": ["A", "B"]}).get_json()
     assert body["status"] is False
-    assert body["data"] == [{"command": "A", "success": True}, {"command": "B", "success": False}]
+    assert body["data"]["results"] == [{"command": "A", "success": True}, {"command": "B", "success": False}]
+
+
+def test_schema_error_reports_estado_and_error(app_client):
+    """A schema validation failure carries Estado/Error so Odoo never reads a null data."""
+    body = app_client.post("/api/printers", json={"invalid": "payload"}).get_json()
+    assert body["status"] is False
+    assert body["data"]["Estado"] == "Documento rechazado"
+    assert body["data"]["Error"]
+
+
+def test_business_error_reports_estado_and_error(app_client, sample_invoice_payload):
+    """A business rule failure carries Estado 'Documento rechazado' and the specific message."""
+    sample_invoice_payload["payments"][0]["payment_amount"] = 1.0  # no cubre el total
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    body = resp.get_json()
+    assert resp.status_code == 400
+    assert body["status"] is False
+    assert body["data"]["Estado"] == "Documento rechazado"
+    assert body["data"]["Error"]
+
+
+def test_printer_unavailable_cover_open_reports_real_status(app_client, sample_invoice_payload, monkeypatch):
+    """Creation fails (cover open): the status read by PrinterManager.read_status reaches Odoo."""
+    from server.handlers import document_handler
+    from server.handlers.printer_manager import PrinterManager
+
+    class _FailingPrinter:
+        def __init__(self, config):
+            raise ConnectionError("Error al conectar con la impresora: TFHKA")
+
+    monkeypatch.setattr("printers.printer_hka.TfhkaPrinter", _FailingPrinter)
+    monkeypatch.setattr(PrinterManager, "_instances", {})
+    monkeypatch.setattr(
+        PrinterManager,
+        "read_status",
+        classmethod(
+            lambda cls, printer_type, cfg: {
+                "status_code": 96,
+                "error_code": 67,
+                "status": "En modo fiscal y en espera",
+                "error": "Fin en la entrega de papel y error mecánico",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        document_handler,
+        "find_value",
+        lambda cfg, key: {"fiscal_enabled": True, "fiscal_name": "tfhka"}.get(key),
+    )
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    body = resp.get_json()
+    assert body["status"] is False
+    assert body["data"]["Estado"] == "En modo fiscal y en espera"
+    assert body["data"]["Error"] == "Fin en la entrega de papel y error mecánico"
+    assert _job_status("TEST-0099") == "failed"
+
+
+def test_print_failure_fills_status_from_printer(app_client, sample_invoice_payload, monkeypatch):
+    """print_document fails with data None: Estado/Error come from the printer status (USB cut)."""
+    from server.handlers import document_handler
+
+    printer = MagicMock()
+    printer.print_document.return_value = {"status": False, "message": "No se pudo imprimir", "data": None}
+    printer.get_printer_status.return_value = {
+        "status_code": 0,
+        "error_code": 128,
+        "status": "Error",
+        "error": "CTS en falso",
+    }
+    printer.format_status_message.return_value = ("Error", "CTS en falso")
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+
+    body = app_client.post("/api/printers", json=sample_invoice_payload).get_json()
+    assert body["status"] is False
+    assert body["data"]["Estado"] == "Error"
+    assert body["data"]["Error"] == "CTS en falso"
+    assert _job_status("TEST-0099") == "failed"
+
+
+def test_print_exception_without_status_still_has_estado_and_error(app_client, sample_invoice_payload, monkeypatch):
+    """If the status cannot be read either, the response still carries Estado/Error."""
+    from server.handlers import document_handler
+
+    printer = MagicMock()
+    printer.print_document.side_effect = OSError("cable desconectado")
+    printer.get_printer_status.side_effect = OSError("sin puerto")
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+
+    resp = app_client.post("/api/printers", json=sample_invoice_payload)
+    body = resp.get_json()
+    assert resp.status_code == 500
+    assert body["data"]["Estado"] == "Error interno"
+    assert "cable desconectado" in body["data"]["Error"]
+
+
+def test_blueprint_errorhandler_returns_boolean_false(app_client, monkeypatch):
+    """Unhandled exceptions in a route return status false (boolean) with Estado/Error."""
+    from server import server_api
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("fallo inesperado")
+
+    monkeypatch.setattr(server_api, "handle_fiscal_commands", _boom)
+    resp = app_client.post("/api/command", json={"commands": ["A"]})
+    body = resp.get_json()
+    assert resp.status_code == 500
+    assert body["status"] is False
+    assert body["data"] == {"Estado": "Error interno", "Error": "fallo inesperado"}
