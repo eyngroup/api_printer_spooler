@@ -9,7 +9,7 @@ Clase para el manejo de la impresora fiscal PNP
 import datetime
 import logging
 import time
-from decimal import ROUND_HALF_UP, Decimal, getcontext
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, getcontext
 from typing import Any, ClassVar
 
 from controllers.pfpnp import FiscalPrinterPnp
@@ -451,6 +451,40 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                 if not resp:
                     raise RuntimeError("Error en datos de documento NO fiscal")
 
+    def _apply_item_adjustment(self, item: dict[str, Any]) -> tuple[Decimal, str | None]:
+        """
+        Calcula el precio unitario (sin impuesto) ajustado por descuento o recargo del ítem.
+        Args:
+            item: Ítem del documento con item_price, item_discount e item_discount_type
+        Returns:
+            tuple: (precio ajustado con 2 decimales, texto informativo o None si no hay ajuste)
+        """
+        cent = Decimal("0.01")
+        price = Decimal(str(item.get("item_price", 0) or 0))
+        try:
+            value = Decimal(str(item.get("item_discount", 0) or 0))
+        except (InvalidOperation, ValueError):
+            value = Decimal(0)
+        adjustment_type = item.get("item_discount_type", "")
+        # normalize_text elimina el punto decimal ("10.00" -> "1000"), por eso el texto usa coma decimal
+        shown = f"{value:.2f}".replace(".", ",")
+
+        if value <= 0:
+            return price.quantize(cent, rounding=ROUND_HALF_UP), None
+
+        if adjustment_type == "discount_percentage":
+            adjusted, text = price * (1 - value / 100), f"DESCUENTO {shown}%"
+        elif adjustment_type == "surcharge_percentage":
+            adjusted, text = price * (1 + value / 100), f"RECARGO {shown}%"
+        elif adjustment_type == "discount_amount":
+            adjusted, text = price - value, f"DESCUENTO {shown}"
+        elif adjustment_type == "surcharge_amount":
+            adjusted, text = price + value, f"RECARGO {shown}"
+        else:
+            return price.quantize(cent, rounding=ROUND_HALF_UP), None
+
+        return adjusted.quantize(cent, rounding=ROUND_HALF_UP), text
+
     def _process_items(self, data: dict[str, Any]) -> None:
         """Procesa y envía los ítems del documento a la impresora."""
         logger.debug("Procesando items")
@@ -480,10 +514,19 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
                         raise RuntimeError("Error de comentario en item de documento NO fiscal")
             else:
                 tax_value = str(int(float(item_tax) * 100)).zfill(4)
+                # El comando 0x42 del manual PNP v5.4 no admite descuento/recargo y el calificador "m"
+                # es anulación de ítem, por lo que el precio se envía ya ajustado.
+                adjusted_price, adjustment_text = self._apply_item_adjustment(item)
+                item_price = self._format_number(adjusted_price, "price")
                 resp = self.send_command(PNPcmd.ITEM_LINE.format(item_name, item_quantity, item_price, tax_value))
                 if not resp:
                     self.send_command(PNPcmd.ITEM_LINE_DEL.format(item_name, item_quantity, item_price, tax_value))
                     raise RuntimeError("Error al procesar ítem fiscal")
+
+                if self.template_config.get("format", {}).get("include_item_discount", False) and adjustment_text:
+                    resp = self.send_command(PNPcmd.COMMENTS.format(self._format_text(adjustment_text, "comment")))
+                    if not resp:
+                        raise RuntimeError(f"Error al procesar línea de descuento: {adjustment_text}")
 
                 if self.template_config.get("format", {}).get("include_item_comment", False) and item_comment:
                     resp = self.send_command(PNPcmd.COMMENTS.format(item_comment))

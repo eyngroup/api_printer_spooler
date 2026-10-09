@@ -16,6 +16,7 @@
     "include_document_cashier": true,
     "include_item_reference": true,
     "include_item_comment": false,
+    "include_item_discount": false,
     "include_payment_subtotal": false,
     "include_delivery_comments": false,
     "include_delivery_barcode": true,

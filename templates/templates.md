@@ -258,6 +258,7 @@
     "include_document_cashier": false,
     "include_item_reference": false,
     "include_item_comment": false,
+    "include_item_discount": false,
     "include_payment_subtotal": false,
     "include_delivery_comments": false,
     "include_delivery_barcode": false
@@ -280,6 +281,7 @@
 - `include_document_cashier`: Habilitar/Deshabilitar nombre de cajero/vendedor/usuario.
 - `include_item_reference`: Habilitar/Deshabilitar código del ítem.
 - `include_item_comment`: Habilitar/Deshabilitar comentario del ítem.
+- `include_item_discount`: Habilitar/Deshabilitar línea informativa de descuento/recargo del ítem (ej. `DESCUENTO 10,00%`; se usa coma decimal porque el texto fiscal elimina los puntos). Solo aplica a PNP (TFHKA imprime los descuentos de forma nativa con los comandos p-/p+). En PNP el precio siempre se envía ya con el descuento/recargo aplicado; este flag solo agrega la línea de texto.
 - `include_payment_subtotal`: Habilitar/Deshabilitar subtotal de pagos.
 - `include_delivery_comments`: Habilitar/Deshabilitar comentarios de entrega.
 - `include_delivery_barcode`: Habilitar/Deshabilitar código de barras.
