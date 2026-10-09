@@ -704,3 +704,18 @@ def test_printer_without_counter_support_is_unchanged(app_client, sample_invoice
     assert _job_status("TEST-0099") == "failed"
     app_client.post("/api/printers", json=sample_invoice_payload)
     assert printer.calls == 2
+
+
+def test_status_does_not_expose_security_code(app_client):
+    """GET /api/status es accesible desde la red: nunca debe publicar la sección de seguridad."""
+    resp = app_client.get("/api/status")
+    assert resp.status_code == 200
+    assert "security" not in resp.get_json().get("config", {})
+    assert "security_code" not in resp.get_data(as_text=True)
+
+
+def test_dashboard_is_read_only(app_client):
+    """El panel web no ofrece acciones (reportes X/Z, comandos, configuración) ni el modal de seguridad."""
+    html = app_client.get("/").get_data(as_text=True)
+    for removed in ("printReportZ", "printReportX", "sendCommandsBtn", "configEditorBtn", "securityCodeModal"):
+        assert removed not in html

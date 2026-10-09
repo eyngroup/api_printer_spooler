@@ -215,7 +215,6 @@ def get_status():
                         "console_output": True,
                     },
                 ),
-                "security": config.get("security", {"z_report_code": ""}),
             },
             "stats": {
                 "requests_total": server_state.request_count,

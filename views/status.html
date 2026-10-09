@@ -12,9 +12,6 @@
 <nav class="navbar navbar-dark bg-dark">
     <div class="container">
         <span class="navbar-brand mb-0 h1">API Printer Server Dashboard</span>
-        <div>
-            <a class="btn btn-outline-light" id="configEditorBtn" href="javascript:void(0)">Editor de Configuración</a>
-        </div>
     </div>
 </nav>
 
@@ -70,7 +67,7 @@
         </div>
     </div>
 
-    <!-- Estado de Impresoras y Acciones -->
+    <!-- Estado de Impresoras (panel de solo lectura) -->
     <div class="row mb-4">
         <div class="col-md-6">
             <div class="card">
@@ -95,27 +92,6 @@
                             <strong>Puerto Activo:</strong>
                             <span id="activePrinterPort" class="ms-2">--</span>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header bg-warning text-dark">
-                    Acciones de Impresora
-                </div>
-                <div class="card-body">
-                    <div class="d-grid gap-2">
-                        <button class="btn btn-primary" type="button" id="sendCommandsBtn">
-                            Enviar Comandos
-                        </button>
-                        <button class="btn btn-info text-white" type="button" id="printReportX">
-                            Imprimir Reporte X
-                        </button>
-                        <button class="btn btn-warning text-dark" type="button" id="printReportZ">
-                            Imprimir Reporte Z
-                        </button>
                     </div>
                 </div>
             </div>
@@ -150,31 +126,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal para código de seguridad -->
-<div class="modal fade" id="securityCodeModal" tabindex="-1" aria-labelledby="securityCodeModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="securityCodeModalLabel">Código de Seguridad</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label for="securityCode" class="form-label">Ingrese el código de seguridad:</label>
-                    <input type="password" class="form-control" id="securityCode">
-                    <div class="invalid-feedback">
-                        Código de seguridad incorrecto
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary" id="confirmSecurityCode">Confirmar</button>
             </div>
         </div>
     </div>
