@@ -21,11 +21,21 @@ if sys.platform == "win32":
     import win32print
 from handy.tools import get_base_path, normalize_text, format_multiline
 
+from models.model_invoice import InvoiceItem
+
 from .printer_base import BasePrinter
 from .printer_commands import ESCPOScmd
 from .printer_counter import FiscalCounter
 
 logger = logging.getLogger(__name__)
+
+# Leyenda impresa según el tipo de ajuste del item (mismos criterios que la impresora matricial)
+ADJUSTMENT_LABELS = {
+    "discount_percentage": "Descuento",
+    "surcharge_percentage": "Recargo",
+    "discount_amount": "Descuento",
+    "surcharge_amount": "Recargo",
+}
 
 
 class TicketPrinter(BasePrinter):
@@ -51,9 +61,10 @@ class TicketPrinter(BasePrinter):
         use_escpos = config.get("ticket_use_escpos", True)  # Inicializar comandos ESC/POS
         self.escpos_commands = ESCPOScmd(use_escpos)
 
-        self._load_template()  # Inicializar contador usando el template
-        template_path = os.path.join(get_base_path(), "templates", self.template_name)
-        self.counter = FiscalCounter(template_path)
+        with FiscalCounter.LOCK:  # Evita leer el template mientras otra petición lo está escribiendo
+            self._load_template()  # Inicializar contador usando el template
+            template_path = os.path.join(get_base_path(), "templates", self.template_name)
+            self.counter = FiscalCounter(template_path)
 
     def connect(self) -> bool:
         """Conecta con la impresora"""
@@ -110,73 +121,105 @@ class TicketPrinter(BasePrinter):
                 "data": None,
             }
 
-        try:
-            if not self.connect():
-                return {
-                    "status": False,
-                    "message": f"No se pudo conectar a la impresora {self.printer_name}",
-                    "data": None,
-                }
-
-            fiscal_data = self.counter.update_counter(data.get("operation_type", "invoice"))
-
-            if self.config.get("logo_enabled", False) and self.escpos_commands.use_escpos:
-                self._print_logo_direct()
-
-            document_content = self._generate_document_content(data)
-
-            if self.direct_print:
-                try:
-                    if sys.platform == "win32":
-                        doc_info = ("Ticket", None, "RAW")  # (nombre_doc, nombre_output, tipo_datos)
-                        win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
-                        win32print.StartPagePrinter(self.printer_handle)  # Inicia
-                        win32print.WritePrinter(self.printer_handle, document_content.encode("utf-8"))  # Envía
-                        win32print.EndPagePrinter(self.printer_handle)  # Finaliza
-                        win32print.EndDocPrinter(self.printer_handle)  # Finaliza
-                    else:
-                        # Linux: Usar lpr para enviar raw
-                        cmd = ["lpr", "-P", self.printer_name, "-o", "raw"]
-                        process = subprocess.Popen(
-                            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                        )
-                        stdout, stderr = process.communicate(input=document_content.encode("utf-8"))
-
-                        if process.returncode != 0:
-                            raise Exception(f"lpr error: {stderr.decode()}")
-
-                finally:
-                    self.disconnect()
-
-                return {
-                    "status": True,
-                    "message": "Documento enviado a imprimir correctamente",
-                    "data": fiscal_data,
-                }
-
+        with FiscalCounter.LOCK:  # Serializa reservar -> formatear -> imprimir -> confirmar el contador
             try:
-                os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-                with open(self.output_file, "w", encoding="utf-8") as f:
-                    f.write(document_content)  # Escribir
+                # El modo archivo (txt) no necesita una impresora real: solo la impresión directa conecta.
+                if self.direct_print and not self.connect():
+                    return {
+                        "status": False,
+                        "message": f"No se pudo conectar a la impresora {self.printer_name}",
+                        "data": None,
+                    }
 
-                logger.info("Documento guardado en: %s", self.output_file)
+                operation_type = data.get("operation_type", "invoice")
+                fiscal_data = self.counter.reserve_counter(operation_type)  # Reserva sin persistir
+
+                document_content = self._generate_document_content(data, fiscal_data)
+
+                if self.config.get("logo_enabled", False) and self.escpos_commands.use_escpos and self.direct_print:
+                    self._print_logo_direct()
+
+                if self.direct_print:
+                    try:
+                        try:
+                            if sys.platform == "win32":
+                                doc_info = ("Ticket", None, "RAW")  # (nombre_doc, nombre_output, tipo_datos)
+                                win32print.StartDocPrinter(self.printer_handle, 1, doc_info)
+                                win32print.StartPagePrinter(self.printer_handle)  # Inicia
+                                win32print.WritePrinter(self.printer_handle, document_content.encode("utf-8"))  # Envía
+                                win32print.EndPagePrinter(self.printer_handle)  # Finaliza
+                                win32print.EndDocPrinter(self.printer_handle)  # Finaliza
+                            else:
+                                # Linux: Usar lpr para enviar raw
+                                cmd = ["lpr", "-P", self.printer_name, "-o", "raw"]
+                                process = subprocess.Popen(
+                                    cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                                )
+                                stdout, stderr = process.communicate(input=document_content.encode("utf-8"))
+
+                                if process.returncode != 0:
+                                    raise Exception(f"lpr error: {stderr.decode()}")
+
+                        finally:
+                            self.disconnect()
+                    except Exception as e:
+                        error_msg = f"Error imprimiendo documento: {e!s}"
+                        logger.exception(error_msg)
+                        return {"status": False, "message": error_msg, "data": None}
+
+                    self._commit_counter(operation_type, fiscal_data)
+                    return {
+                        "status": True,
+                        "message": "Documento enviado a imprimir correctamente",
+                        "data": fiscal_data,
+                    }
+
+                try:
+                    os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
+                    with open(self.output_file, "w", encoding="utf-8") as f:
+                        f.write(document_content)  # Escribir
+
+                    logger.info("Documento guardado en: %s", self.output_file)
+                except Exception as e:
+                    error_msg = f"Error guardando archivo: {str(e)}"
+                    logger.error(error_msg)
+                    return {"status": False, "message": error_msg, "data": None}
+
+                self._commit_counter(operation_type, fiscal_data)
                 return {
                     "status": True,
                     "message": f"Documento guardado en archivo: {self.output_file}",
                     "data": fiscal_data,
                 }
-            except Exception as e:
-                error_msg = f"Error guardando archivo: {str(e)}"
-                logger.error(error_msg)
-                return {"status": False, "message": error_msg, "data": None}
 
-        except Exception as e:
-            logger.error("Error imprimiendo documento: %s", str(e), exc_info=True)
-            return {
-                "status": False,
-                "message": f"Error imprimiendo documento: {str(e)}",
-                "data": None,
-            }
+            except Exception as e:
+                if self.direct_print:
+                    self.disconnect()  # No dejar el spooler abierto si falló antes de enviar
+                logger.error("Error imprimiendo documento: %s", str(e), exc_info=True)
+                return {
+                    "status": False,
+                    "message": f"Error imprimiendo documento: {str(e)}",
+                    "data": None,
+                }
+
+    def _commit_counter(self, operation_type: str, fiscal_data: dict[str, str]) -> None:
+        """
+        Persiste el contador reservado una vez que la impresión fue exitosa.
+        Si la escritura falla el documento ya salió impreso: se registra el error pero no se
+        reporta fallo, para que Odoo no reintente y genere un duplicado en papel.
+        Args:
+            operation_type (str): Tipo de operación del documento
+            fiscal_data (dict): Valores devueltos por reserve_counter
+        """
+        try:
+            self.counter.commit_counter(operation_type, fiscal_data)
+        except Exception as e:  # noqa: BLE001 - el documento ya salió impreso: nunca reportar fallo
+            # Crítico: el número no quedó guardado y el siguiente documento lo repetiría.
+            logger.critical(
+                "Documento impreso pero no se pudo persistir el contador %s: %s",
+                fiscal_data.get("document_number"),
+                str(e),
+            )
 
     def check_status(self) -> Dict[str, Any]:
         """
@@ -344,11 +387,12 @@ class TicketPrinter(BasePrinter):
 
         return header
 
-    def _format_sub_header(self, data: Dict[str, Any]) -> List[str]:
+    def _format_sub_header(self, data: Dict[str, Any], fiscal_data: dict[str, str] | None = None) -> List[str]:
         """
         Formatea el sub-encabezado del ticket (tipo documento, número, fecha)
         Args:
             data: Datos del documento
+            fiscal_data: Contador reservado con reserve_counter; si es None se usa el valor del template + 1
         Returns:
             List[str]: Líneas del sub-encabezado
         """
@@ -383,10 +427,13 @@ class TicketPrinter(BasePrinter):
             "note": "document_note",
         }
 
-        counter_key = counter_mapping.get(data.get("operation_type", "invoice"), "document_invoice")
-        document_number = int(self.template["counter"][counter_key])
-        document_number += 1
-        doc_number = str(document_number).zfill(8)
+        if fiscal_data is not None:
+            doc_number = str(fiscal_data["document_number"]).zfill(8)  # Número reservado: el mismo que se devuelve
+        else:
+            counter_key = counter_mapping.get(data.get("operation_type", "invoice"), "document_invoice")
+            document_number = int(self.template["counter"][counter_key])
+            document_number += 1
+            doc_number = str(document_number).zfill(8)
 
         sub_header.extend(
             [
@@ -474,7 +521,7 @@ class TicketPrinter(BasePrinter):
         for item in data["items"]:  # Procesar cada item
             quantity = item.get("item_quantity", 1)
             price = item.get("item_price", 0.0)
-            total = quantity * price  # Calcular valores
+            total = InvoiceItem(item).subtotal  # Con descuento/recargo y redondeo por línea (igual que Odoo)
             tax_rate = item.get("item_tax", 0)
 
             subtotal += total  # Acumular subtotal
@@ -509,12 +556,38 @@ class TicketPrinter(BasePrinter):
                     # Líneas superiores solo con el texto descriptivo
                     items.append(line + "\n")
 
+            adjustment = self._item_adjustment(item)
+            if adjustment is not None:  # Leyenda justificada con el monto del ajuste bajo el item
+                label, adjustment_amount = adjustment
+                items.append(
+                    self._format_line_justified(f"  {label}", f"{symbol} {adjustment_amount:.2f}", width) + "\n"
+                )
+
         if self.template["format"].get("show_subtotal", True):
             items.append(f"{self.template['format']['separator'] * width}\n")
             items.append(self._format_line_justified("SUBTOTAL:", f"{symbol} {subtotal:.2f}", width) + "\n")
         items.append(f"{self.template['format']['separator'] * width}\n")
 
         return items
+
+    @staticmethod
+    def _item_adjustment(item: dict[str, Any]) -> tuple[str, float] | None:
+        """
+        Calcula la leyenda y el monto del descuento o recargo de un item.
+        Args:
+            item (dict): Item del documento
+        Returns:
+            tuple[str, float] | None: (leyenda, monto) o None si el item no tiene ajuste. El monto es
+            negativo para descuentos y positivo para recargos (subtotal - precio * cantidad).
+        """
+        discount = item.get("item_discount", 0) or 0
+        discount_type = item.get("item_discount_type", "")
+        if discount <= 0 or discount_type not in ADJUSTMENT_LABELS:
+            return None
+        word = ADJUSTMENT_LABELS[discount_type]
+        suffix = "%" if discount_type.endswith("_percentage") else ""
+        amount = round(InvoiceItem(item).subtotal - round(item["item_price"] * item["item_quantity"], 2), 2)
+        return f"{word} {discount:.2f}{suffix}", amount + 0.0  # + 0.0 evita imprimir "-0.00"
 
     def _get_tax_indicator(self, tax_rate: float) -> str:
         """
@@ -545,15 +618,26 @@ class TicketPrinter(BasePrinter):
         tax_bases = {0: 0, 16: 0, 8: 0, 31: 0}
         tax_amounts = {0: 0, 16: 0, 8: 0, 31: 0}
 
-        for item in data["items"]:  # Calcular bases e impuestos por tasa
-            price = item.get("item_price", 0.0)
-            quantity = item.get("item_quantity", 1)
+        has_adjustment = False
+        adjustments = 0.0
+        for item in data["items"]:  # Calcular bases e impuestos por tasa con el subtotal de cada línea
             tax_rate = item.get("item_tax", 0)
+            amount = InvoiceItem(item).subtotal  # Con descuento/recargo y redondeo por línea (igual que Odoo)
 
-            amount = price * quantity
             tax_bases[tax_rate] += amount
             if tax_rate > 0:
-                tax_amounts[tax_rate] += amount * (tax_rate / 100)
+                tax_amounts[tax_rate] += round(amount * (tax_rate / 100), 2)
+
+            adjustment = self._item_adjustment(item)
+            if adjustment is not None:
+                has_adjustment = True
+            # Ajuste neto: subtotal - precio * cantidad (descuento negativo, recargo positivo)
+            adjustments += amount - round(item.get("item_price", 0.0) * item.get("item_quantity", 1), 2)
+
+        if has_adjustment:  # Primera línea del bloque de totales
+            totals.append(
+                self._format_line_justified("AJUSTES:", f"{symbol} {round(adjustments, 2) + 0.0:.2f}", width) + "\n"
+            )
 
         if tax_bases[0] > 0:  # Mostrar exentos si hay
             totals.append(self._format_line_justified("EXENTO", f"{symbol} {tax_bases[0]:.2f}", width) + "\n")
@@ -577,7 +661,7 @@ class TicketPrinter(BasePrinter):
                 )  # IVA
 
         totals.append(f"{self.template['format']['separator'] * width}\n")
-        total = sum(tax_bases.values()) + sum(tax_amounts.values())
+        total = round(sum(tax_bases.values()) + sum(tax_amounts.values()), 2)
         totals.append(self._format_line_justified("TOTAL:", f"{symbol} {total:.2f}", width) + "\n\n")
 
         if data.get("payments"):  # Formas de pago
@@ -674,11 +758,12 @@ class TicketPrinter(BasePrinter):
             "\x1d\x28\x6b\x03\x00\x31\x51\x30",  # Imprimir QR
         ]
 
-    def _generate_document_content(self, data: Dict[str, Any]) -> str:
+    def _generate_document_content(self, data: Dict[str, Any], fiscal_data: dict[str, str] | None = None) -> str:
         """
         Genera el contenido del documento según el template
         Args:
             data: Datos del documento
+            fiscal_data: Contador reservado con reserve_counter (número impreso en el sub-encabezado)
         Returns:
             str: Contenido formateado con comandos ESC/POS
         """
@@ -702,7 +787,7 @@ class TicketPrinter(BasePrinter):
 
         content.extend(self._format_header())  # Encabezado
         content.extend(self._format_customer_info(data))  # Datos del cliente
-        content.extend(self._format_sub_header(data))  # Sub-encabezado
+        content.extend(self._format_sub_header(data, fiscal_data))  # Sub-encabezado
         content.extend(self._format_items(data))  # Items
         content.extend(self._format_totals(data))  # Totales
         content.extend(self._format_footer(data))  # Pie de página
