@@ -369,6 +369,12 @@ def handle_fiscal_commands() -> tuple[Response, int]:
             success = printer.send_command(cmd)
             results.append({"command": cmd, "success": success})
 
+        # El estado global refleja el resultado real: Odoo envía un comando por llamada y no debe
+        # recibir un éxito si la impresora lo rechazó (el detalle por comando se mantiene en data).
+        rejected = [result["command"] for result in results if not result["success"]]
+        if rejected:
+            return error_response(f"Comando(s) rechazado(s) por la impresora: {', '.join(rejected)}", data=results)
+
         return jsonify({"status": True, "message": "Comandos procesados", "data": results}), 200
 
     except Exception as e:

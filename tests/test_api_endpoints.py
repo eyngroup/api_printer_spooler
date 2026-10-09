@@ -251,3 +251,48 @@ def test_complete_job_retried_once(app_client, sample_invoice_payload, monkeypat
     assert resp_dup.status_code == 200
     assert resp_dup.get_json() == resp.get_json()
     assert printer.print_document.call_count == 1
+
+
+def _command_printer(results: dict[str, bool]) -> MagicMock:
+    """Mock fiscal printer whose send_command answers per command."""
+    printer = MagicMock()
+    printer.check_status.return_value = True
+    printer.send_command.side_effect = lambda cmd: results[cmd]
+    return printer
+
+
+def test_command_success_reports_status_true(app_client, monkeypatch):
+    """A command accepted by the printer returns status true (contract: one command per call)."""
+    from server.handlers import document_handler
+
+    printer = _command_printer({"RU00000000000000": True})
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+    resp = app_client.post("/api/command", json={"commands": ["RU00000000000000"]})
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body["status"] is True
+    assert body["data"] == [{"command": "RU00000000000000", "success": True}]
+
+
+def test_command_rejected_reports_status_false(app_client, monkeypatch):
+    """A command rejected by the printer must not be reported as success to Odoo."""
+    from server.handlers import document_handler
+
+    printer = _command_printer({"RF00010030001003": False})
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+    resp = app_client.post("/api/command", json={"commands": ["RF00010030001003"]})
+    body = resp.get_json()
+    assert body["status"] is False
+    assert "RF00010030001003" in body["message"]
+    assert body["data"] == [{"command": "RF00010030001003", "success": False}]
+
+
+def test_command_partial_failure_reports_status_false(app_client, monkeypatch):
+    """With several commands, any rejection makes the whole request fail and lists each result."""
+    from server.handlers import document_handler
+
+    printer = _command_printer({"A": True, "B": False})
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (printer, None))
+    body = app_client.post("/api/command", json={"commands": ["A", "B"]}).get_json()
+    assert body["status"] is False
+    assert body["data"] == [{"command": "A", "success": True}, {"command": "B", "success": False}]
