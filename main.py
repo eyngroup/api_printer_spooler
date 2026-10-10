@@ -10,6 +10,7 @@ Creado en memoria de mi amado hijo Ian
 import glob
 import logging
 import os
+import sys
 import threading
 import webbrowser
 from datetime import datetime, timedelta
@@ -76,8 +77,33 @@ def autodetect_serial_port(config: dict) -> None:
         logger.info(f"El puerto actual ({current_port}) ya es el correcto.")
 
 
+def run_apply_update() -> int:
+    """
+    Modo `--apply-update`: aplica una actualización descargada y termina, sin iniciar nada de la aplicación
+    (ni puerto, ni bandeja, ni ventana). Se ejecuta desde el ejecutable NUEVO, en su carpeta de `updates/`.
+    Returns:
+        int: Código de salida de `apply_update`
+    """
+    import argparse
+    from pathlib import Path
+
+    from handy.update_apply import UNKNOWN_VERSION, apply_update
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--apply-update", action="store_true")
+    parser.add_argument("--install-dir", required=True)
+    parser.add_argument("--pid", type=int, default=None)
+    parser.add_argument("--old-version", default=UNKNOWN_VERSION)
+    args, _unknown = parser.parse_known_args()
+    return apply_update(Path(sys.executable).parent, Path(args.install_dir), args.pid, old_version=args.old_version)
+
+
 def main():
     """Función principal que inicializa el servidor API REST."""
+    # Modo de actualización: antes que cualquier otra cosa (configuración, logs, puerto serial, Flask, Tk)
+    if "--apply-update" in sys.argv:
+        sys.exit(run_apply_update())
+
     # Primer arranque: crea config.json y los templates de runtime desde sus valores por defecto (sin sobrescribir)
     ensure_runtime_files()
     config = ConfigManager.get_config()  # Cargar configuración
