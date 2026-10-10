@@ -16,10 +16,11 @@
 </nav>
 
 <div class="container mt-4">
-    <!-- Estado del Servidor -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
+    <!-- Fila superior: estado del servidor e impresoras (misma altura; en móvil se apilan) -->
+    <div class="row mb-4 align-items-stretch">
+        <!-- Estado del Servidor -->
+        <div class="col-md-6 mb-3 mb-md-0">
+            <div class="card h-100 mb-0">
                 <div class="card-header bg-primary text-white">
                     Estado del Servidor
                 </div>
@@ -28,33 +29,26 @@
                         <div class="status-indicator me-2" id="serverStatus"></div>
                         <h5 class="card-title mb-0">En Ejecución</h5>
                     </div>
-                    <p class="card-text mt-2">
+                    <p class="card-text mt-2 mb-3">
                         Última actualización: <span id="lastUpdate">--</span>
                     </p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Configuración Actual -->
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header bg-info text-white">
-                    Configuración Actual
-                </div>
-                <div class="card-body">
-                    <table class="table table-sm">
+                    <table class="table table-sm mb-0">
                         <tbody>
+                        <tr>
+                            <th>Modo:</th>
+                            <td id="serverMode">--</td>
+                        </tr>
+                        <tr>
+                            <th>URL:</th>
+                            <td id="serverUrl">--</td>
+                        </tr>
                         <tr>
                             <th>Puerto:</th>
                             <td id="serverPort">--</td>
                         </tr>
                         <tr>
-                            <th>URL Base:</th>
-                            <td id="serverUrl">--</td>
-                        </tr>
-                        <tr>
-                            <th>Ruta API:</th>
-                            <td id="apiPath">--</td>
+                            <th>Tiempo Activo:</th>
+                            <td id="serverUptime">--</td>
                         </tr>
                         <tr>
                             <th>Nivel de Log:</th>
@@ -65,63 +59,66 @@
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Estado de Impresoras (panel de solo lectura) -->
-    <div class="row mb-4">
+        <!-- Estado de Impresoras (solo configuración, no consulta las máquinas) -->
         <div class="col-md-6">
-            <div class="card">
+            <div class="card h-100 mb-0">
                 <div class="card-header bg-success text-white">
                     Estado de Impresoras
                 </div>
-                <div class="card-body">
-                    <div class="printer-status">
-                        <div class="d-flex align-items-center mb-2">
-                            <div class="status-indicator me-2" id="matrixStatus"></div>
-                            <span>Impresora Matricial</span>
-                        </div>
-                        <div class="d-flex align-items-center mb-2">
-                            <div class="status-indicator me-2" id="ticketStatus"></div>
-                            <span>Impresora de Tickets</span>
-                        </div>
-                        <div class="d-flex align-items-center mb-2">
-                            <div class="status-indicator me-2" id="fiscalStatus"></div>
-                            <span>Impresora Fiscal</span>
-                        </div>
-                        <div class="mt-3 pt-2 border-top">
-                            <strong>Puerto Activo:</strong>
-                            <span id="activePrinterPort" class="ms-2">--</span>
+                <div class="card-body printer-status">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="status-indicator me-2" id="matrixStatus"></div>
+                        <div>
+                            <div class="fw-semibold">Impresora Matricial</div>
+                            <small class="text-muted"><span id="matrixName">--</span> &middot; Puerto: <span id="matrixPort">--</span></small>
                         </div>
                     </div>
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="status-indicator me-2" id="ticketStatus"></div>
+                        <div>
+                            <div class="fw-semibold">Impresora de Tickets</div>
+                            <small class="text-muted"><span id="ticketName">--</span> &middot; Puerto: <span id="ticketPort">--</span></small>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="status-indicator me-2" id="fiscalStatus"></div>
+                        <div>
+                            <div class="fw-semibold">Impresora Fiscal</div>
+                            <small class="text-muted"><span id="fiscalName">--</span> &middot; Puerto: <span id="fiscalPort">--</span></small>
+                        </div>
+                    </div>
+                    <small class="text-muted">Según la configuración; no se consulta a las máquinas.</small>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Estadísticas del Servidor -->
-    <div class="row">
+    <div class="row mb-4">
         <div class="col-12">
-            <div class="card">
+            <div class="card mb-0">
                 <div class="card-header bg-success text-white">
                     Estadísticas del Servidor
                 </div>
                 <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-4 text-center">
-                            <h5>Peticiones Procesadas</h5>
-                            <div class="display-4" id="requestCount">0</div>
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="small text-muted">Peticiones</div>
+                            <div class="h3 mb-0" id="requestCount">0</div>
                         </div>
-                        <div class="col-md-4 text-center">
-                            <h5>Tiempo Activo</h5>
-                            <div class="display-4" id="uptime">--</div>
+                        <div class="col-4">
+                            <div class="small text-muted">Tiempo Activo</div>
+                            <div class="h3 mb-0" id="uptime">--</div>
                         </div>
-                        <div class="col-md-4 text-center">
-                            <h5>Errores</h5>
-                            <div class="display-4" id="errorCount">0</div>
+                        <div class="col-4">
+                            <div class="small text-muted">Errores</div>
+                            <div class="h3 mb-0" id="errorCount">0</div>
                         </div>
                     </div>
-                    <div class="row mt-4">
-                        <div class="col-12">
+                    <div class="mt-3">
+                        <div class="small text-muted mb-1">Peticiones por minuto (últimos 60 minutos)</div>
+                        <div class="chart-container">
                             <canvas id="requestsChart"></canvas>
                         </div>
                     </div>

@@ -738,3 +738,82 @@ def test_dashboard_has_monitor_section_with_local_assets(app_client):
     for name in ("bootstrap.min.css", "bootstrap.bundle.min.js", "chart.umd.min.js"):
         assert (vendor / name).stat().st_size > 0
         assert app_client.get(f"/static/vendor/{name}").status_code == 200
+
+
+# --- Serie de peticiones por minuto del panel web ---
+
+
+@pytest.fixture
+def fresh_state(monkeypatch):
+    """Estado del servidor limpio (contadores y minutos) para las pruebas de la serie por minuto."""
+    from server import server_api
+
+    monkeypatch.setattr(server_api.server_state, "request_count", 0)
+    monkeypatch.setattr(server_api.server_state, "minute_buckets", {})
+    return server_api.server_state
+
+
+def test_requests_per_minute_is_zero_filled_series_of_60(app_client, fresh_state):
+    """La serie siempre trae 60 minutos, del más antiguo al actual, con ceros si no hubo peticiones."""
+    stats = app_client.get("/api/status").get_json()["stats"]
+    series = stats["requests_per_minute"]
+    assert len(series) == 60
+    assert all(item["count"] == 0 for item in series)
+    assert all(set(item) == {"minute", "count"} for item in series)
+
+
+def test_counted_request_increments_current_minute(app_client, fresh_state):
+    """Una petición contada suma al total y al último minuto de la serie."""
+    app_client.get("/api/ping")
+    stats = app_client.get("/api/status").get_json()["stats"]
+    assert stats["requests_total"] == 1
+    assert stats["requests_per_minute"][-1]["count"] == 1
+    assert sum(item["count"] for item in stats["requests_per_minute"]) == 1
+
+
+def test_status_and_monitor_are_not_counted(app_client, fresh_state, monkeypatch):
+    """Las lecturas del propio panel (status y monitor fiscal) no suman peticiones."""
+    from server import server_api
+
+    monkeypatch.setattr(server_api.FiscalMonitor, "get_snapshot", lambda *args, **kwargs: {"status": "ok"})
+    app_client.get("/api/status")
+    app_client.get("/api/monitor")
+    stats = app_client.get("/api/status").get_json()["stats"]
+    assert stats["requests_total"] == 0
+    assert all(item["count"] == 0 for item in stats["requests_per_minute"])
+
+
+def test_minute_rollover_and_window_expiry(fresh_state):
+    """Con reloj inyectado: cada minuto tiene su cubo, quedan alineados y los de más de 60 minutos se descartan."""
+    from datetime import datetime
+
+    base = datetime(2026, 1, 1, 10, 0, 30)  # noqa: DTZ001 (hora local)
+    fresh_state.record_request(base)
+    fresh_state.record_request(base.replace(second=50))
+    fresh_state.record_request(base.replace(minute=1))
+
+    series = fresh_state.requests_per_minute(base.replace(minute=1, second=5))
+    assert [item["count"] for item in series[-2:]] == [2, 1]
+    assert [item["minute"] for item in series[-2:]] == ["10:00", "10:01"]
+
+    # 59 minutos después el cubo de las 10:00 sigue dentro de la ventana; 61 minutos después ya no
+    assert fresh_state.requests_per_minute(base.replace(hour=10, minute=59))[0]["count"] == 2
+    later = base.replace(hour=11, minute=1)
+    fresh_state.record_request(later)
+    assert datetime(2026, 1, 1, 10, 0) not in fresh_state.minute_buckets  # noqa: DTZ001
+    assert sum(item["count"] for item in fresh_state.requests_per_minute(later)) == 1
+
+
+def test_status_never_exposes_security_section(app_client):
+    """/api/status nunca expone la sección `security` de la configuración."""
+    data = app_client.get("/api/status").get_json()
+    assert "security" not in data["config"]
+    assert "security_code" not in str(data)
+
+
+def test_dashboard_renders_new_cards(app_client):
+    """GET / sirve el panel con las tarjetas nuevas y sin la tarjeta de configuración actual."""
+    html = app_client.get("/").get_data(as_text=True)
+    for element_id in ("serverMode", "matrixName", "ticketPort", "fiscalStatus", "requestsChart", "fiscalMonitor"):
+        assert f'id="{element_id}"' in html
+    assert "Configuración Actual" not in html

@@ -10,7 +10,8 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 
 from flask import Blueprint, Flask, current_app, jsonify, render_template, request, send_file
 from flask_cors import CORS
@@ -33,6 +34,12 @@ logger = logging.getLogger(__name__)
 # Blueprint para agrupar las rutas
 api = Blueprint("api", __name__)
 
+# Ventana (en minutos) de la serie de peticiones por minuto del panel web
+MINUTES_WINDOW = 60
+
+# Endpoints de lectura del propio panel web: no cuentan como peticiones procesadas
+UNCOUNTED_ENDPOINTS = ("api.get_status", "api.fiscal_monitor")
+
 
 class ServerState:  # pylint: disable=R0903
     """Clase para el estado del servidor."""
@@ -44,6 +51,41 @@ class ServerState:  # pylint: disable=R0903
         self.proxy_handler = None
         self.server_start_time = datetime.now()
         self.error_log = []
+        # Peticiones por minuto (últimos 60 minutos) para el gráfico del panel web: {inicio_del_minuto: cantidad}
+        self.minute_buckets = {}
+        self.minute_lock = threading.Lock()
+
+    @staticmethod
+    def _minute_start(moment):
+        """Trunca un instante al inicio de su minuto (hora local)."""
+        return moment.replace(second=0, microsecond=0)
+
+    def record_request(self, now=None):
+        """Suma una petición al contador total y al minuto actual, descartando minutos de más de 60 minutos."""
+        now = now or datetime.now()  # noqa: DTZ005
+        current = self._minute_start(now)
+        limit = current - timedelta(minutes=MINUTES_WINDOW - 1)
+        with self.minute_lock:
+            self.request_count += 1
+            self.minute_buckets[current] = self.minute_buckets.get(current, 0) + 1
+            for stale in [key for key in self.minute_buckets if key < limit]:
+                del self.minute_buckets[stale]
+
+    def requests_per_minute(self, now=None):
+        """
+        Serie de los últimos 60 minutos, del más antiguo al actual, con 0 en los minutos sin peticiones.
+        Returns:
+            list[dict]: Elementos {"minute": "HH:MM", "count": int}.
+        """
+        now = now or datetime.now()  # noqa: DTZ005
+        current = self._minute_start(now)
+        with self.minute_lock:
+            buckets = dict(self.minute_buckets)
+        series = []
+        for offset in range(MINUTES_WINDOW - 1, -1, -1):
+            minute = current - timedelta(minutes=offset)
+            series.append({"minute": minute.strftime("%H:%M"), "count": buckets.get(minute, 0)})
+        return series
 
 
 # Crear una instancia global del estado del servidor
@@ -53,8 +95,9 @@ server_state = ServerState()
 @api.before_request
 def before_request():
     """before request"""
-    if request.endpoint != "api.get_status":  # No contar las peticiones de status
-        server_state.request_count += 1
+    # No contar las lecturas del panel web (status y monitor fiscal)
+    if request.endpoint not in UNCOUNTED_ENDPOINTS:
+        server_state.record_request()
 
 
 @api.errorhandler(Exception)
@@ -225,6 +268,7 @@ def get_status():
             "stats": {
                 "requests_total": server_state.request_count,
                 "error_count": server_state.error_count,
+                "requests_per_minute": server_state.requests_per_minute(),
                 "last_errors": server_state.last_errors,
             },
         }

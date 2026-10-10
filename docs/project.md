@@ -351,6 +351,8 @@ documentos de valor mínimo y anular todo documento de prueba con una nota de cr
 Vista de solo lectura para el contador, en el panel web (`GET /`, sección "Monitor fiscal") y como JSON en
 `GET /api/monitor` (`?refresh=1` fuerza una lectura). No imprime nada.
 
+Panel web `GET /` (solo lectura): fila superior con "Estado del Servidor" (modo, URL, puerto, tiempo activo, log) y "Estado de Impresoras" (solo configuración: nombre y puerto, sin consultar las máquinas), estadísticas y un gráfico de barras de peticiones por minuto de los últimos 60 minutos. La serie vive en memoria del servidor (`stats.requests_per_minute` en `/api/status`, 60 minutos con ceros) y sobrevive a recargar la página; no cuenta `/api/status` ni `/api/monitor`.
+
 | Bloque | Contenido | Fuente en la máquina |
 |---|---|---|
 | Pre-cierre del Z | Próximo Z, último Z, ventas / notas de crédito / notas de débito por tasa (exento, base, IVA), neto del día | `U0X` (extracción del reporte X sin imprimir) |

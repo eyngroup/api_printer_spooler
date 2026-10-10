@@ -5,8 +5,9 @@ let requestData = {
     datasets: [{
         label: 'Peticiones por Minuto',
         data: [],
+        backgroundColor: 'rgba(75, 192, 192, 0.6)',
         borderColor: 'rgb(75, 192, 192)',
-        tension: 0.1
+        borderWidth: 1
     }]
 };
 
@@ -23,15 +24,22 @@ document.addEventListener('DOMContentLoaded', function () {
 function initializeChart() {
     const ctx = document.getElementById('requestsChart').getContext('2d');
     requestsChart = new Chart(ctx, {
-        type: 'line',
+        type: 'bar',
         data: requestData,
         options: {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: true
+                    beginAtZero: true,
+                    ticks: {precision: 0}
+                },
+                x: {
+                    ticks: {maxTicksLimit: 12}
                 }
+            },
+            plugins: {
+                legend: {display: false}
             }
         }
     });
@@ -57,54 +65,42 @@ async function updateDashboard() {
         // Limpiar notificación de error si existe
         clearNotification();
 
-        // Actualizar estado del servidor
+                // Actualizar estado del servidor
         updateServerStatus(data.status === 'running');
         document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
 
-        // Actualizar estado de impresoras
+        // Estado de impresoras (solo configuración)
         const printers = data.config.printers || {};
 
-        // Actualizar cada impresora y su estado
-        const updatePrinter = (type, statusId, displayName) => {
-            const config = printers[type];
-            const enabled = config ? config[`${type}_enabled`] : false;
-            const name = config ? config[`${type}_name`] : '';
-
-            updatePrinterStatus(statusId, enabled);
-            updatePrinterName(statusId, displayName, name);
-        };
-
-        updatePrinter('matrix', 'matrixStatus', 'Impresora Matricial');
-        updatePrinter('ticket', 'ticketStatus', 'Impresora de Tickets');
-        updatePrinter('fiscal', 'fiscalStatus', 'Impresora Fiscal');
-
-        // Actualizar configuración actual
-        const serverConfig = data.config.server || {};
-        const loggingConfig = data.config.logging || {};
-
-        // Determinar el puerto activo de la impresora
-        let activePort = '--';
-        if (printers.matrix?.matrix_enabled) {
-            activePort = printers.matrix.matrix_port;
-        } else if (printers.ticket?.ticket_enabled) {
-            activePort = printers.ticket.ticket_port;
-        } else if (printers.fiscal?.fiscal_enabled) {
-            activePort = printers.fiscal.fiscal_port;
-        }
-
-        // Actualizar campos de configuración
+        // Asigna texto a un elemento (o '--' si no hay valor); el 0 es un valor válido (p. ej. 0 errores)
         const updateElement = (id, value) => {
             const element = document.getElementById(id);
             if (element) {
-                element.textContent = value || '--';
+                element.textContent = (value === undefined || value === null || value === '') ? '--' : value;
             }
         };
 
+        // Cada impresora: indicador (habilitada/deshabilitada), nombre y puerto configurados (solo configuración)
+        const updatePrinter = (type) => {
+            const config = printers[type] || {};
+            updatePrinterStatus(`${type}Status`, Boolean(config[`${type}_enabled`]));
+            updateElement(`${type}Name`, config[`${type}_name`]);
+            updateElement(`${type}Port`, config[`${type}_port`]);
+        };
+
+        // Configuración del servidor
+        const serverConfig = data.config.server || {};
+        const loggingConfig = data.config.logging || {};
+
+        updatePrinter('matrix');
+        updatePrinter('ticket');
+        updatePrinter('fiscal');
+
+        updateElement('serverMode', serverConfig.server_mode);
         updateElement('serverPort', serverConfig.server_port);
         updateElement('serverUrl', `${window.location.protocol}//${serverConfig.server_host}:${serverConfig.server_port}`);
-        updateElement('apiPath', '/api');
         updateElement('logLevel', loggingConfig.log_level);
-        updateElement('activePrinterPort', activePort);
+        updateElement('serverUptime', formatUptime(data.uptime));
 
         // Actualizar estadísticas
         updateElement('requestCount', data.stats?.requests_total);
@@ -118,7 +114,7 @@ async function updateDashboard() {
         }
 
         // Actualizar gráfico
-        updateChart(data.stats?.requests_total || 0);
+        updateChart(data.stats?.requests_per_minute || []);
 
     } catch (error) {
         console.error('Error completo:', error);
@@ -134,17 +130,6 @@ function updatePrinterStatus(elementId, isEnabled) {
     }
 }
 
-// Actualizar nombre de impresora
-function updatePrinterName(elementId, defaultName, printerName) {
-    const element = document.getElementById(elementId);
-    if (!element) return;
-
-    const label = element.nextElementSibling;
-    if (label) {
-        label.textContent = printerName ? `${defaultName} (${printerName})` : defaultName;
-    }
-}
-
 // Actualizar estado del servidor
 function updateServerStatus(isRunning) {
     const element = document.getElementById('serverStatus');
@@ -155,7 +140,8 @@ function updateServerStatus(isRunning) {
 
 // Formatear tiempo activo
 function formatUptime(seconds) {
-    if (!seconds) return '--';
+    // Sin dato: '--'; 0 segundos es válido (servidor recién iniciado) y se muestra como 0h 0m
+    if (seconds === undefined || seconds === null) return '--';
 
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -194,19 +180,9 @@ function clearNotification() {
     });
 }
 
-// Actualizar gráfico
-function updateChart(requestsPerMinute) {
-    const now = new Date();
-    const timeLabel = now.toLocaleTimeString();
-
-    requestData.labels.push(timeLabel);
-    requestData.datasets[0].data.push(requestsPerMinute);
-
-    // Mantener solo los últimos 10 puntos
-    if (requestData.labels.length > 10) {
-        requestData.labels.shift();
-        requestData.datasets[0].data.shift();
-    }
-
+// Actualizar gráfico: barras de peticiones por minuto (últimos 60 minutos) con la serie que entrega el servidor
+function updateChart(series) {
+    requestData.labels = series.map(item => item.minute);
+    requestData.datasets[0].data = series.map(item => item.count);
     requestsChart.update();
 }

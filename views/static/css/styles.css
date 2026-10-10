@@ -79,3 +79,14 @@ canvas {
 #fiscalMonitor canvas {
     height: auto !important;
 }
+
+/* Contenedor de altura fija del gráfico de peticiones por minuto (Chart.js con maintainAspectRatio: false) */
+.chart-container {
+    position: relative;
+    height: 190px;
+}
+
+/* La regla global de canvas (300px) no debe agrandar el gráfico por encima de su contenedor */
+.chart-container canvas {
+    height: 100% !important;
+}
