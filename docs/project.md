@@ -407,12 +407,29 @@ La compilación solo se hace en Windows. Para publicar una versión nueva:
 El zip nunca incluye archivos del cliente: `config/config.json`, `templates/template_*.json`, `data/`, `logs/` y
 `backups/` se crean en la máquina del cliente y no forman parte de la compilación.
 
+## Actualización desde la aplicación (Windows compilado)
+
+- La ventana (pestaña Configuración del Servidor, sección **Actualizaciones**, protegida por el código de seguridad)
+  consulta el último Release de `eyngroup/api_printer_spooler` al arrancar y cada 24 h (`handy/updater.py`). Solo
+  avisa: instalar es siempre manual con **Actualizar**, que se rechaza si hay una impresión en curso.
+- **Actualizar** descarga `ApiPS-<versión>.zip` y su `.sha256`, verifica el hash y el contenido (debe traer
+  `ApiPS/ApiPS.exe`, sin archivos del cliente ni rutas peligrosas) y lo descomprime en `updates/ApiPS-<versión>/`.
+- Luego inicia ese ejecutable NUEVO con `--apply-update` y la aplicación se cierra (`handy/update_apply.py`). El
+  nuevo espera a que termine el viejo, respalda los archivos del programa en `backups/app-<versión>-<fecha>/`
+  (conserva los 3 últimos), copia los archivos nuevos sin tocar `config/config.json`, `templates/template_*.json`,
+  `data/`, `logs/`, `backups/` ni `updates/`, y abre la aplicación instalada. Ante cualquier fallo restaura el
+  respaldo y abre la versión anterior. Registro en `logs/update.log`. Al arrancar se limpia `updates/`.
+- Con el código fuente (Linux o sin compilar) el botón queda deshabilitado: actualizar con `git pull`.
+- Solo se autoactualizan las instalaciones que ya tienen esta función; la primera se instala a mano.
+
 ## Pendientes
 
 - **Probar en Windows antes del despliegue**: el controlador TFHKA abre el puerto sin XON/XOFF (medido en HKA80 bajo
   Linux: con XON/XOFF se perdía el byte LRC en 11 de 500 lecturas `S1`; sin él, 0 de 500). Verificar en una PC Windows
   impresión de factura y nota de crédito, reportes y Monitor fiscal.
 - **Ajuste de reloj**: verificar `PF`/`PG` justo después de un Z real.
+- **Validar la actualización en Windows** con dos versiones de prueba publicadas (instalar la primera a mano y
+  actualizar a la segunda desde la ventana; probar también la restauración ante un fallo).
 - **Validar en hardware** con el próximo Z real: lecturas `before_z` / `after_z` encoladas y envío a Odoo.
 
 En espera de contar con una máquina PNP:

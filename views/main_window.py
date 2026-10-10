@@ -26,8 +26,11 @@ from ttkbootstrap.dialogs import Messagebox
 
 from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path
+from handy.update_apply import launch_apply
+from handy.updater import UpdateError, UpdateInfo, check_latest, download_and_stage, is_supported
+from handy.version import __version__
 from server.handlers import monitor_push
-from server.handlers.job_store import backup_db, restore_db
+from server.handlers.job_store import backup_db, has_processing_jobs, restore_db
 from server.config_loader import (
     CONFIG_SCHEMA,
     VALID_BARCODE_TYPES,
@@ -540,6 +543,9 @@ class MainWindow:
         # --- Monitor fiscal en Odoo (envío de lecturas) ---
         self._build_monitor_push_box(parent, config)
 
+        # --- Actualizaciones (releases de GitHub) ---
+        self._build_update_box(parent)
+
         # --- Base de Datos SQLite y Respaldos ---
         db_box = tb.LabelFrame(parent, text="Base de Datos SQLite y Respaldos", padding=10)
         db_box.pack(fill=tbc.X, padx=10, pady=10)
@@ -611,6 +617,165 @@ class MainWindow:
         tb.Button(
             status_row, text="Actualizar estado", command=self._refresh_monitor_push_status, bootstyle="secondary-outline"
         ).pack(side=tbc.RIGHT)
+
+    # Primera consulta de versiones tras el arranque y luego una vez al día (milisegundos para Tk.after)
+    UPDATE_FIRST_CHECK_MS = 15_000
+    UPDATE_CHECK_EVERY_MS = 24 * 60 * 60 * 1000
+
+    def _build_update_box(self, parent) -> None:
+        """
+        Sección de actualizaciones: versión instalada, última publicada en GitHub y botones "Buscar actualizaciones"
+        y "Actualizar". Solo avisa; instalar es siempre una acción manual (pestaña protegida por el código de
+        seguridad). Programa la consulta automática al arrancar y una vez al día.
+        Args:
+            parent: Contenedor de la pestaña
+        """
+        self._update_info: UpdateInfo | None = None
+        box = tb.LabelFrame(parent, text="Actualizaciones", padding=10)
+        box.pack(fill=tbc.X, padx=10, pady=10)
+        tb.Label(box, text=f"Versión instalada: {__version__}").pack(anchor=tbc.W)
+        self.update_status_label = tb.Label(box, text="Última versión publicada: sin consultar", wraplength=800)
+        self.update_status_label.pack(anchor=tbc.W, pady=(4, 6))
+        if not is_supported():
+            tb.Label(
+                box,
+                text="La actualización automática está disponible solo en la aplicación compilada para Windows; "
+                "con el código fuente actualice con git pull.",
+                wraplength=800,
+            ).pack(anchor=tbc.W, pady=(0, 6))
+
+        row = tb.Frame(box)
+        row.pack(fill=tbc.X)
+        self.update_check_button = tb.Button(
+            row, text="Buscar actualizaciones", command=self._start_update_check, bootstyle="secondary-outline"
+        )
+        self.update_check_button.pack(side=tbc.LEFT, padx=(0, 10))
+        self.update_apply_button = tb.Button(
+            row, text="Actualizar", command=self._on_update_apply, bootstyle="warning", state=tbc.DISABLED
+        )
+        self.update_apply_button.pack(side=tbc.LEFT)
+
+        self.root.after(self.UPDATE_FIRST_CHECK_MS, self._scheduled_update_check)
+
+    def _scheduled_update_check(self) -> None:
+        """Consulta automática de versiones (al arrancar y cada 24 horas)."""
+        self._start_update_check()
+        self.root.after(self.UPDATE_CHECK_EVERY_MS, self._scheduled_update_check)
+
+    def _start_update_check(self) -> None:
+        """Consulta el último release en un hilo (la red puede tardar) y muestra el resultado al terminar."""
+        result: dict[str, UpdateInfo] = {}
+        self.update_check_button.configure(state=tbc.DISABLED)
+        self.update_status_label.configure(text="Consultando la última versión publicada...")
+        worker = threading.Thread(
+            target=lambda: result.update(info=check_latest(__version__)), name="update-check", daemon=True
+        )
+        worker.start()
+        self._wait_thread(worker, lambda: self._show_update_info(result.get("info")))
+
+    def _wait_thread(self, worker: threading.Thread, on_done) -> None:
+        """
+        Espera (sin bloquear Tk) a que termine un hilo y luego ejecuta on_done en el hilo de la ventana.
+        Args:
+            worker: Hilo a esperar
+            on_done: Función sin argumentos a ejecutar al terminar
+        """
+        if worker.is_alive():
+            self.root.after(500, self._wait_thread, worker, on_done)
+            return
+        on_done()
+
+    def _show_update_info(self, info: UpdateInfo | None) -> None:
+        """
+        Muestra el resultado de la consulta y habilita "Actualizar" solo si hay una versión nueva y la instalación
+        puede autoactualizarse.
+        Args:
+            info: Resultado de check_latest (None si el hilo falló)
+        """
+        self._update_info = info
+        self.update_check_button.configure(state=tbc.NORMAL)
+        if info is None:
+            text = "No se pudo consultar la última versión"
+        elif info.error:
+            text = f"No se pudo consultar la última versión: {info.error}"
+        elif info.available:
+            text = f"NUEVA VERSIÓN DISPONIBLE: {info.latest} (instalada {__version__})"
+            logger.info("Actualización disponible: %s (instalada %s)", info.latest, __version__)
+        else:
+            text = info.message or f"Última versión publicada: {info.latest or '--'} (está al día)"
+        self.update_status_label.configure(text=text)
+        can_update = bool(info and info.available and not info.error and is_supported())
+        self.update_apply_button.configure(state=tbc.NORMAL if can_update else tbc.DISABLED)
+
+    def _on_update_apply(self) -> None:
+        """
+        Botón "Actualizar": nunca durante una impresión; pide confirmación, descarga y verifica el paquete en un hilo
+        y, si todo está bien, lanza la versión nueva en modo --apply-update y cierra esta aplicación.
+        """
+        info = self._update_info
+        if not (info and info.available and is_supported()):
+            return
+        if has_processing_jobs():
+            Messagebox.show_warning("Hay una impresión en curso. Intente de nuevo al terminar.", "Actualizaciones")
+            return
+        answer = Messagebox.yesno(
+            f"Se instalará la versión {info.latest} (instalada {__version__}).\n\n"
+            "La aplicación se cerrará unos segundos y volverá a abrirse sola. Durante ese tiempo no se podrá imprimir.\n"
+            "La configuración, los contadores y la base de datos no se modifican.\n\n¿Desea continuar?",
+            "Actualizaciones",
+            buttons=["Cancelar:secondary", "Actualizar:warning"],
+        )
+        if answer != "Actualizar":
+            return
+
+        result: dict[str, object] = {}
+
+        def _download() -> None:
+            """Descarga, verifica y prepara el paquete (en el hilo de trabajo)."""
+            try:
+                result["staged"] = download_and_stage(info, get_base_path())
+            except UpdateError as e:
+                result["error"] = str(e)
+            except Exception as e:  # noqa: BLE001 - cualquier fallo se informa, la aplicación sigue igual
+                result["error"] = f"Error inesperado: {e}"
+
+        self.update_apply_button.configure(state=tbc.DISABLED)
+        self.update_check_button.configure(state=tbc.DISABLED)
+        self.update_status_label.configure(text=f"Descargando y verificando la versión {info.latest}...")
+        worker = threading.Thread(target=_download, name="update-download", daemon=True)
+        worker.start()
+        self._wait_thread(worker, lambda: self._finish_update_apply(result))
+
+    def _finish_update_apply(self, result: dict[str, object]) -> None:
+        """
+        Tras la descarga: si falló, informa y deja la aplicación igual; si el paquete está listo, lanza el actualizador
+        (la versión nueva) y cierra esta aplicación para que pueda reemplazar sus archivos.
+        Args:
+            result: {"staged": Path} o {"error": str}
+        """
+        if "error" in result or "staged" not in result:
+            message = str(result.get("error", "No se pudo preparar la actualización"))
+            logger.error("Actualización cancelada: %s", message)
+            self.update_status_label.configure(text=f"Actualización cancelada: {message}")
+            self.update_check_button.configure(state=tbc.NORMAL)
+            self.update_apply_button.configure(state=tbc.NORMAL)
+            Messagebox.show_error(message, "Actualizaciones")
+            return
+        if has_processing_jobs():  # pudo empezar una impresión durante la descarga
+            self.update_status_label.configure(text="Impresión en curso: pulse Actualizar de nuevo al terminar")
+            self.update_check_button.configure(state=tbc.NORMAL)
+            self.update_apply_button.configure(state=tbc.NORMAL)
+            return
+        try:
+            launch_apply(result["staged"], get_base_path())
+        except Exception as e:  # noqa: BLE001 - si no arranca el actualizador, la aplicación sigue funcionando
+            logger.error("No se pudo iniciar el actualizador: %s", e)
+            Messagebox.show_error(f"No se pudo iniciar el actualizador: {e}", "Actualizaciones")
+            self.update_check_button.configure(state=tbc.NORMAL)
+            self.update_apply_button.configure(state=tbc.NORMAL)
+            return
+        logger.info("Actualizador iniciado; cerrando la aplicación para aplicar la versión %s", self._update_info.latest)
+        self._quit_application()
 
     @staticmethod
     def _monitor_push_status_text() -> str:

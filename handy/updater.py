@@ -312,3 +312,24 @@ def download_and_stage(info: UpdateInfo, install_dir: Path, session: requests.Se
 
     logger.info("Actualización %s preparada en %s", info.latest, staging)
     return staging
+
+
+def cleanup_updates(install_dir: Path) -> None:
+    """
+    Borra al arrancar lo que quedó en `<install_dir>/updates/` (zips y versiones ya aplicadas o abandonadas).
+    Ignora errores: justo después de actualizar, el ejecutable preparado puede seguir terminando y Windows bloquea
+    su carpeta; lo que no se pueda borrar ahora se borra en el siguiente arranque. Nunca lanza excepciones.
+    Args:
+        install_dir: Carpeta de instalación
+    """
+    updates_dir = Path(install_dir) / "updates"
+    if not updates_dir.is_dir():
+        return
+    for entry in updates_dir.iterdir():
+        try:
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink()
+        except OSError as e:
+            logger.warning("No se pudo borrar %s (se reintenta en el próximo arranque): %s", entry, e)

@@ -21,6 +21,7 @@ from handy.runtime_files import ensure_runtime_files
 from handy.serial_scan import find_fiscal_port
 from handy.tools import get_base_path
 from handy.tray_system import TrayManager
+from handy.updater import cleanup_updates
 from handy.version import __version__
 from server.config_loader import ConfigManager
 from server.handlers.monitor_push import start_scheduler
@@ -106,6 +107,8 @@ def main():
 
     # Primer arranque: crea config.json y los templates de runtime desde sus valores por defecto (sin sobrescribir)
     ensure_runtime_files()
+    # Restos de una actualización ya aplicada o abandonada (zip y versión preparada en updates/)
+    cleanup_updates(get_base_path())
     config = ConfigManager.get_config()  # Cargar configuración
 
     base_path = get_base_path()

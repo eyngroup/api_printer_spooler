@@ -247,3 +247,14 @@ def test_stage_download_http_error(tmp_path):
 def test_stage_requires_available(tmp_path):
     with pytest.raises(UpdateError):
         download_and_stage(UpdateInfo(), Path(tmp_path), FakeSession())
+
+
+def test_cleanup_updates_removes_leftovers_and_tolerates_missing_dir(tmp_path):
+    """Al arrancar se borran zips y versiones preparadas; sin carpeta updates/ no pasa nada."""
+    updater.cleanup_updates(tmp_path)  # sin updates/: no lanza
+    staged = tmp_path / "updates" / "ApiPS-2.12.0"
+    staged.mkdir(parents=True)
+    (staged / "ApiPS.exe").write_text("exe", encoding="utf-8")
+    (tmp_path / "updates" / "ApiPS-2.12.0.zip").write_bytes(b"zip")
+    updater.cleanup_updates(tmp_path)
+    assert list((tmp_path / "updates").iterdir()) == []
