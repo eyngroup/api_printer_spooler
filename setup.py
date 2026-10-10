@@ -34,7 +34,7 @@ include_files.extend(collect_include_files(base_path, include_dirs))
 
 # Configuración del ejecutable
 build_options = {
-    "build_exe": os.path.join("build", "ApiPrinterSpooler"),
+    "build_exe": os.path.join("build", "ApiPS"),  # Misma carpeta que se entrega al cliente
     "packages": [
         "flask",
         "flask_cors",

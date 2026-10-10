@@ -393,6 +393,20 @@ igual. En modo PROXY no se envían lecturas (las envía el spooler destino). La 
 el botón "Enviar ahora" están en la ventana de escritorio, pestaña Configuración del Servidor (protegida por el código de
 seguridad), sección "Monitor fiscal en Odoo".
 
+## Publicar una versión (Release manual)
+
+La compilación solo se hace en Windows. Para publicar una versión nueva:
+
+1. Subir el número en `handy/version.py` (p. ej. `2.11.0` -> `2.12.0`) y hacer commit.
+2. Ejecutar `run.bat`: genera `build/ApiPS/` (la misma carpeta que se entrega al cliente). No abrir la aplicación
+   desde esa carpeta: crearía archivos del cliente (configuración en uso, base de datos, logs).
+3. Ejecutar `release.bat` (llama a `scripts/make_release.py`): verifica que la compilación esté limpia y genera
+   `dist/ApiPS-<versión>.zip` (carpeta `ApiPS/` en la raíz) y `dist/ApiPS-<versión>.zip.sha256`.
+4. En GitHub: **Releases -> Draft a new release**, etiqueta `v<versión>`, adjuntar ambos archivos y publicar.
+
+El zip nunca incluye archivos del cliente: `config/config.json`, `templates/template_*.json`, `data/`, `logs/` y
+`backups/` se crean en la máquina del cliente y no forman parte de la compilación.
+
 ## Pendientes
 
 - **Probar en Windows antes del despliegue**: el controlador TFHKA abre el puerto sin XON/XOFF (medido en HKA80 bajo
