@@ -291,3 +291,27 @@ El archivo de configuración está dividido en las siguientes secciones principa
     - Verificar firewall para puertos usados
     - En producción, limitar `server_host`
     - Configurar proxy con URL completa
+
+### Monitor Push (opcional)
+
+Envío periódico de lecturas del monitor fiscal a Odoo (contrato `monitor-push` v1.0). La sección es **opcional**: las
+instalaciones existentes no la tienen y quedan deshabilitadas (los valores por defecto se aplican en código).
+`/api/status` y el panel web nunca exponen esta sección (el token es secreto).
+
+```json
+{
+    "monitor_push": {
+        "enabled": false,
+        "url": "",
+        "token": "",
+        "interval_minutes": 60,
+        "branch_code": ""
+    }
+}
+```
+
+- `enabled`: activa el envío (además requiere `url` y `token`). Por defecto `false`.
+- `url`: URL completa HTTPS del controlador de Odoo (el certificado se verifica siempre).
+- `token`: token por diario generado en Odoo; se envía como `Authorization: Bearer`.
+- `interval_minutes`: cada cuántos minutos se envía una lectura (mínimo 15; valores menores se suben a 15).
+- `branch_code`: etiqueta informativa de la sucursal (puede ir vacía).

@@ -90,5 +90,12 @@
     },
     "security": {
         "security_code": ""
+    },
+    "monitor_push": {
+        "enabled": false,
+        "url": "",
+        "token": "",
+        "interval_minutes": 60,
+        "branch_code": ""
     }
 }

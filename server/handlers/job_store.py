@@ -13,7 +13,7 @@ import sqlite3
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +74,24 @@ COUNTER_FIELDS = (
 )
 _COUNTER_NUMBER_FIELDS = ("document_invoice", "document_credit", "document_debit", "document_note")
 
+# Cola de salida del monitor fiscal (push a Odoo): una fila por lectura pendiente de entregar.
+# Se vacía al recibir la confirmación de Odoo; no se fusiona al restaurar un respaldo.
+_CREATE_MONITOR_OUTBOX = """
+CREATE TABLE IF NOT EXISTS monitor_outbox (
+    reading_id      TEXT PRIMARY KEY,
+    trigger         TEXT NOT NULL,
+    payload         TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,
+    last_error      TEXT
+)
+"""
+
+# Retención de la cola del monitor: lo más reciente entre 7 días y 500 lecturas
+MONITOR_OUTBOX_MAX_DAYS = 7
+MONITOR_OUTBOX_MAX_ROWS = 500
+
 _CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_doc_op ON print_jobs (document_id, operation_type)"
 
 
@@ -106,6 +124,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(_CREATE_TABLE)
     conn.execute(_CREATE_INDEX)
     conn.execute(_CREATE_COUNTERS)
+    conn.execute(_CREATE_MONITOR_OUTBOX)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(print_jobs)").fetchall()}
     if "counter_before" not in columns:
         conn.execute("ALTER TABLE print_jobs ADD COLUMN counter_before TEXT")
@@ -497,6 +516,133 @@ def _merge_counters(conn: sqlite3.Connection, current: dict[str, dict[str, str]]
             (*(merged[field] for field in COUNTER_FIELDS), _now_iso(), printer_key),
         )
         logger.info("Job store: contador '%s' conservado al restaurar (máximo entre vigente y respaldo)", printer_key)
+
+
+def _outbox_row(row: sqlite3.Row) -> dict[str, Any]:
+    """
+    Convierte una fila de monitor_outbox en un diccionario con el payload ya decodificado.
+    Args:
+        row: Fila leída de la tabla monitor_outbox
+    Returns:
+        dict: reading_id, trigger, payload (dict), created_at, attempts, next_attempt_at y last_error
+    """
+    item = dict(row)
+    item["payload"] = json.loads(item["payload"])
+    return item
+
+
+def outbox_enqueue(reading_id: str, trigger: str, payload: dict[str, Any], now_iso: str | None = None) -> None:
+    """
+    Guarda una lectura del monitor en la cola de salida, lista para enviarse de inmediato.
+    Args:
+        reading_id: Identificador único de la lectura (clave de idempotencia con Odoo)
+        trigger: Origen de la lectura (scheduled, manual, after_z, before_z)
+        payload: Cuerpo completo de la solicitud (envelope)
+        now_iso: Hora local ISO de creación; None usa la hora actual
+    """
+    now = now_iso or _now_iso()
+    with _lock, _connect() as conn:
+        _ensure_schema(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO monitor_outbox (reading_id, trigger, payload, created_at, attempts, next_attempt_at)"
+            " VALUES (?, ?, ?, ?, 0, ?)",
+            (reading_id, trigger, json.dumps(payload, ensure_ascii=False), now, now),
+        )
+    logger.debug("Job store: lectura del monitor %s (%s) encolada", reading_id, trigger)
+
+
+def outbox_fetch_due(now_iso: str | None = None) -> dict[str, Any] | None:
+    """
+    Devuelve la lectura pendiente más antigua cuyo próximo intento ya venció.
+    Args:
+        now_iso: Hora local ISO de referencia; None usa la hora actual
+    Returns:
+        dict | None: Fila de la cola (ver _outbox_row) o None si no hay nada vencido
+    """
+    with _lock, _connect() as conn:
+        _ensure_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM monitor_outbox WHERE next_attempt_at<=? ORDER BY created_at ASC, rowid ASC LIMIT 1",
+            (now_iso or _now_iso(),),
+        ).fetchone()
+    return _outbox_row(row) if row else None
+
+
+def outbox_count() -> int:
+    """
+    Cuenta las lecturas pendientes en la cola de salida del monitor.
+    Returns:
+        int: Cantidad de lecturas pendientes
+    """
+    with _lock, _connect() as conn:
+        _ensure_schema(conn)
+        return int(conn.execute("SELECT COUNT(*) AS total FROM monitor_outbox").fetchone()["total"])
+
+
+def outbox_mark_sent(reading_id: str) -> None:
+    """
+    Elimina de la cola una lectura que Odoo confirmó (ok o duplicate).
+    Args:
+        reading_id: Identificador de la lectura
+    """
+    with _lock, _connect() as conn:
+        conn.execute("DELETE FROM monitor_outbox WHERE reading_id=?", (reading_id,))
+
+
+def outbox_mark_failed(reading_id: str, error: str, next_attempt_at: str) -> None:
+    """
+    Registra un intento fallido: suma un intento, guarda el error y programa el próximo envío.
+    Args:
+        reading_id: Identificador de la lectura
+        error: Motivo del fallo (texto corto)
+        next_attempt_at: Hora local ISO del próximo intento
+    """
+    with _lock, _connect() as conn:
+        conn.execute(
+            "UPDATE monitor_outbox SET attempts=attempts+1, last_error=?, next_attempt_at=? WHERE reading_id=?",
+            (error, next_attempt_at, reading_id),
+        )
+
+
+def outbox_drop(reading_id: str, reason: str) -> None:
+    """
+    Descarta una lectura que Odoo rechazó de forma definitiva (422), dejando constancia en el log.
+    Args:
+        reading_id: Identificador de la lectura
+        reason: Motivo del descarte
+    """
+    with _lock, _connect() as conn:
+        conn.execute("DELETE FROM monitor_outbox WHERE reading_id=?", (reading_id,))
+    logger.warning("Job store: lectura del monitor %s descartada: %s", reading_id, reason)
+
+
+def outbox_purge(now: datetime | None = None) -> int:
+    """
+    Aplica la retención de la cola: descarta lo anterior a 7 días y lo que exceda las 500 más recientes.
+    Args:
+        now: Hora local de referencia; None usa la hora actual
+    Returns:
+        int: Cantidad de lecturas descartadas
+    """
+    reference = now or datetime.now()  # noqa: DTZ005 - hora local, como el resto del job store
+    cutoff = (reference - timedelta(days=MONITOR_OUTBOX_MAX_DAYS)).isoformat(timespec="seconds")
+    with _lock, _connect() as conn:
+        _ensure_schema(conn)
+        old = conn.execute("DELETE FROM monitor_outbox WHERE created_at<?", (cutoff,)).rowcount
+        extra = conn.execute(
+            "DELETE FROM monitor_outbox WHERE reading_id NOT IN"
+            " (SELECT reading_id FROM monitor_outbox ORDER BY created_at DESC, rowid DESC LIMIT ?)",
+            (MONITOR_OUTBOX_MAX_ROWS,),
+        ).rowcount
+    if old:
+        logger.warning(
+            "Job store: %d lecturas del monitor descartadas por superar %d días", old, MONITOR_OUTBOX_MAX_DAYS
+        )
+    if extra:
+        logger.warning(
+            "Job store: %d lecturas del monitor descartadas por superar el máximo de %d", extra, MONITOR_OUTBOX_MAX_ROWS
+        )
+    return old + extra
 
 
 def backup_db(target_path: str | Path | None = None) -> Path:

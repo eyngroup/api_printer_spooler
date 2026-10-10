@@ -155,6 +155,17 @@ CONFIG_SCHEMA = {
             "properties": {"security_code": {"type": "string"}},
             "required": ["security_code"],
         },
+        # Opcional: envío periódico de lecturas del monitor fiscal a Odoo (push). Ausente = deshabilitado.
+        "monitor_push": {
+            "type": "object",
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "url": {"type": "string"},
+                "token": {"type": "string"},
+                "interval_minutes": {"type": "integer", "minimum": 1},
+                "branch_code": {"type": "string"},
+            },
+        },
     },
     "required": ["server", "proxy", "printers", "logging", "security"],
 }
@@ -199,6 +210,43 @@ def get_payment_labels(config: dict[str, Any] | None) -> dict[str, str]:
     except Exception as e:  # noqa: BLE001 - las etiquetas son informativas: nunca deben romper al llamador
         logger.warning("Error combinando las etiquetas de pago: %s", e)
         return dict(FALLBACK_PAYMENT_LABELS)
+
+
+MONITOR_PUSH_MIN_INTERVAL = 15
+MONITOR_PUSH_DEFAULTS = {
+    "enabled": False,
+    "url": "",
+    "token": "",
+    "interval_minutes": 60,
+    "branch_code": "",
+}
+
+
+def get_monitor_push_config(config: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Ajustes del envío del monitor a Odoo: la sección `monitor_push` combinada con los valores por defecto.
+    Una instalación sin la sección queda deshabilitada. El intervalo nunca baja de 15 minutos (y un valor
+    no numérico vuelve a 60). Nunca lanza excepciones.
+    Args:
+        config: Configuración completa (o None)
+    Returns:
+        dict[str, Any]: enabled, url, token, interval_minutes, branch_code ya normalizados
+    """
+    merged = dict(MONITOR_PUSH_DEFAULTS)
+    section = (config or {}).get("monitor_push") if isinstance(config, dict) else None
+    if isinstance(section, dict):
+        for key in merged:
+            if key in section and section[key] is not None:
+                merged[key] = section[key]
+    merged["enabled"] = merged["enabled"] is True
+    for key in ("url", "token", "branch_code"):
+        merged[key] = str(merged[key]).strip()
+    try:
+        interval = int(merged["interval_minutes"])
+    except (TypeError, ValueError):
+        interval = MONITOR_PUSH_DEFAULTS["interval_minutes"]
+    merged["interval_minutes"] = max(MONITOR_PUSH_MIN_INTERVAL, interval)
+    return merged
 
 
 def get_security_code() -> str:

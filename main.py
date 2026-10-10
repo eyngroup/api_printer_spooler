@@ -22,6 +22,7 @@ from handy.tools import get_base_path
 from handy.tray_system import TrayManager
 from handy.version import __version__
 from server.config_loader import ConfigManager
+from server.handlers.monitor_push import start_scheduler
 from server.server_api import create_app
 from views.main_window import MainWindow
 
@@ -94,6 +95,10 @@ def main():
     ConfigManager.start_watcher()
 
     app = create_app(config)  # Crear y configurar flask
+
+    # Envío periódico del monitor fiscal a Odoo: hilo daemon que lee la configuración vigente en cada despertar
+    # (sin `monitor_push` habilitado no hace nada). Se inicia aquí y no en create_app para no lanzar hilos en tests.
+    start_scheduler(ConfigManager.get_config)
 
     # Ventana principal (Consola/Logs, Servidor, Fiscal, Ticket, Matriz).
     # Vive en el hilo principal: Tkinter/ttkbootstrap requiere su mainloop() ahí.

@@ -377,6 +377,15 @@ resultado se informa como `clock_sync` y nunca convierte un Z exitoso en error. 
 o el botón "Ajustar reloj de la impresora" en la pestaña Comandos de la ventana (protegida por código). Pendiente de
 verificar en hardware tras un Z real.
 
+### Envío del monitor a Odoo (push)
+
+Cada lectura del monitor puede enviarse a Odoo por HTTPS (sección opcional `monitor_push` de `config.json`, ver
+`config/config.md`; deshabilitada por defecto). Implementación en `server/handlers/monitor_push.py`: la lectura se guarda
+primero en la tabla `monitor_outbox` de `data/print_jobs.db` (retención 7 días / 500 filas) y luego un hilo daemon,
+iniciado desde `main.py`, la envía cada `interval_minutes` (mínimo 15). Respuestas: 200 `ok`/`duplicate` borra la lectura;
+401 pausa el envío hasta que cambie el token; 422 descarta la lectura y registra un ERROR; 5xx, timeout o error de red
+reintentan con espera de 1, 2, 5, 10 y 30 min y luego cada intervalo. Máximo una solicitud cada 5 s al vaciar la cola.
+
 ## Pendientes
 
 - **Probar en Windows antes del despliegue**: el controlador TFHKA abre el puerto sin XON/XOFF (medido en HKA80 bajo
