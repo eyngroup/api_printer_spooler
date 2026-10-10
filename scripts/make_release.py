@@ -29,7 +29,7 @@ APP_NAME = "ApiPS"
 EXE_NAME = "ApiPS.exe"
 
 # Carpetas que crea la aplicación al ejecutarse (datos del cliente): nunca van en un release
-RUNTIME_DIRS = ("data", "logs", "backups")
+RUNTIME_DIRS = ("data", "logs", "backups", "updates")
 
 
 class ReleaseError(Exception):

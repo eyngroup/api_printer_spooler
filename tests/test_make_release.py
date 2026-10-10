@@ -61,6 +61,7 @@ def test_fails_without_executable(tmp_path: Path):
         "data/print_jobs.db",
         "logs/app.log",
         "backups/x.db",
+        "updates/ApiPS-2.12.0.zip",
     ],
 )
 def test_refuses_build_with_client_files(build_dir: Path, tmp_path: Path, leftover: str):

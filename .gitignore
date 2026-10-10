@@ -130,3 +130,7 @@ config/config.json
 templates/template_fiscal_printer.json
 templates/template_matriz_carta.json
 templates/template_ticket_simple.json
+
+# Carpetas de la autoactualización (descargas preparadas y respaldos del programa)
+updates/
+backups/
