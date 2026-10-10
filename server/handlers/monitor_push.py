@@ -147,6 +147,95 @@ def enqueue_reading(
         return None
 
 
+def _z_push_config(config: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Copia de lo mínimo de la configuración que usan las lecturas ligadas a un Z, o None si no corresponde hacerlas:
+    envío deshabilitado o incompleto (sin url o token) o modo PROXY (la máquina está en el spooler destino, que
+    envía sus propias lecturas). La copia permite usarla en un hilo sin depender del contexto de Flask.
+    Args:
+        config: Configuración completa (p. ej. current_app.config)
+    Returns:
+        dict | None: Copia con printers, server y monitor_push, o None si no hay que leer
+    """
+    settings = get_monitor_push_config(config)
+    if not (settings["enabled"] and settings["url"] and settings["token"]):
+        return None
+    server = dict((config or {}).get("server") or {})
+    if str(server.get("server_mode", "")).upper() == "PROXY":
+        return None
+    return {
+        "printers": dict((config or {}).get("printers") or {}),
+        "server": server,
+        "monitor_push": dict((config or {}).get("monitor_push") or {}),
+    }
+
+
+def _read_and_enqueue(trigger: str, config: dict[str, Any]) -> str | None:
+    """
+    Lee la máquina ahora (sin caché) y encola la lectura. Si la máquina no responde o hay una impresión en curso
+    no se encola nada: Odoo trata la lectura faltante como "aproximada" y un snapshot no disponible no aporta datos.
+    Nunca lanza excepciones.
+    Args:
+        trigger: before_z o after_z
+        config: Copia de configuración devuelta por _z_push_config
+    Returns:
+        str | None: reading_id encolado, o None si no se encoló
+    """
+    try:
+        snapshot = FiscalMonitor.read_fresh(config.get("printers", {}))
+        if not snapshot.get("available"):
+            logger.warning("Monitor push: lectura '%s' omitida: %s", trigger, snapshot.get("reason", "sin datos"))
+            return None
+        return enqueue_reading(trigger, config, snapshot=snapshot)
+    except Exception as e:  # noqa: BLE001 - el monitor nunca debe interferir con el Z
+        logger.error("Monitor push: error en la lectura '%s': %s", trigger, e)
+        return None
+
+
+def enqueue_before_z(config: dict[str, Any]) -> str | None:
+    """
+    Lectura nueva justo antes de un Z: el total oficial del día. Solo encola (el planificador la envía después);
+    cualquier fallo se registra y el Z continúa igual. Sin envío habilitado no lee la máquina en absoluto.
+    Args:
+        config: Configuración completa (current_app.config)
+    Returns:
+        str | None: reading_id encolado, o None si no corresponde o falló
+    """
+    try:
+        push_config = _z_push_config(config)
+        if push_config is None:
+            return None
+        return _read_and_enqueue("before_z", push_config)
+    except Exception as e:  # noqa: BLE001 - el monitor nunca debe interferir con el Z
+        logger.error("Monitor push: error preparando la lectura previa al Z: %s", e)
+        return None
+
+
+def start_after_z(config: dict[str, Any]) -> threading.Thread | None:
+    """
+    Tras un Z exitoso: descarta la caché del monitor (ya no refleja la máquina) y, si el envío está habilitado,
+    lanza un hilo daemon que lee y encola la lectura "after_z" para no demorar la respuesta HTTP a Odoo. Debe
+    llamarse DESPUÉS del ajuste de reloj: tras un Z la máquina solo acepta PF/PG de inmediato. Nunca lanza.
+    Args:
+        config: Configuración completa (current_app.config)
+    Returns:
+        threading.Thread | None: Hilo iniciado (para pruebas), o None si no hay lectura que hacer
+    """
+    try:
+        FiscalMonitor.invalidate()
+        push_config = _z_push_config(config)
+        if push_config is None:
+            return None
+        thread = threading.Thread(
+            target=_read_and_enqueue, args=("after_z", push_config), name="monitor-after-z", daemon=True
+        )
+        thread.start()
+        return thread
+    except Exception as e:  # noqa: BLE001 - el monitor nunca debe interferir con el Z
+        logger.error("Monitor push: no se pudo iniciar la lectura posterior al Z: %s", e)
+        return None
+
+
 def _set_state(**changes: Any) -> None:
     """
     Actualiza el estado visible en la ventana (hilo seguro).

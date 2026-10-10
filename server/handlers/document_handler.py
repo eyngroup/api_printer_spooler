@@ -16,6 +16,7 @@ from jsonschema import ValidationError
 
 from models.model_invoice import Invoice
 from server.document_schema import validate_document
+from server.handlers import monitor_push
 from server.handlers.job_store import (
     acquire_job,
     complete_job,
@@ -696,6 +697,9 @@ def handle_reports(report_type: str) -> tuple[Response, int]:
             return error_response(f"Esta impresora no soporta reportes {report_type}")
 
         logger.info("Imprimiendo reporte %s", report_type)
+        if report_type.upper() == "Z":
+            # Lectura nueva del monitor justo antes del cierre (total oficial del día); solo encola y nunca bloquea el Z
+            monitor_push.enqueue_before_z(current_app.config)
         result = getattr(printer, method)()
 
         if result:
@@ -704,6 +708,8 @@ def handle_reports(report_type: str) -> tuple[Response, int]:
                 clock_sync = _sync_clock_after_z(printers_config)  # el driver ya esperó 3 s tras el Z
                 if clock_sync is not None:
                     response["data"] = {"clock_sync": clock_sync}
+                # Después del ajuste de reloj (lo primero que debe hablar con la máquina tras el Z): lectura posterior
+                monitor_push.start_after_z(current_app.config)
             return jsonify(response), 200
         return error_response(f"Error al imprimir reporte {report_type}")
 
@@ -764,6 +770,10 @@ def handle_fiscal_commands() -> tuple[Response, int]:
             if not printer.check_status():
                 return error_response("La impresora fiscal no está lista", state="Impresora no disponible")
 
+        # Un Z enviado como comando directo: lectura nueva del monitor antes de enviar (una sola vez por solicitud)
+        if any(Z_COMMAND_PATTERN.match(str(cmd).strip()) for cmd in commands):
+            monitor_push.enqueue_before_z(current_app.config)
+
         results = []
         for cmd in commands:
             success = printer.send_command(cmd)
@@ -773,6 +783,7 @@ def handle_fiscal_commands() -> tuple[Response, int]:
         clock_sync = None
         if any(r["success"] and Z_COMMAND_PATTERN.match(str(r["command"]).strip()) for r in results):
             clock_sync = _sync_clock_after_z(printers_config, CLOCK_SYNC_DELAY_SECONDS)
+            monitor_push.start_after_z(current_app.config)  # tras el ajuste de reloj, sin demorar la respuesta
 
         # El estado global refleja el resultado real: Odoo envía un comando por llamada y no debe
         # recibir un éxito si la impresora lo rechazó (el detalle por comando se mantiene en data).

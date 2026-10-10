@@ -324,6 +324,33 @@ class FiscalMonitor:
             cls._read_ts = 0.0
 
     @classmethod
+    def invalidate(cls) -> None:
+        """
+        Descarta la lectura en caché sin tocar la máquina (p. ej. tras un Z, cuando los acumulados ya no valen).
+        No toma el candado a propósito: una lectura serial en curso puede tardar varios segundos y esto debe ser
+        inmediato; asignar la caché es seguro y una lectura posterior simplemente la vuelve a llenar.
+        """
+        cls._snapshot = None
+        cls._read_ts = 0.0
+
+    @classmethod
+    def read_fresh(cls, printers_config: dict[str, Any]) -> dict[str, Any]:
+        """
+        Lee la máquina AHORA ignorando la vigencia de la caché y el mínimo entre lecturas (p. ej. justo antes y
+        justo después de un Z). Sigue bajo el candado, solo TFHKA y sin leer durante una impresión. Si no se puede
+        leer devuelve "no disponible" (nunca una copia vieja: sería un dato falso como lectura "reciente").
+        Actualiza la caché cuando la lectura es buena. Nunca lanza excepciones.
+        Args:
+            printers_config: Sección "printers" de la configuración
+        Returns:
+            dict: Snapshot nuevo, o {"available": False, "reason": ...}
+        """
+        snapshot = cls._get_snapshot(printers_config, fresh=True)
+        if snapshot.get("available"):
+            apply_payment_labels(snapshot, get_payment_labels({"printers": printers_config or {}}))
+        return snapshot
+
+    @classmethod
     def _stale_copy(cls, error: str | None = None) -> dict[str, Any] | None:
         """
         Copia de la última lectura buena marcada como obsoleta.
@@ -357,16 +384,19 @@ class FiscalMonitor:
         return snapshot
 
     @classmethod
-    def _get_snapshot(cls, printers_config: dict[str, Any], force: bool = False) -> dict[str, Any]:
+    def _get_snapshot(cls, printers_config: dict[str, Any], force: bool = False, fresh: bool = False) -> dict[str, Any]:
         """
         Devuelve el snapshot fiscal, leyendo la máquina solo si la caché venció (60 s) o si se fuerza
         (nunca más de una vez cada 10 s). Nunca lee durante una impresión. Nunca lanza excepciones.
         Args:
             printers_config: Sección "printers" de la configuración
             force: True para pedir una lectura nueva (sujeta al mínimo entre lecturas)
+            fresh: True para leer siempre la máquina (sin caché ni mínimo) y sin devolver copias obsoletas
         Returns:
             dict: Snapshot, o {"available": False, "reason": ...}
         """
+        # Con fresh no se sirve nunca una lectura vieja: ante cualquier fallo se informa "no disponible"
+        stale = (lambda error=None: None) if fresh else cls._stale_copy
         try:
             fiscal = (printers_config or {}).get("fiscal", {}) or {}
             name = str(fiscal.get("fiscal_name", "")).strip().lower()
@@ -375,18 +405,18 @@ class FiscalMonitor:
 
             with cls._lock:
                 age = time.monotonic() - cls._read_ts
-                if cls._snapshot is not None and age < (MIN_REFRESH_SECONDS if force else CACHE_SECONDS):
+                if not fresh and cls._snapshot is not None and age < (MIN_REFRESH_SECONDS if force else CACHE_SECONDS):
                     return copy.deepcopy(cls._snapshot)
 
                 if job_store.has_processing_jobs():
-                    return cls._stale_copy() or {"available": False, "reason": "Impresión en curso"}
+                    return stale() or {"available": False, "reason": "Impresión en curso"}
 
                 raw = PrinterManager.read_monitor_data("tfhka", fiscal, job_store.has_processing_jobs)
                 if raw and raw.get("busy"):
-                    return cls._stale_copy() or {"available": False, "reason": "Impresión en curso"}
+                    return stale() or {"available": False, "reason": "Impresión en curso"}
                 if not raw:
                     message = "No se pudo leer la máquina fiscal"
-                    return cls._stale_copy(message) or {"available": False, "reason": message}
+                    return stale(message) or {"available": False, "reason": message}
 
                 cls._snapshot = build_snapshot(raw, payment_labels=get_payment_labels({"printers": printers_config}))
                 cls._read_ts = time.monotonic()
@@ -394,4 +424,4 @@ class FiscalMonitor:
         except Exception as e:  # noqa: BLE001 - nunca debe lanzar: el monitor es informativo
             logger.warning("Error en el monitor fiscal: %s", e)
             message = f"Error leyendo el monitor fiscal: {e}"
-            return cls._stale_copy(message) or {"available": False, "reason": message}
+            return stale(message) or {"available": False, "reason": message}
