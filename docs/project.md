@@ -144,6 +144,7 @@ El servidor procesa directamente los documentos para impresión, soportando tres
         - Logos personalizados
         - Formatos especiales
 - **Respuesta:** Generación de identificadores únicos
+- **Contador:** emulado en SQLite (tabla `counters`, fila `ticket`); ver `templates/templates.md`
 
 ##### 1.3 Impresora Matriz de Punto
 
@@ -156,6 +157,7 @@ El servidor procesa directamente los documentos para impresión, soportando tres
         - MEDIA_CARTA
     - Plantillas personalizables
 - **Respuesta:** Generación de identificadores únicos
+- **Contador:** emulado en SQLite (tabla `counters`, fila `matrix`); ver `templates/templates.md`
 
 #### 2. Modo Servidor Proxy
 

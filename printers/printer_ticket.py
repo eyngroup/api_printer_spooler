@@ -80,7 +80,7 @@ class TicketPrinter(BasePrinter):
         with FiscalCounter.LOCK:  # Evita leer el template mientras otra petición lo está escribiendo
             self._load_template()  # Inicializar contador usando el template
             template_path = os.path.join(get_base_path(), "templates", self.template_name)
-            self.counter = FiscalCounter(template_path)
+            self.counter = FiscalCounter(template_path, "ticket")  # Contador en SQLite; el template solo siembra
 
     def connect(self) -> bool:
         """Conecta con la impresora"""
@@ -451,7 +451,8 @@ class TicketPrinter(BasePrinter):
             doc_number = str(fiscal_data["document_number"]).zfill(8)  # Número reservado: el mismo que se devuelve
         else:
             counter_key = counter_mapping.get(data.get("operation_type", "invoice"), "document_invoice")
-            document_number = int(self.template["counter"][counter_key])
+            # El contador vive en SQLite (el template JSON ya no es la fuente)
+            document_number = int(self.counter._load_counter()[counter_key])
             document_number += 1
             doc_number = str(document_number).zfill(8)
 

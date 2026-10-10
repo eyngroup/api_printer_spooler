@@ -23,3 +23,11 @@ def forbid_real_serial_ports(monkeypatch: pytest.MonkeyPatch):
         raise serial.SerialException("Acceso a puertos seriales reales prohibido en los tests")
 
     monkeypatch.setattr(serial, "Serial", _forbidden)
+
+
+@pytest.fixture(autouse=True)
+def isolated_job_db(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """Aísla la base SQLite (trabajos y contadores) en un directorio temporal: ningún test toca data/print_jobs.db."""
+    from server.handlers import job_store
+
+    monkeypatch.setattr(job_store, "_DB_PATH", tmp_path / "isolated_jobs.db")

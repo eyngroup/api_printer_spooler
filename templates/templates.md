@@ -5,7 +5,8 @@
 - Los valores por defecto versionados están en `templates/defaults/` (`template_fiscal_printer.json`,
   `template_matriz_carta.json`, `template_ticket_simple.json`), con los contadores en su valor inicial.
 - Las copias de **runtime** (`templates/template_*.json`) no se versionan: el driver HKA escribe modelo/serial al
-  conectar y `printer_counter.py` persiste los contadores emulados.
+  conectar. Los contadores emulados de matriz y ticket ya **no** se persisten en el template: viven en SQLite
+  (ver "Almacenamiento del contador" más abajo).
 - En el primer arranque, cada template que no exista se crea copiándolo desde `templates/defaults/`.
 - Al actualizar una instalación existente **no se sobrescriben** los templates: se conservan sus contadores.
 - El build (`setup.py`) incluye `templates/defaults/` pero nunca las copias de runtime.
@@ -355,3 +356,14 @@ i05REF:0004-001-0002
 - `document_note`: Contador interno de notas de entrega. Numeros de control.
 - `machine_report`: Número del ultimo reporte de la impresora.
 - `machine_serial`: Número serial de la impresora.
+
+## Almacenamiento del contador (SQLite)
+- Los contadores emulados de la impresora de matriz y del ticket viven en la tabla `counters` de
+  `data/print_jobs.db` (una fila por impresora: `matrix`, `ticket`), con los mismos campos de arriba.
+- La sección `counter` del template es solo la **semilla de la migración inicial**: la primera vez que una impresora
+  no tiene fila, se copia desde su template (o desde ceros si no hay sección válida). Después el JSON no se lee ni se
+  escribe por el contador; se conserva como respaldo.
+- Guardar el template desde la ventana de configuración ya no puede reiniciar la numeración.
+- Un número confirmado nunca disminuye ni se repite: confirmar un número menor o igual al guardado se rechaza y se
+  registra un error crítico.
+- Al restaurar un respaldo de la base, cada contador queda en el máximo entre el valor vigente y el restaurado.

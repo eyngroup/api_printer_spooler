@@ -33,4 +33,5 @@ Se imprime solo si el documento trae `delivery.delivery_barcode` **y** la config
 - Totales calculados con el modelo (descuentos, recargos y línea de ajustes), de modo que coinciden con lo cobrado
   en Odoo.
 - Contador reservado, impreso y luego confirmado bajo un candado.
+- El contador emulado se guarda en SQLite (tabla `counters` de `data/print_jobs.db`, fila `ticket`), no en el template JSON; ver `templates/templates.md`.
 - El logo se imprime solo en modo directo y después del formateo.

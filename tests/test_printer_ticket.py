@@ -5,7 +5,6 @@ El template y el contador se copian a un directorio temporal: el template real n
 """
 
 import copy
-import json
 import re
 import shutil
 import subprocess
@@ -18,6 +17,7 @@ import printers.printer_ticket as ticket
 from handy.tools import get_base_path
 from printers.printer_counter import FiscalCounter
 from printers.printer_ticket import TicketPrinter
+from server.handlers import job_store
 
 
 def make_document(items: list[dict]) -> dict:
@@ -55,8 +55,8 @@ def env(tmp_path):
 
 
 def counter_on_disk(template: Path) -> str:
-    """Lee el contador de facturas persistido en el template temporal."""
-    return json.loads(template.read_text(encoding="utf-8"))["counter"]["document_invoice"]
+    """Lee el contador de facturas persistido en SQLite (el template ya no es la fuente del contador)."""
+    return job_store._read_counters()["ticket"]["document_invoice"]
 
 
 def printed(output: Path) -> str:

@@ -4,29 +4,36 @@
 Copyright © 2024, Iron Graterol
 Licensed under the GNU Affero General Public License, version 3 or later.
 
-Clase para gestionar el contador fiscal usando un archivo JSON.
+Clase para gestionar el contador fiscal emulado de las impresoras no fiscales.
+Los contadores viven en SQLite (tabla counters de data/print_jobs.db); la sección "counter" del
+template JSON solo se lee una vez como semilla de la migración inicial y ya no se escribe.
 """
 
 import datetime
 import json
 import logging
 import threading
-from typing import ClassVar, Dict
+from typing import ClassVar
+
+from server.handlers import job_store
 
 logger = logging.getLogger(__name__)
 
 
 class FiscalCounter:  # pylint: disable=R0903
     """
-    Clase para gestionar el contador fiscal usando un archivo JSON.
+    Clase para gestionar el contador fiscal emulado (matriz y ticket) guardado en SQLite.
     Métodos:
-    - update_counter: Actualiza los contadores y devuelve los datos actualizados.
-    - reserve_counter: Calcula el siguiente número sin escribirlo en disco.
-    - commit_counter: Persiste en disco los valores previamente reservados.
+    - reserve_counter: Calcula el siguiente número sin persistirlo.
+    - commit_counter: Persiste los valores previamente reservados (nunca retrocede un número confirmado).
 
     Atributos de clase:
     - LOCK: cerrojo reentrante compartido por todas las instancias (cada petición crea la suya) para
       serializar la secuencia reservar -> imprimir -> confirmar.
+
+    La clave de la impresora ("matrix" o "ticket") identifica su fila en la tabla counters. Si la fila no
+    existe se siembra una única vez desde la sección "counter" del template JSON (o con ceros); después el
+    JSON deja de ser la fuente, no se escribe y se conserva como respaldo.
     """
 
     LOCK = threading.RLock()
@@ -38,134 +45,80 @@ class FiscalCounter:  # pylint: disable=R0903
         "note": "document_note",
     }
 
-    def __init__(self, template_file: str) -> None:
+    def __init__(self, template_file: str, printer_key: str) -> None:
         """
-        Inicializa la clase con el archivo de template que contiene los contadores.
+        Inicializa la clase con el template de la impresora (solo como semilla) y su clave de contador.
         Args:
-            template_file: Ruta al archivo de template JSON que contiene los contadores.
+            template_file: Ruta al template JSON; se lee únicamente para sembrar el contador la primera vez.
+            printer_key: Clave de la impresora en la tabla counters ("matrix" o "ticket").
         """
         self.template_file = template_file
-        self.template = self._read_template()
+        self.printer_key = printer_key
 
-    def _read_template(self) -> Dict:
+    def _default_counter(self) -> dict[str, str]:
         """
-        Lee el template JSON que contiene los contadores.
-        Si no existe la sección counter, se crea con valores por defecto.
+        Valores iniciales cuando no hay sección counter utilizable en el template.
         Returns:
-            Dict: Template completo con los contadores
+            dict[str, str]: Contador en cero con la fecha de hoy
         """
+        return {
+            "document_date": datetime.date.today().strftime("%Y-%m-%d"),  # noqa: DTZ011 - fecha local
+            "document_invoice": "00000000",
+            "document_credit": "00000000",
+            "document_debit": "00000000",
+            "document_note": "00000000",
+            "machine_report": "0001",
+            "machine_serial": "Z1B1234567",
+        }
+
+    def _seed_counter(self) -> dict[str, str]:
+        """
+        Obtiene los valores de siembra: la sección counter del template si es válida, si no los valores por defecto.
+        Solo LEE el template (nunca lo escribe). Un template ausente, ilegible o con la sección incompleta no
+        impide sembrar: se usan los valores por defecto.
+        Returns:
+            dict[str, str]: Valores iniciales del contador
+        """
+        defaults = self._default_counter()
         try:
             with open(self.template_file, "r", encoding="utf-8") as file:
-                template = json.load(file)
-
-            if "counter" not in template:
-                fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-                template["counter"] = {
-                    "document_date": fecha_hoy,
-                    "document_invoice": "00000000",
-                    "document_credit": "00000000",
-                    "document_debit": "00000000",
-                    "document_note": "00000000",
-                    "machine_report": "0001",
-                    "machine_serial": "Z1B1234567",
-                }
-                self._write_template(template)
-            return template
-        except FileNotFoundError:
-            logger.error("El archivo %s no se encontró.", self.template_file)
-            raise
-        except json.JSONDecodeError:
-            logger.error("El archivo %s no es un JSON válido.", self.template_file)
-            raise
-        except Exception as e:
-            logger.error("Error leyendo template: %s", str(e))
-            raise
-
-    def _write_template(self, template: Dict) -> None:
-        """
-        Escribe el template actualizado en el archivo JSON.
-        Args:
-            template: Template completo con los contadores actualizados
-        """
-        try:
-            with open(self.template_file, "w", encoding="utf-8") as file:
-                json.dump(template, file, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logger.error("Error escribiendo template: %s", str(e))
-            raise
-
-    def update_counter(self, document_type: str = "invoice") -> Dict[str, str]:
-        """
-        Actualiza los contadores y escribe los datos actualizados en el template.
-        Args:
-            document_type: Tipo de documento ('invoice', 'credit', 'debit', 'note')
-        Returns:
-            Dict[str, str]: Datos actualizados del contador fiscal
-        """
-        try:
-            fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-            counter = self.template["counter"]
-
-            counter_mapping = {
-                "invoice": "document_invoice",
-                "credit": "document_credit",
-                "debit": "document_debit",
-                "note": "document_note",
-            }
-
-            counter_key = counter_mapping.get(document_type, "document_invoice")
-
-            if counter["document_date"] != fecha_hoy:
-                old_date = counter["document_date"]
-                old_report = counter["machine_report"]
-                counter["document_date"] = fecha_hoy
-                counter["machine_report"] = str(int(counter["machine_report"]) + 1).zfill(4)
-                logger.info(
-                    "Nuevo día detectado. Fecha: %s -> %s\nReporte: %s -> %s",
-                    old_date,
-                    fecha_hoy,
-                    old_report,
-                    counter["machine_report"],
-                )
-            else:
-                counter["machine_report"] = counter["machine_report"].zfill(4)
-
-            old_number = counter[counter_key]  # Incrementar documento específico
-            counter[counter_key] = str(int(counter[counter_key]) + 1).zfill(8)
-
-            logger.info(
-                "Incrementando contador %s: %s -> %s",
-                counter_key,
-                old_number,
-                counter[counter_key],
+                counter = json.load(file)["counter"]
+            seed = {field: str(counter[field]) for field in job_store.COUNTER_FIELDS}
+            for field in (*self.COUNTER_MAPPING.values(), "machine_report"):
+                int(seed[field])
+            datetime.date.fromisoformat(seed["document_date"])
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            logger.warning(
+                "Sin sección counter válida en %s (%s): el contador %s inicia con valores por defecto",
+                self.template_file,
+                str(e),
+                self.printer_key,
             )
-            self._write_template(self.template)
-            return {
-                "document_date": counter["document_date"],
-                "document_number": counter[counter_key],
-                "machine_serial": counter["machine_serial"],
-                "machine_report": counter["machine_report"],
-            }
+            return defaults
+        logger.info("Migrando contador '%s' desde el template %s", self.printer_key, self.template_file)
+        return seed
 
-        except Exception as e:
-            logger.error("Error actualizando contador para %s: %s", document_type, str(e))
-            raise
+    def _load_counter(self) -> dict[str, str]:
+        """
+        Lee el contador vigente de SQLite, sembrándolo desde el template la primera vez.
+        Returns:
+            dict[str, str]: Valores actuales del contador
+        """
+        return job_store.load_counter(self.printer_key, self._seed_counter)
 
     def reserve_counter(self, document_type: str = "invoice") -> dict[str, str]:
         """
-        Calcula los valores del siguiente documento SIN escribirlos en disco.
-        Relee el template del disco bajo el cerrojo, porque otra petición pudo confirmar un número
-        desde que se construyó esta instancia. Aplica la misma lógica que update_counter (cambio de
-        día del reporte y número de 8 dígitos).
+        Calcula los valores del siguiente documento SIN persistirlos.
+        Relee el contador de SQLite bajo el cerrojo, porque otra petición pudo confirmar un número
+        desde que se construyó esta instancia. Aplica el cambio de día del reporte y el número de 8 dígitos.
         Args:
             document_type: Tipo de documento ('invoice', 'credit', 'debit', 'note')
         Returns:
-            Dict[str, str]: Mismos datos que devuelve update_counter
+            Dict[str, str]: document_date, document_number, machine_serial y machine_report
         """
         with self.LOCK:
-            self.template = self._read_template()
-            counter = self.template["counter"]
-            fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")  # noqa: DTZ011 - fecha local, igual que update_counter
+            counter = self._load_counter()
+            fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")  # noqa: DTZ011 - fecha local
             counter_key = self.COUNTER_MAPPING.get(document_type, "document_invoice")
 
             if counter["document_date"] != fecha_hoy:
@@ -182,22 +135,18 @@ class FiscalCounter:  # pylint: disable=R0903
 
     def commit_counter(self, document_type: str, reserved: dict[str, str]) -> None:
         """
-        Persiste en disco los valores obtenidos con reserve_counter.
-        Relee el template bajo el cerrojo antes de escribir para no pisar cambios ajenos.
+        Persiste en SQLite los valores obtenidos con reserve_counter, en una sola transacción.
+        Un número ya confirmado nunca se repite ni disminuye: si el guardado es mayor o igual al reservado
+        se lanza CounterRegressionError y no se modifica nada.
         Args:
             document_type: Tipo de documento ('invoice', 'credit', 'debit', 'note')
             reserved: Diccionario devuelto por reserve_counter
         """
         try:
             with self.LOCK:
-                self.template = self._read_template()
-                counter = self.template["counter"]
                 counter_key = self.COUNTER_MAPPING.get(document_type, "document_invoice")
-
-                counter["document_date"] = reserved["document_date"]
-                counter["machine_report"] = reserved["machine_report"]
-                counter[counter_key] = reserved["document_number"]
-                self._write_template(self.template)
+                self._load_counter()  # Garantiza que la fila exista (migración) antes de confirmar
+                job_store.commit_counter_row(self.printer_key, counter_key, reserved)
                 logger.info("Contador %s confirmado: %s", counter_key, reserved["document_number"])
         except Exception as e:
             logger.error("Error confirmando contador para %s: %s", document_type, str(e))

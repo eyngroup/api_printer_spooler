@@ -5,7 +5,6 @@ El template y el contador se copian a un directorio temporal: el template real n
 """
 
 import copy
-import json
 import re
 import shutil
 import threading
@@ -16,6 +15,7 @@ import pytest
 import printers.printer_dotmatrix as dotmatrix
 from handy.tools import get_base_path
 from printers.printer_dotmatrix import MatrixPrinter
+from server.handlers import job_store
 
 ODOO_KEY = "0000000042"  # document_number de Odoo: clave de idempotencia, no debe imprimirse
 
@@ -74,8 +74,8 @@ def env(tmp_path, monkeypatch):
 
 
 def counter_on_disk(template: Path) -> str:
-    """Lee el contador de facturas persistido en el template temporal."""
-    return json.loads(template.read_text(encoding="utf-8"))["counter"]["document_invoice"]
+    """Lee el contador de facturas persistido en SQLite (el template ya no es la fuente del contador)."""
+    return job_store._read_counters()["matrix"]["document_invoice"]
 
 
 def printed(output: Path) -> str:

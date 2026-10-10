@@ -74,7 +74,7 @@ class MatrixPrinter(BasePrinter):
             self._load_template()
 
             template_path = os.path.join(get_base_path(), "templates", self.template_name)  # Inicializar contador
-            self.counter = FiscalCounter(template_path)
+            self.counter = FiscalCounter(template_path, "matrix")  # Contador en SQLite; el template solo siembra
 
         self.separator = self.template["format"]["separator"]
         self.page_width = self.template["format"]["page_width"]

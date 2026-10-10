@@ -11,7 +11,7 @@ import json
 import logging
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +46,34 @@ CREATE TABLE IF NOT EXISTS print_jobs (
 )
 """
 
+# Contadores emulados de las impresoras no fiscales (una fila por impresora: "matrix", "ticket").
+# Reemplazan a la sección "counter" de los templates JSON, que se podía perder al guardar la configuración.
+_CREATE_COUNTERS = """
+CREATE TABLE IF NOT EXISTS counters (
+    printer_key      TEXT PRIMARY KEY,
+    document_date    TEXT NOT NULL,
+    document_invoice TEXT NOT NULL,
+    document_credit  TEXT NOT NULL,
+    document_debit   TEXT NOT NULL,
+    document_note    TEXT NOT NULL,
+    machine_report   TEXT NOT NULL,
+    machine_serial   TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+)
+"""
+
+# Columnas de documento y de máquina de la tabla counters (sin la clave ni updated_at)
+COUNTER_FIELDS = (
+    "document_date",
+    "document_invoice",
+    "document_credit",
+    "document_debit",
+    "document_note",
+    "machine_report",
+    "machine_serial",
+)
+_COUNTER_NUMBER_FIELDS = ("document_invoice", "document_credit", "document_debit", "document_note")
+
 _CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_doc_op ON print_jobs (document_id, operation_type)"
 
 
@@ -77,6 +105,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     """
     conn.execute(_CREATE_TABLE)
     conn.execute(_CREATE_INDEX)
+    conn.execute(_CREATE_COUNTERS)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(print_jobs)").fetchall()}
     if "counter_before" not in columns:
         conn.execute("ALTER TABLE print_jobs ADD COLUMN counter_before TEXT")
@@ -331,6 +360,145 @@ def restart_job(document_id: str, operation_type: str) -> bool:
     return cursor.rowcount == 1
 
 
+class CounterRegressionError(ValueError):
+    """Se intentó confirmar un número de documento igual o menor al ya confirmado (nunca debe repetirse)."""
+
+
+def _counter_row_to_dict(row: sqlite3.Row) -> dict[str, str]:
+    """
+    Convierte una fila de la tabla counters en un diccionario con los campos de COUNTER_FIELDS.
+    Args:
+        row: Fila leída de la tabla counters
+    Returns:
+        dict[str, str]: Valores del contador
+    """
+    return {field: row[field] for field in COUNTER_FIELDS}
+
+
+def load_counter(printer_key: str, seed: Callable[[], dict[str, str]]) -> dict[str, str]:
+    """
+    Lee el contador emulado de una impresora no fiscal; si no tiene fila la crea (migración única).
+    La siembra se hace con BEGIN IMMEDIATE para que dos procesos no inserten a la vez. Una vez creada la
+    fila, el seed (p. ej. el JSON del template) deja de ser la fuente de verdad.
+    Args:
+        printer_key: Clave de la impresora ("matrix" o "ticket")
+        seed: Función sin argumentos que devuelve los valores iniciales (campos de COUNTER_FIELDS)
+    Returns:
+        dict[str, str]: Valores actuales del contador
+    """
+    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _lock, _connect() as conn:
+        conn.execute(_CREATE_COUNTERS)
+        row = conn.execute("SELECT * FROM counters WHERE printer_key=?", (printer_key,)).fetchone()
+        if row is not None:
+            return _counter_row_to_dict(row)
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM counters WHERE printer_key=?", (printer_key,)).fetchone()
+        if row is not None:  # Otro proceso sembró mientras esperábamos el bloqueo
+            return _counter_row_to_dict(row)
+        values = {field: str(seed()[field]) for field in COUNTER_FIELDS}
+        conn.execute(
+            "INSERT INTO counters (printer_key, " + ", ".join(COUNTER_FIELDS) + ", updated_at)"
+            " VALUES (?, " + ", ".join("?" for _ in COUNTER_FIELDS) + ", ?)",
+            (printer_key, *(values[field] for field in COUNTER_FIELDS), _now_iso()),
+        )
+        logger.info("Job store: contador '%s' sembrado en la base de datos", printer_key)
+        return values
+
+
+def commit_counter_row(printer_key: str, counter_key: str, reserved: dict[str, str]) -> None:
+    """
+    Confirma en una sola transacción (BEGIN IMMEDIATE) los valores reservados de un contador.
+    Regla: un número confirmado nunca disminuye ni se repite. Si el número guardado para counter_key es
+    mayor o igual al reservado se rechaza con CounterRegressionError y no se modifica nada.
+    Args:
+        printer_key: Clave de la impresora ("matrix" o "ticket")
+        counter_key: Campo del número de documento ("document_invoice", "document_credit", ...)
+        reserved: Diccionario devuelto por reserve_counter (document_date, document_number, machine_report)
+    Raises:
+        CounterRegressionError: Si el número reservado no es mayor al guardado
+        LookupError: Si la impresora no tiene fila de contador
+    """
+    with _lock, _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM counters WHERE printer_key=?", (printer_key,)).fetchone()
+        if row is None:
+            raise LookupError(f"No existe contador para la impresora '{printer_key}'")
+        stored = int(row[counter_key])
+        new_number = int(reserved["document_number"])
+        if stored >= new_number:
+            logger.critical(
+                "Contador %s/%s: se rechaza confirmar %s porque ya está confirmado %s (nunca debe repetirse)",
+                printer_key,
+                counter_key,
+                reserved["document_number"],
+                row[counter_key],
+            )
+            raise CounterRegressionError(
+                f"Contador {printer_key}/{counter_key}: {reserved['document_number']} no supera al guardado {row[counter_key]}"
+            )
+        conn.execute(
+            f"UPDATE counters SET document_date=?, machine_report=?, {counter_key}=?, updated_at=?"  # counter_key viene de COUNTER_MAPPING
+            " WHERE printer_key=?",
+            (
+                reserved["document_date"],
+                reserved["machine_report"],
+                str(reserved["document_number"]).zfill(8),
+                _now_iso(),
+                printer_key,
+            ),
+        )
+    logger.info("Job store: contador %s/%s confirmado: %s", printer_key, counter_key, reserved["document_number"])
+
+
+def _read_counters(db_file: Path | None = None) -> dict[str, dict[str, str]]:
+    """
+    Lee todas las filas de counters de la base indicada (por defecto la activa). Tolera que no exista la tabla.
+    Args:
+        db_file: Ruta de la base a leer; None usa la base activa
+    Returns:
+        dict: {printer_key: valores del contador}
+    """
+    try:
+        with closing(sqlite3.connect(str(db_file or _DB_PATH), timeout=5.0)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM counters").fetchall()
+    except sqlite3.Error:
+        return {}
+    return {row["printer_key"]: _counter_row_to_dict(row) for row in rows}
+
+
+def _merge_counters(conn: sqlite3.Connection, current: dict[str, dict[str, str]]) -> None:
+    """
+    Tras una restauración, deja cada contador en el máximo entre el valor vigente antes de restaurar y el
+    restaurado, para que un respaldo antiguo nunca retroceda los números (ni la fecha). Las impresoras que
+    solo existían en el estado vigente se reinsertan.
+    Args:
+        conn: Conexión a la base ya restaurada y con el esquema al día
+        current: Contadores vigentes antes de restaurar (resultado de _read_counters)
+    """
+    for printer_key, cur in current.items():
+        row = conn.execute("SELECT * FROM counters WHERE printer_key=?", (printer_key,)).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO counters (printer_key, " + ", ".join(COUNTER_FIELDS) + ", updated_at)"
+                " VALUES (?, " + ", ".join("?" for _ in COUNTER_FIELDS) + ", ?)",
+                (printer_key, *(cur[field] for field in COUNTER_FIELDS), _now_iso()),
+            )
+            continue
+        merged = _counter_row_to_dict(row)
+        for field in (*_COUNTER_NUMBER_FIELDS, "machine_report"):
+            merged[field] = max(merged[field], cur[field], key=int)
+        # ISO YYYY-MM-DD: el orden de texto es cronológico
+        merged["document_date"] = max(merged["document_date"], cur["document_date"])
+        conn.execute(
+            "UPDATE counters SET " + ", ".join(f"{field}=?" for field in COUNTER_FIELDS) + ", updated_at=?"
+            " WHERE printer_key=?",
+            (*(merged[field] for field in COUNTER_FIELDS), _now_iso(), printer_key),
+        )
+        logger.info("Job store: contador '%s' conservado al restaurar (máximo entre vigente y respaldo)", printer_key)
+
+
 def backup_db(target_path: str | Path | None = None) -> Path:
     """
     Creates an atomic, consistent online backup of the SQLite database using SQLite's backup API.
@@ -372,11 +540,13 @@ def restore_db(backup_path: str | Path) -> None:
     # Ensure target parent directory exists and perform atomic restore
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
+        current_counters = _read_counters()  # Los contadores no deben retroceder al restaurar un respaldo antiguo
         with closing(sqlite3.connect(str(backup_file))) as src_conn:
             with _connect() as dst_conn:
                 src_conn.backup(dst_conn)
             # Un respaldo antiguo puede no tener las columnas nuevas: se migra la base ya restaurada
             with _connect() as conn:
                 _ensure_schema(conn)
+                _merge_counters(conn, current_counters)
 
     logger.info("Base de datos restaurada exitosamente desde: %s", backup_file)
