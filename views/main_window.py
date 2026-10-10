@@ -334,8 +334,14 @@ class MainWindow:
             pass
         self.root.after(100, self._poll_ui_queue)
 
-    def _on_close(self) -> None:
+    def _on_close(self) -> bool:
+        """
+        Botón cerrar (X) de la ventana: oculta a la bandeja en lugar de salir.
+        ttkbootstrap destruye la ventana tras este callback salvo que devuelva False; destruirla terminaba
+        el mainloop y cerraba la aplicación completa. Solo "Salir" de la bandeja cierra la aplicación.
+        """
         self.hide()
+        return False
 
     def _on_minimize(self, event) -> None:
         if event.widget == self.root and self.root.state() == "iconic":
