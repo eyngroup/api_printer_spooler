@@ -12,6 +12,7 @@ import logging
 import os
 import queue
 import sys
+import threading
 import webbrowser
 from datetime import datetime
 from typing import Any
@@ -25,6 +26,7 @@ from ttkbootstrap.dialogs import Messagebox
 
 from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path
+from server.handlers import monitor_push
 from server.handlers.job_store import backup_db, restore_db
 from server.config_loader import (
     CONFIG_SCHEMA,
@@ -35,6 +37,7 @@ from server.config_loader import (
     ConfigManager,
     PAYMENT_CODES,
     _load_default_payment_labels,
+    get_monitor_push_config,
     get_payment_labels,
     get_security_code,
 )
@@ -534,6 +537,9 @@ class MainWindow:
         security_box.pack(fill=tbc.X, padx=10, pady=10)
         self._add_entry(self.sv, security_box, "Código de seguridad", "security_code", security_cfg.get("security_code", ""), show="*")
 
+        # --- Monitor fiscal en Odoo (envío de lecturas) ---
+        self._build_monitor_push_box(parent, config)
+
         # --- Base de Datos SQLite y Respaldos ---
         db_box = tb.LabelFrame(parent, text="Base de Datos SQLite y Respaldos", padding=10)
         db_box.pack(fill=tbc.X, padx=10, pady=10)
@@ -568,6 +574,95 @@ class MainWindow:
             command=self._save_server_config,
             bootstyle="success",
         ).pack(side=tbc.LEFT)
+
+    def _build_monitor_push_box(self, parent, config: dict[str, Any]) -> None:
+        """
+        Sección de la pestaña Servidor para el envío de lecturas del monitor fiscal a Odoo: activación, URL,
+        token (oculto), intervalo, sucursal, estado del último envío y botón "Enviar ahora".
+        La pestaña ya está protegida por el código de seguridad.
+        Args:
+            parent: Contenedor de la pestaña
+            config: Configuración vigente
+        """
+        push_cfg = get_monitor_push_config(config)
+        box = tb.LabelFrame(parent, text="Monitor fiscal en Odoo", padding=10)
+        box.pack(fill=tbc.X, padx=10, pady=10)
+        tb.Label(
+            box,
+            text="Envía a Odoo las lecturas del monitor fiscal (cada intervalo y justo antes y después de cada Z). "
+            "Solo impresoras TFHKA en modo SPOOLER. El token lo genera Odoo en el diario.",
+            wraplength=800,
+        ).pack(anchor=tbc.W, pady=(0, 6))
+        self._add_checkbox(self.sv, box, "Habilitar envío a Odoo", "push_enabled", push_cfg["enabled"])
+        self._add_entry(self.sv, box, "URL de Odoo", "push_url", push_cfg["url"])
+        self._add_entry(self.sv, box, "Token", "push_token", push_cfg["token"], show="*")
+        self._add_entry(self.sv, box, "Intervalo (minutos, mínimo 15)", "push_interval_minutes", push_cfg["interval_minutes"])
+        self._add_entry(self.sv, box, "Código de sucursal", "push_branch_code", push_cfg["branch_code"])
+
+        status_row = tb.Frame(box)
+        status_row.pack(fill=tbc.X, pady=(8, 0))
+        self.push_status_label = tb.Label(status_row, text=self._monitor_push_status_text(), wraplength=600)
+        self.push_status_label.pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES)
+        self.push_send_button = tb.Button(
+            status_row, text="Enviar ahora", command=self._on_monitor_push_send, bootstyle="info-outline"
+        )
+        self.push_send_button.pack(side=tbc.RIGHT, padx=(5, 0))
+        tb.Button(
+            status_row, text="Actualizar estado", command=self._refresh_monitor_push_status, bootstyle="secondary-outline"
+        ).pack(side=tbc.RIGHT)
+
+    @staticmethod
+    def _monitor_push_status_text() -> str:
+        """
+        Texto del estado del envío: último intento, resultado, lecturas en cola y pausa por token rechazado.
+        Returns:
+            str: Estado legible para la ventana
+        """
+        status = monitor_push.get_status()
+        parts = [
+            f"Último intento: {status.get('last_attempt_at') or '--'}",
+            f"Resultado: {status.get('last_result') or '--'}",
+            f"En cola: {status.get('pending', 0)}",
+        ]
+        if status.get("paused"):
+            parts.append("EN PAUSA: Odoo rechazó el token")
+        return " · ".join(parts)
+
+    def _refresh_monitor_push_status(self) -> None:
+        """Actualiza la etiqueta de estado del envío a Odoo."""
+        self.push_status_label.configure(text=self._monitor_push_status_text())
+
+    def _on_monitor_push_send(self) -> None:
+        """
+        Botón "Enviar ahora": encola una lectura manual y vacía la cola en un hilo aparte (lectura de la máquina y
+        petición a Odoo pueden tardar varios segundos) para no congelar la ventana. Usa la configuración guardada.
+        """
+        settings = get_monitor_push_config(ConfigManager.get_config())
+        if not (settings["enabled"] and settings["url"] and settings["token"]):
+            Messagebox.show_warning(
+                "Habilite el envío y guarde la URL y el token antes de enviar.", "Monitor fiscal en Odoo"
+            )
+            return
+        self.push_send_button.configure(state=tbc.DISABLED)
+        self.push_status_label.configure(text="Enviando lectura a Odoo...")
+        worker = threading.Thread(
+            target=monitor_push.send_now, args=(ConfigManager.get_config(),), name="monitor-push-manual", daemon=True
+        )
+        worker.start()
+        self._wait_monitor_push_send(worker)
+
+    def _wait_monitor_push_send(self, worker: threading.Thread) -> None:
+        """
+        Espera (sin bloquear Tk) a que termine el envío manual y luego muestra el estado. Tk no es seguro entre
+        hilos, por eso se consulta el hilo desde el bucle de la ventana con after() en lugar de actualizar desde él.
+        Args:
+            worker: Hilo del envío manual
+        """
+        if worker.is_alive():
+            self.root.after(500, self._wait_monitor_push_send, worker)
+            return
+        self.push_send_button.configure(state=tbc.NORMAL)
+        self._refresh_monitor_push_status()
 
     def _add_origin(self) -> None:
         value = self.new_origin_entry.get().strip()
@@ -606,6 +701,13 @@ class MainWindow:
             }
             new_config["security"] = {
                 "security_code": self.sv["security_code"].get(),
+            }
+            new_config["monitor_push"] = {
+                "enabled": self.sv["push_enabled"].get(),
+                "url": self.sv["push_url"].get().strip(),
+                "token": self.sv["push_token"].get().strip(),
+                "interval_minutes": int(self.sv["push_interval_minutes"].get()),
+                "branch_code": self.sv["push_branch_code"].get().strip(),
             }
         except (ValueError, KeyError) as e:
             Messagebox.show_error(f"Valor inválido en el formulario: {e}", "Configuración del Servidor")

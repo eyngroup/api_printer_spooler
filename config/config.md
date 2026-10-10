@@ -315,3 +315,5 @@ instalaciones existentes no la tienen y quedan deshabilitadas (los valores por d
 - `token`: token por diario generado en Odoo; se envía como `Authorization: Bearer`.
 - `interval_minutes`: cada cuántos minutos se envía una lectura (mínimo 15; valores menores se suben a 15).
 - `branch_code`: etiqueta informativa de la sucursal (puede ir vacía).
+- Se edita desde la ventana de escritorio: pestaña **Configuración del Servidor**, sección **Monitor fiscal en Odoo**
+  (también muestra el estado del último envío y el botón **Enviar ahora**).

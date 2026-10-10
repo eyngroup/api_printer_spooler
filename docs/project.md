@@ -386,12 +386,20 @@ iniciado desde `main.py`, la envía cada `interval_minutes` (mínimo 15). Respue
 401 pausa el envío hasta que cambie el token; 422 descarta la lectura y registra un ERROR; 5xx, timeout o error de red
 reintentan con espera de 1, 2, 5, 10 y 30 min y luego cada intervalo. Máximo una solicitud cada 5 s al vaciar la cola.
 
+Además se toma una lectura nueva (sin caché) **justo antes de cada Z** (`trigger: before_z`, total oficial del día) y otra
+**después del ajuste de reloj** posterior al Z (`after_z`, en un hilo para no demorar la respuesta). Cubre el botón Z de la
+ventana, `GET /api/report_z` de Odoo y el comando directo `I0Z` por `/api/command`. Si la lectura falla, el Z se ejecuta
+igual. En modo PROXY no se envían lecturas (las envía el spooler destino). La configuración, el estado del último envío y
+el botón "Enviar ahora" están en la ventana de escritorio, pestaña Configuración del Servidor (protegida por el código de
+seguridad), sección "Monitor fiscal en Odoo".
+
 ## Pendientes
 
 - **Probar en Windows antes del despliegue**: el controlador TFHKA abre el puerto sin XON/XOFF (medido en HKA80 bajo
   Linux: con XON/XOFF se perdía el byte LRC en 11 de 500 lecturas `S1`; sin él, 0 de 500). Verificar en una PC Windows
   impresión de factura y nota de crédito, reportes y Monitor fiscal.
 - **Ajuste de reloj**: verificar `PF`/`PG` justo después de un Z real.
+- **Validar en hardware** con el próximo Z real: lecturas `before_z` / `after_z` encoladas y envío a Odoo.
 
 En espera de contar con una máquina PNP:
 
