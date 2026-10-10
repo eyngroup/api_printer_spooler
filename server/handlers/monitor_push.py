@@ -75,7 +75,10 @@ def _format_offset(now: datetime) -> str:
 
 def _machine_serial(snapshot: dict[str, Any]) -> str:
     """
-    Serial de la máquina: el leído en el snapshot o, si no hay lectura, el configurado en el template fiscal.
+    Serial de la máquina: el leído en el snapshot o, si no hay lectura, el último leído de la máquina en este proceso
+    y, en último caso, el configurado en el template fiscal. Odoo compara SIEMPRE este serial con el del diario
+    (también cuando la máquina no respondió); el template puede conservar el serial de ejemplo hasta la primera
+    impresión, por eso se prefiere el último serial real.
     Args:
         snapshot: Snapshot del monitor
     Returns:
@@ -84,6 +87,9 @@ def _machine_serial(snapshot: dict[str, Any]) -> str:
     serial = ((snapshot or {}).get("machine") or {}).get("serial")
     if (snapshot or {}).get("available") and serial:
         return str(serial)
+    last_serial = FiscalMonitor.last_known_serial()
+    if last_serial:
+        return last_serial
     from server.server_api import _configured_serial  # importación diferida: evita cargar Flask al importar
 
     return _configured_serial()

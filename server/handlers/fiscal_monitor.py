@@ -315,6 +315,9 @@ class FiscalMonitor:
     _lock = threading.Lock()
     _snapshot: dict[str, Any] | None = None
     _read_ts: float = 0.0  # Marca monotónica de la última lectura exitosa
+    # Último serial leído de la máquina. No se borra con invalidate() (tras un Z el serial no cambia): el envío a
+    # Odoo lo usa cuando la máquina no responde, porque Odoo compara siempre el serial con el del diario.
+    _last_serial: str = ""
 
     @classmethod
     def reset(cls) -> None:
@@ -322,6 +325,16 @@ class FiscalMonitor:
         with cls._lock:
             cls._snapshot = None
             cls._read_ts = 0.0
+            cls._last_serial = ""
+
+    @classmethod
+    def last_known_serial(cls) -> str:
+        """
+        Último serial leído de la máquina en este proceso (cadena vacía si nunca hubo una lectura buena).
+        Returns:
+            str: Serial de la máquina o ""
+        """
+        return cls._last_serial
 
     @classmethod
     def invalidate(cls) -> None:
@@ -420,6 +433,7 @@ class FiscalMonitor:
 
                 cls._snapshot = build_snapshot(raw, payment_labels=get_payment_labels({"printers": printers_config}))
                 cls._read_ts = time.monotonic()
+                cls._last_serial = str((cls._snapshot.get("machine") or {}).get("serial") or cls._last_serial)
                 return copy.deepcopy(cls._snapshot)
         except Exception as e:  # noqa: BLE001 - nunca debe lanzar: el monitor es informativo
             logger.warning("Error en el monitor fiscal: %s", e)

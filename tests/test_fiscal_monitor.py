@@ -152,6 +152,13 @@ def test_cache_prevents_second_read(monitor):
     assert reader.call_count == 1
 
 
+def test_good_read_remembers_machine_serial(monitor):
+    """Una lectura buena guarda el serial real de la máquina (respaldo del envío a Odoo cuando no responde)."""
+    assert FiscalMonitor.last_known_serial() == ""
+    snap = FiscalMonitor.get_snapshot(FISCAL_CFG)
+    assert FiscalMonitor.last_known_serial() == snap["machine"]["serial"] != ""
+
+
 def test_force_respects_minimum_interval(monitor, monkeypatch):
     reader, _ = monitor
     clock = {"t": 1000.0}

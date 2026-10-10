@@ -311,7 +311,8 @@ instalaciones existentes no la tienen y quedan deshabilitadas (los valores por d
 ```
 
 - `enabled`: activa el envío (además requiere `url` y `token`). Por defecto `false`.
-- `url`: URL completa HTTPS del controlador de Odoo (el certificado se verifica siempre).
+- `url`: URL completa HTTPS del controlador de Odoo (el certificado se verifica siempre). Ruta definida por el módulo
+  `rx2_fiscal_monitor`: `https://<dominio-odoo>/fiscal_printer/monitor/push`.
 - `token`: token por diario generado en Odoo; se envía como `Authorization: Bearer`.
 - `interval_minutes`: cada cuántos minutos se envía una lectura (mínimo 15; valores menores se suben a 15).
 - `branch_code`: etiqueta informativa de la sucursal (puede ir vacía).

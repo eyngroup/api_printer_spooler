@@ -141,6 +141,20 @@ def test_machine_serial_falls_back_to_configured_when_unavailable():
     assert env["snapshot"] == SNAPSHOT_NO
 
 
+def test_machine_serial_prefers_last_machine_serial_over_configured(monkeypatch):
+    """Sin lectura, se usa el último serial real leído (el template puede tener aún el serial de ejemplo)."""
+    monkeypatch.setattr(FiscalMonitor, "_last_serial", "Z7C0000000")
+    env = monitor_push.build_envelope(SNAPSHOT_NO, "scheduled", make_config(), NOW)
+    assert env["machine_serial"] == "Z7C0000000"
+
+
+def test_last_known_serial_survives_invalidate_after_z(monkeypatch):
+    """Tras un Z se descarta la caché pero no el último serial leído."""
+    monkeypatch.setattr(FiscalMonitor, "_last_serial", "Z7C0000000")
+    FiscalMonitor.invalidate()
+    assert FiscalMonitor.last_known_serial() == "Z7C0000000"
+
+
 def test_sent_at_is_refreshed_on_resend_with_same_reading_id():
     reading_id = enqueue()
     session = FakeSession(FakeResponse(500), FakeResponse(200))

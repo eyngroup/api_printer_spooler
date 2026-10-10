@@ -590,7 +590,8 @@ class MainWindow:
         tb.Label(
             box,
             text="Envía a Odoo las lecturas del monitor fiscal (cada intervalo y justo antes y después de cada Z). "
-            "Solo impresoras TFHKA en modo SPOOLER. El token lo genera Odoo en el diario.",
+            "Solo impresoras TFHKA en modo SPOOLER. El token lo genera Odoo en el diario. "
+            "URL: https://<dominio-odoo>/fiscal_printer/monitor/push",
             wraplength=800,
         ).pack(anchor=tbc.W, pady=(0, 6))
         self._add_checkbox(self.sv, box, "Habilitar envío a Odoo", "push_enabled", push_cfg["enabled"])
