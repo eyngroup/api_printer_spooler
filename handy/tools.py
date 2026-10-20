@@ -38,7 +38,9 @@ def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFD", text)
     text = "".join([c for c in text if not unicodedata.combining(c)])
 
-    allowed_chars = r"[^a-zA-Z0-9\s\*\+\"\(\)\[\]\#@\'`|~{}:;?,\-_\^$!=%]"
+    # El "&" se permite (razones sociales como "Pérez & Hijos"): es ASCII imprimible y los manuales HKA/PNP no lo
+    # restringen. El punto se sigue quitando a propósito: acorta los nombres en campos de largo limitado.
+    allowed_chars = r"[^a-zA-Z0-9\s\*\+\"\(\)\[\]\#@\'`|~{}:;?,\-_\^$!=%&]"
     text = re.sub(allowed_chars, "", text)
 
     text = text.encode("ascii", "ignore").decode("utf-8")
