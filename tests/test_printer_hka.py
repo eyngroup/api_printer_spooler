@@ -203,3 +203,28 @@ def test_hka_port_opens_without_software_flow_control(monkeypatch):
     assert FiscalPrinterHka("emulated").open_port() is True
     assert captured["xonxoff"] is False
     assert captured["rtscts"] is True
+
+
+@pytest.fixture
+def barcode_printer(printer: TfhkaPrinter) -> TfhkaPrinter:
+    """Impresora con el código de barras activo en el template y el flag 43 real de la HKA80 (02 = CODE128)."""
+    config_dir = Path(__file__).parents[1] / "config"
+    printer.barcode_rules = json.loads((config_dir / "hka_barcode_rules.json").read_text())
+    printer.template_config = {"format": {"include_delivery_barcode": True}}
+    printer._flag_43 = "02"
+    printer._flag_30 = "00"
+    return printer
+
+
+@pytest.mark.parametrize("operation_type", ["invoice", "credit", "debit"])
+def test_footer_prints_delivery_barcode_for_fiscal_documents(barcode_printer: TfhkaPrinter, operation_type: str):
+    """Si Odoo envía delivery_barcode, se imprime al pie también en notas de crédito y débito (comando y)."""
+    barcode_printer._process_footer({"delivery": {"delivery_barcode": "WH/RET/00012"}}, operation_type)
+    assert HKAcmd.BARCODE_LINE.format("WH/RET/00012") in barcode_printer._printer.sent
+
+
+@pytest.mark.parametrize(("operation_type", "barcode"), [("credit", ""), ("note", "WH/OUT/00001")])
+def test_footer_without_barcode_sends_no_barcode_command(barcode_printer: TfhkaPrinter, operation_type: str, barcode):
+    """Sin código en el payload, o en notas no fiscales, no se envía el comando y."""
+    barcode_printer._process_footer({"delivery": {"delivery_barcode": barcode}}, operation_type)
+    assert not any(cmd.startswith("y") for cmd in barcode_printer._printer.sent)
