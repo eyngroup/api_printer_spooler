@@ -7,6 +7,7 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Utilidades para el manejo de rutas, textos, numeros y fechas
 """
 
+import hashlib
 import re
 from datetime import datetime
 import sys
@@ -25,6 +26,21 @@ def get_base_path():
 
     # Si no está congelado, subir dos niveles desde utils/tools.py para llegar a la raíz
     return os.path.dirname(os.path.dirname(__file__))
+
+
+def sha256_of(path) -> str:
+    """
+    Calcula el SHA256 de un archivo leyéndolo por bloques.
+    Args:
+        path: Archivo a resumir
+    Returns:
+        str: Hash en hexadecimal (minúsculas)
+    """
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def normalize_text(text: str) -> str:

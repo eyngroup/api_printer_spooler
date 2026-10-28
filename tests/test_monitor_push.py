@@ -62,7 +62,7 @@ class FakeSession:
 def clean_state(monkeypatch):
     """Estado del módulo limpio y serial configurado fijo (no se lee el template real)."""
     monitor_push.reset_state()
-    monkeypatch.setattr("server.server_api._configured_serial", lambda: "CFG0000001")
+    monkeypatch.setattr("server.handlers.monitor_push.read_configured_fiscal_serial", lambda: "CFG0000001")
     yield
     monitor_push.stop_scheduler()
     monitor_push.reset_state()

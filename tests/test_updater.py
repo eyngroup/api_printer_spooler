@@ -26,6 +26,13 @@ class FakeResponse:
         self._json = json_data
         self._content = content
         self._bad_json = bad_json
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.closed = True
 
     def json(self):
         if self._bad_json:
@@ -227,6 +234,28 @@ def test_stage_size_limit(tmp_path, monkeypatch):
     with pytest.raises(UpdateError, match="tamaño"):
         stage(tmp_path, make_zip(GOOD))
     assert not (tmp_path / "updates" / "ApiPS-2.12.0").exists()
+
+
+def test_stage_extraction_counts_real_bytes(tmp_path, monkeypatch):
+    """Si la cabecera subestima el tamaño, la extracción aborta por bytes reales y no deja nada a medias."""
+    monkeypatch.setattr(updater, "validate_zip", lambda archive: archive.infolist())
+    monkeypatch.setattr(updater, "MAX_UNCOMPRESSED", 5)
+    monkeypatch.setattr(updater, "EXTRACT_CHUNK", 2)
+    with pytest.raises(UpdateError, match="tamaño"):
+        stage(tmp_path, make_zip({"ApiPS/ApiPS.exe": b"0123456789"}))
+    updates = tmp_path / "updates"
+    assert not (updates / "ApiPS-2.12.0").exists() and not (updates / "ApiPS-2.12.0.partial").exists()
+
+
+def test_download_closes_every_response(tmp_path):
+    """Las respuestas se cierran siempre: descarga correcta y camino de error HTTP."""
+    ok = FakeSession({"https://x/z": FakeResponse(200, content=b"zip"), "https://x/s": FakeResponse(200, content=b"s")})
+    updater._download("https://x/z", tmp_path / "a.zip", ok)
+    assert ok.responses["https://x/z"].closed
+    bad = FakeSession({"https://x/z": FakeResponse(500)})
+    with pytest.raises(UpdateError, match="500"):
+        updater._download("https://x/z", tmp_path / "b.zip", bad)
+    assert bad.responses["https://x/z"].closed
 
 
 def test_stage_replaces_previous_staging(tmp_path):

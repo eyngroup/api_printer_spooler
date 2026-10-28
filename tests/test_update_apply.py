@@ -206,7 +206,77 @@ def test_wait_process_exit_posix_dead_pid():
     assert update_apply.wait_process_exit(proc.pid, 2) is True
 
 
+class _Clock:
+    """Reloj falso: `sleep` solo adelanta el tiempo (los tests nunca esperan de verdad)."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def _win_wait(open_results, timeout=3, waited=True):
+    """Ejecuta la lógica de Windows con OpenProcess simulado; devuelve (resultado, intentos, esperas)."""
+    clock = _Clock()
+    attempts = []
+    waits = []
+
+    def open_process(pid):
+        attempts.append(pid)
+        return open_results(len(attempts))
+
+    def wait_and_close(handle, remaining):
+        waits.append(handle)
+        return waited
+
+    result = update_apply._wait_exit_windows(
+        42, timeout, open_process=open_process, wait_and_close=wait_and_close, sleep=clock.sleep, clock=clock
+    )
+    return result, attempts, waits
+
+
+def test_wait_windows_handle_ok_waits_for_signal():
+    assert _win_wait(lambda n: (99, 0))[0] is True
+    result, _attempts, waits = _win_wait(lambda n: (99, 0), waited=False)
+    assert result is False and waits == [99]
+
+
+def test_wait_windows_invalid_parameter_means_gone():
+    result, attempts, _waits = _win_wait(lambda n: (None, 87))
+    assert result is True and len(attempts) == 1
+
+
+def test_wait_windows_access_denied_keeps_polling_then_gives_up():
+    result, attempts, waits = _win_wait(lambda n: (None, 5), timeout=3)
+    assert result is False and len(attempts) > 1 and waits == []
+
+
+def test_wait_windows_access_denied_then_gone():
+    result, attempts, _waits = _win_wait(lambda n: (None, 5) if n < 3 else (None, 87))
+    assert result is True and len(attempts) == 3
+
+
 # ---------------------------------------------------------------- main.py
+
+
+def test_cleanup_updates_is_deferred_and_never_raises(monkeypatch):
+    import main
+
+    calls = []
+    monkeypatch.setattr(main, "cleanup_updates", lambda path: calls.append(path))
+    timer = main.schedule_cleanup_updates("C:/ApiPS", delay=3600)
+    try:
+        assert timer.daemon is True and calls == []  # no corre durante el arranque
+        timer.function()
+        assert calls == ["C:/ApiPS"]
+        monkeypatch.setattr(main, "cleanup_updates", lambda path: (_ for _ in ()).throw(OSError("bloqueado")))
+        timer.function()  # registra y no propaga
+    finally:
+        timer.cancel()
 
 
 def test_main_apply_update_mode(tmp_path, monkeypatch):

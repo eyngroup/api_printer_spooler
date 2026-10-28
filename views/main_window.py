@@ -30,7 +30,8 @@ from handy.update_apply import launch_apply
 from handy.updater import UpdateError, UpdateInfo, check_latest, download_and_stage, is_supported
 from handy.version import __version__
 from server.handlers import monitor_push
-from server.handlers.job_store import backup_db, has_processing_jobs, restore_db
+from server.handlers.document_handler import fiscal_operation_in_progress
+from server.handlers.job_store import backup_db, restore_db
 from server.config_loader import (
     CONFIG_SCHEMA,
     VALID_BARCODE_TYPES,
@@ -152,7 +153,10 @@ def _save_json_file(path: str, data: dict[str, Any]) -> None:
 
 
 # Hosts con los que Flask escucha en todas las interfaces: desde la propia PC se llega por 127.0.0.1
-_ANY_INTERFACE_HOSTS = {"", "0.0.0.0", "::"}
+_ANY_INTERFACE_HOSTS = {"", "0.0.0.0"}
+# Duración máxima (s) de un reporte X/Z pedido desde la ventana: igual al timeout de documentos de Odoo, porque un Z
+# incluye la lectura previa de la máquina, el Z, la espera de 3 s y el ajuste de reloj
+REPORT_TIMEOUT_SECONDS = 90
 
 
 def local_api_url(config: dict[str, Any], path: str) -> str:
@@ -160,7 +164,8 @@ def local_api_url(config: dict[str, Any], path: str) -> str:
     URL de la API local para las acciones de la ventana (reportes X/Z, comandos, reloj).
     Usa la misma dirección donde escucha Flask (`server.server_host`): si es una IP de la red (p. ej. para que Odoo
     llegue desde otras PCs) el servidor NO escucha en 127.0.0.1 y llamar ahí da "conexión denegada" (WinError 10061).
-    Solo cuando escucha en todas las interfaces (0.0.0.0, :: o vacío) se usa 127.0.0.1.
+    Solo cuando escucha en todas las interfaces (0.0.0.0 o vacío) se usa 127.0.0.1. Con "::" (cualquier dirección
+    IPv6) se usa [::1]: en Windows ese socket no acepta conexiones por el loopback IPv4.
     Args:
         config: Configuración completa
         path: Ruta de la API (p. ej. "/api/report_x")
@@ -170,7 +175,9 @@ def local_api_url(config: dict[str, Any], path: str) -> str:
     server = (config or {}).get("server", {}) or {}
     host = str(server.get("server_host", "") or "").strip()
     port = server.get("server_port", 5051)
-    if host in _ANY_INTERFACE_HOSTS:
+    if host == "::":
+        host = "[::1]"
+    elif host in _ANY_INTERFACE_HOSTS:
         host = "127.0.0.1"
     elif ":" in host and not host.startswith("["):
         host = f"[{host}]"  # IPv6 literal
@@ -741,8 +748,12 @@ class MainWindow:
         info = self._update_info
         if not (info and info.available and is_supported()):
             return
-        if has_processing_jobs():
-            Messagebox.show_warning("Hay una impresión en curso. Intente de nuevo al terminar.", "Actualizaciones")
+        # Cubre impresiones (job store) y también reportes X/Z, comandos fiscales y ajuste de reloj
+        if fiscal_operation_in_progress():
+            Messagebox.show_warning(
+                "Hay una operación fiscal en curso (impresión, reporte o comando). Intente de nuevo al terminar.",
+                "Actualizaciones",
+            )
             return
         answer = Messagebox.yesno(
             f"Se instalará la versión {info.latest} (instalada {__version__}).\n\n"
@@ -787,8 +798,8 @@ class MainWindow:
             self.update_apply_button.configure(state=tbc.NORMAL)
             Messagebox.show_error(message, "Actualizaciones")
             return
-        if has_processing_jobs():  # pudo empezar una impresión durante la descarga
-            self.update_status_label.configure(text="Impresión en curso: pulse Actualizar de nuevo al terminar")
+        if fiscal_operation_in_progress():  # pudo empezar una operación fiscal durante la descarga
+            self.update_status_label.configure(text="Operación fiscal en curso: pulse Actualizar de nuevo al terminar")
             self.update_check_button.configure(state=tbc.NORMAL)
             self.update_apply_button.configure(state=tbc.NORMAL)
             return
@@ -841,18 +852,11 @@ class MainWindow:
             target=monitor_push.send_now, args=(ConfigManager.get_config(),), name="monitor-push-manual", daemon=True
         )
         worker.start()
-        self._wait_monitor_push_send(worker)
+        # Tk no es seguro entre hilos: se consulta el hilo desde el bucle de la ventana (after) en vez de actualizar desde él
+        self._wait_thread(worker, self._finish_monitor_push_send)
 
-    def _wait_monitor_push_send(self, worker: threading.Thread) -> None:
-        """
-        Espera (sin bloquear Tk) a que termine el envío manual y luego muestra el estado. Tk no es seguro entre
-        hilos, por eso se consulta el hilo desde el bucle de la ventana con after() en lugar de actualizar desde él.
-        Args:
-            worker: Hilo del envío manual
-        """
-        if worker.is_alive():
-            self.root.after(500, self._wait_monitor_push_send, worker)
-            return
+    def _finish_monitor_push_send(self) -> None:
+        """Rehabilita el botón de envío manual y muestra el estado al terminar el envío (hilo de la ventana)."""
         self.push_send_button.configure(state=tbc.NORMAL)
         self._refresh_monitor_push_status()
 
@@ -1563,7 +1567,7 @@ class MainWindow:
             config = ConfigManager.get_config()
             endpoint = "report_x" if report_type == "X" else "report_z"
             # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
-            resp = requests.post(local_api_url(config, f"/api/{endpoint}"), timeout=20)
+            resp = requests.post(local_api_url(config, f"/api/{endpoint}"), timeout=REPORT_TIMEOUT_SECONDS)
             res_json = resp.json()
             if res_json.get("status"):
                 Messagebox.show_info(f"Reporte {report_type} ejecutado correctamente.", "Reportes Fiscales")

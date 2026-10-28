@@ -358,10 +358,7 @@ class FiscalMonitor:
         Returns:
             dict: Snapshot nuevo, o {"available": False, "reason": ...}
         """
-        snapshot = cls._get_snapshot(printers_config, fresh=True)
-        if snapshot.get("available"):
-            apply_payment_labels(snapshot, get_payment_labels({"printers": printers_config or {}}))
-        return snapshot
+        return cls.get_snapshot(printers_config, fresh=True)
 
     @classmethod
     def _stale_copy(cls, error: str | None = None) -> dict[str, Any] | None:
@@ -381,17 +378,18 @@ class FiscalMonitor:
         return snap
 
     @classmethod
-    def get_snapshot(cls, printers_config: dict[str, Any], force: bool = False) -> dict[str, Any]:
+    def get_snapshot(cls, printers_config: dict[str, Any], force: bool = False, fresh: bool = False) -> dict[str, Any]:
         """
         Devuelve el snapshot fiscal con las etiquetas de pago vigentes de la configuración (se aplican en cada
         respuesta, así un cambio de etiquetas se ve sin esperar a que venza la caché). Nunca lanza excepciones.
         Args:
             printers_config: Sección "printers" de la configuración
             force: True para pedir una lectura nueva (sujeta al mínimo entre lecturas)
+            fresh: True para leer siempre la máquina (sin caché ni mínimo) y sin devolver copias obsoletas
         Returns:
             dict: Snapshot, o {"available": False, "reason": ...}
         """
-        snapshot = cls._get_snapshot(printers_config, force)
+        snapshot = cls._get_snapshot(printers_config, force, fresh)
         if snapshot.get("available"):
             apply_payment_labels(snapshot, get_payment_labels({"printers": printers_config or {}}))
         return snapshot

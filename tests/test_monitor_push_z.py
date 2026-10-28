@@ -71,11 +71,26 @@ def threads(monkeypatch) -> list:
     return started
 
 
-def _client(tmp_path, monkeypatch, push: dict | None, mode: str = "SPOOLER"):
+def _live_config(monkeypatch, push: dict | None, mode: str = "SPOOLER") -> dict:
+    """Fija la configuración VIVA (ConfigManager.get_config), que es la que consultan los hooks del Z."""
+    live = dict(ConfigManager.get_config())
+    live["server"] = {**live.get("server", {}), "server_mode": mode}
+    live["printers"] = PRINTERS
+    if push is None:
+        live.pop("monitor_push", None)
+    else:
+        live["monitor_push"] = push
+    monkeypatch.setattr(ConfigManager, "get_config", classmethod(lambda cls: live))
+    return live
+
+
+def _client(tmp_path, monkeypatch, push: dict | None, mode: str = "SPOOLER", live_push: Any = "same"):
+    """Cliente de prueba; `live_push` distinto de "same" hace que ConfigManager discrepe de app.config."""
     monkeypatch.setattr(job_store, "_DB_PATH", tmp_path / "z_jobs.db")
     job_store.init_db()
     config = dict(ConfigManager.get_config())
     config["server"] = {**config.get("server", {}), "server_mode": mode}
+    _live_config(monkeypatch, push if live_push == "same" else live_push, mode)
     app = create_app(config)
     app.config["TESTING"] = True
     app.config["printers"] = PRINTERS
@@ -304,3 +319,29 @@ def test_invalidate_clears_cache_without_reading(machine):
     FiscalMonitor.invalidate()
     assert machine["reads"] == 1
     assert FiscalMonitor.get_snapshot(PRINTERS)["n"] == 2
+
+
+# --- configuración viva (ConfigManager) frente a app.config ---------------------------------------------------
+
+
+def test_live_config_enabled_overrides_stale_app_config(tmp_path, monkeypatch, calls, reads, threads):
+    """app.config dice deshabilitado pero ConfigManager (editado a mano y recargado) dice habilitado: se lee."""
+    client = _client(tmp_path, monkeypatch, None, live_push=PUSH_ON)
+    _use(monkeypatch, _printer(calls))
+    assert client.post("/api/report_z").status_code == 200
+    assert calls[:2] == ["read_fresh", "enqueue:before_z:True"]
+
+
+def test_live_config_disabled_overrides_stale_app_config(tmp_path, monkeypatch, calls, reads, threads):
+    """app.config dice habilitado pero ConfigManager dice deshabilitado: no se lee la máquina."""
+    client = _client(tmp_path, monkeypatch, PUSH_ON, live_push=None)
+    _use(monkeypatch, _printer(calls))
+    assert client.post("/api/report_z").status_code == 200
+    assert "read_fresh" not in calls
+
+
+def test_z_push_config_falls_back_to_passed_config(monkeypatch):
+    """Si ConfigManager no devuelve un dict se usa la configuración recibida."""
+    monkeypatch.setattr(ConfigManager, "get_config", classmethod(lambda cls: None))
+    result = monitor_push._z_push_config({"printers": PRINTERS, "monitor_push": PUSH_ON, "server": {}})
+    assert result is not None and result["monitor_push"] == PUSH_ON

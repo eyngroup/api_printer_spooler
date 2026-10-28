@@ -14,7 +14,6 @@ Uso (desde la raíz del repositorio; en Windows lo llama `release.bat`):
 """
 
 import argparse
-import hashlib
 import sys
 import zipfile
 from pathlib import Path
@@ -22,14 +21,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from handy.runtime_files import RUNTIME_FILES
+from handy.runtime_files import RUNTIME_DIRS, RUNTIME_FILES
+from handy.tools import sha256_of
 from handy.version import __version__
 
 APP_NAME = "ApiPS"
 EXE_NAME = "ApiPS.exe"
 
 # Carpetas que crea la aplicación al ejecutarse (datos del cliente): nunca van en un release
-RUNTIME_DIRS = ("data", "logs", "backups", "updates")
+# (la lista vive en `handy.runtime_files.RUNTIME_DIRS`)
 
 
 class ReleaseError(Exception):
@@ -47,21 +47,6 @@ def find_runtime_leftovers(build_dir: Path) -> list[str]:
     leftovers = [relative for relative in RUNTIME_FILES if (build_dir / relative).exists()]
     leftovers += [f"{name}/" for name in RUNTIME_DIRS if (build_dir / name).exists()]
     return leftovers
-
-
-def sha256_of(path: Path) -> str:
-    """
-    Calcula el SHA256 de un archivo leyéndolo por bloques.
-    Args:
-        path: Archivo a resumir
-    Returns:
-        str: Hash en hexadecimal (minúsculas)
-    """
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def make_release(build_dir: Path, out_dir: Path, version: str, force: bool = False) -> tuple[Path, Path]:

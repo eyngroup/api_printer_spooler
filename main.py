@@ -99,6 +99,36 @@ def run_apply_update() -> int:
     return apply_update(Path(sys.executable).parent, Path(args.install_dir), args.pid, old_version=args.old_version)
 
 
+CLEANUP_UPDATES_DELAY_SECONDS = 60  # espera antes de limpiar updates/ tras el arranque
+
+
+def schedule_cleanup_updates(
+    install_dir: str, delay: float = CLEANUP_UPDATES_DELAY_SECONDS
+) -> threading.Timer:
+    """
+    Programa `cleanup_updates` en un hilo daemon tras `delay` segundos, sin bloquear el arranque. Cualquier fallo
+    se registra y nunca se propaga.
+    Args:
+        install_dir: Carpeta de instalación
+        delay: Segundos de espera antes de limpiar
+    Returns:
+        threading.Timer: El temporizador ya iniciado
+    """
+
+    def _run() -> None:
+        """Limpia updates/ registrando (sin lanzar) cualquier error."""
+        try:
+            cleanup_updates(install_dir)
+        except Exception as e:  # noqa: BLE001 - la limpieza jamás debe afectar a la aplicación
+            logging.getLogger(__name__).warning("No se pudo limpiar updates/: %s", e)
+
+    timer = threading.Timer(delay, _run)
+    timer.daemon = True
+    timer.name = "cleanup-updates"
+    timer.start()
+    return timer
+
+
 def main():
     """Función principal que inicializa el servidor API REST."""
     # Modo de actualización: antes que cualquier otra cosa (configuración, logs, puerto serial, Flask, Tk)
@@ -107,8 +137,10 @@ def main():
 
     # Primer arranque: crea config.json y los templates de runtime desde sus valores por defecto (sin sobrescribir)
     ensure_runtime_files()
-    # Restos de una actualización ya aplicada o abandonada (zip y versión preparada en updates/)
-    cleanup_updates(get_base_path())
+    # Restos de una actualización ya aplicada o abandonada (zip y versión preparada en updates/). Se difiere ~60 s:
+    # el actualizador que acaba de lanzar la aplicación puede seguir terminando dentro de updates/ApiPS-<ver>/ y
+    # borrarlo en pleno arranque lo interrumpiría (y Windows bloquea esa carpeta mientras corre).
+    schedule_cleanup_updates(get_base_path())
     config = ConfigManager.get_config()  # Cargar configuración
 
     base_path = get_base_path()

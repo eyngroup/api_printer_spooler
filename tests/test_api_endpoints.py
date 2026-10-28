@@ -423,7 +423,7 @@ def test_ping_falls_back_to_configured_serial(app_client, monkeypatch):
     from server.handlers.printer_manager import PrinterManager
 
     monkeypatch.setattr(PrinterManager, "read_serial", classmethod(lambda cls, t, c: None))
-    monkeypatch.setattr(server_api, "_configured_serial", lambda: "Z1B9999999")
+    monkeypatch.setattr(server_api, "read_configured_fiscal_serial", lambda: "Z1B9999999")
     body = app_client.get("/api/ping").get_json()
     assert body == {"status": "success", "message": "Z1B9999999"}
 

@@ -6,8 +6,10 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Document Handler Module, responsable de la gestión de las operaciones relacionadas con los documentos.
 """
 
+import contextlib
 import logging
 import re
+import threading
 import time
 from typing import Any
 
@@ -23,6 +25,7 @@ from server.handlers.job_store import (
     completed_since,
     fail_job,
     get_job,
+    has_processing_jobs,
     mark_unknown,
     restart_job,
     set_counter_before,
@@ -41,6 +44,40 @@ PRINTER_FISCAL_TYPES = {
 }
 
 logger = logging.getLogger(__name__)
+
+# Operaciones fiscales que el job store NO registra (reportes X/Z, comandos directos, ajuste de reloj): se cuentan
+# aparte para que "Actualizar" no cierre la aplicación en medio de una de ellas
+_fiscal_ops_lock = threading.Lock()
+_fiscal_ops_in_flight = 0
+
+
+@contextlib.contextmanager
+def _fiscal_operation():
+    """
+    Cuenta una operación fiscal en curso mientras dura el bloque (seguro entre hilos). Se usa como context manager
+    y como decorador (`@_fiscal_operation()`) de los handlers; decrementa siempre, incluso ante una excepción.
+    """
+    global _fiscal_ops_in_flight
+    with _fiscal_ops_lock:
+        _fiscal_ops_in_flight += 1
+    try:
+        yield
+    finally:
+        with _fiscal_ops_lock:
+            _fiscal_ops_in_flight -= 1
+
+
+def fiscal_operation_in_progress() -> bool:
+    """
+    Indica si hay una operación fiscal en curso: una impresión registrada en el job store o un reporte X/Z, comando
+    directo o ajuste de reloj (que el job store no registra).
+    Returns:
+        bool: True si hay algo en curso
+    """
+    with _fiscal_ops_lock:
+        in_flight = _fiscal_ops_in_flight > 0
+    return in_flight or has_processing_jobs()
+
 
 # Comando directo de cierre Z (I0Z, I1Z, I2Z, I3Z): tras él se ajusta el reloj de la máquina
 Z_COMMAND_PATTERN = re.compile(r"I\dZ", re.IGNORECASE)
@@ -633,6 +670,7 @@ def _sync_clock_after_z(printers_config: dict[str, Any], wait_seconds: float = 0
         return {"status": "error", "message": str(e)}
 
 
+@_fiscal_operation()
 def handle_clock_sync() -> tuple[Response, int]:
     """
     Ajusta manualmente el reloj de la impresora fiscal con la hora del servidor.
@@ -665,6 +703,7 @@ def handle_clock_sync() -> tuple[Response, int]:
         return error_response(f"Error al ajustar el reloj: {e}", HTTP_INTERNAL_ERROR)
 
 
+@_fiscal_operation()
 def handle_reports(report_type: str) -> tuple[Response, int]:
     """
     Maneja la solicitud de impresión de reportes fiscales.
@@ -727,6 +766,7 @@ def handle_report_z() -> tuple[Response, int]:
     return handle_reports("Z")
 
 
+@_fiscal_operation()
 def handle_fiscal_commands() -> tuple[Response, int]:
     """
     Maneja el envío de comandos directos a la impresora fiscal.

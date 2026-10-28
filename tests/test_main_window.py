@@ -44,7 +44,7 @@ def test_close_button_hides_to_tray_without_destroying():
         ({"server_host": "localhost", "server_port": 5051}, "http://localhost:5051/api/report_x"),
         ({"server_host": "0.0.0.0", "server_port": 5051}, "http://127.0.0.1:5051/api/report_x"),
         ({"server_host": "", "server_port": 5052}, "http://127.0.0.1:5052/api/report_x"),
-        ({"server_host": "::", "server_port": 5051}, "http://127.0.0.1:5051/api/report_x"),
+        ({"server_host": "::", "server_port": 5051}, "http://[::1]:5051/api/report_x"),
         ({"server_host": "fe80::1", "server_port": 5051}, "http://[fe80::1]:5051/api/report_x"),
         ({}, "http://127.0.0.1:5051/api/report_x"),
     ],

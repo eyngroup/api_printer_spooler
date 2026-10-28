@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, Flask, current_app, jsonify, render_template, request, send_file
 from flask_cors import CORS
 
+from handy.runtime_files import read_configured_fiscal_serial
 from handy.tools import get_base_path
 
 from .handlers.document_handler import (
@@ -204,30 +205,13 @@ def get_uptime():
     return int(uptime.total_seconds())
 
 
-def _configured_serial() -> str:
-    """
-    Lee el serial configurado en la pestaña Fiscal (template_fiscal_printer.json).
-    En HKA el driver lo actualiza al conectar; en PNP lo configura el técnico a mano.
-    Returns:
-        str: Serial configurado o "unknown" si no se pudo leer.
-    """
-    try:
-        template_path = os.path.join(get_base_path(), "templates", "template_fiscal_printer.json")
-        with open(template_path, encoding="utf-8") as f:
-            template_data = json.load(f)
-        return template_data.get("fiscal", {}).get("serial", "unknown")
-    except Exception as e:
-        logger.error("Error al leer serial fiscal: %s", str(e))
-        return "unknown"
-
-
 @api.route("/ping", methods=["GET"])
 def ping():
     """Ruta para verificar que el servidor está funcionando y retorna el serial fiscal"""
     logger.info("Recibida solicitud de conexión")
     # Odoo compara este serial con el del diario y bloquea los reportes si no coincide: se prioriza el
     # serial real de la máquina (instancia conectada o lectura única de solo lectura) sobre el configurado.
-    configured = _configured_serial()
+    configured = read_configured_fiscal_serial()
     fiscal_config = current_app.config.get("printers", {}).get("fiscal", {})
     serial = None
     if fiscal_config.get("fiscal_enabled", False):

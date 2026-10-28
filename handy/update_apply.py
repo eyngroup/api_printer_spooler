@@ -21,31 +21,17 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from handy.runtime_files import RUNTIME_FILES
+from handy.runtime_files import is_runtime_path
 from handy.version import __version__
 
 EXE_NAME = "ApiPS.exe"
-# Carpetas de datos del cliente: nunca se respaldan, se sobrescriben ni se restauran
-RUNTIME_DIRS = ("data", "logs", "backups", "updates")
+# Carpetas de datos del cliente (nunca se respaldan, se sobrescriben ni se restauran): ver
+# `handy.runtime_files.RUNTIME_DIRS` / `is_runtime_path`
 KEEP_BACKUPS = 3  # respaldos de programa que se conservan
 DEFAULT_TIMEOUT = 120  # segundos esperando que el proceso viejo termine
 UNKNOWN_VERSION = "anterior"
 
 logger = logging.getLogger("handy.update_apply")
-
-
-def _is_runtime(relative: Path) -> bool:
-    """
-    Indica si una ruta relativa a la instalación es un dato del cliente (no pertenece al programa).
-    Args:
-        relative: Ruta relativa a la carpeta de instalación
-    Returns:
-        bool: True si es un archivo de runtime o está dentro de data/, logs/, backups/ o updates/
-    """
-    parts = relative.as_posix().strip("/").lower().split("/")
-    if parts[0] in RUNTIME_DIRS:
-        return True
-    return "/".join(parts) in {path.lower() for path in RUNTIME_FILES}
 
 
 def _program_files(root: Path, skip: Path | None = None) -> list[Path]:
@@ -64,7 +50,7 @@ def _program_files(root: Path, skip: Path | None = None) -> list[Path]:
         relative = path.relative_to(root)
         if skip is not None and (path == skip or skip in path.parents):
             continue
-        if not _is_runtime(relative):
+        if not is_runtime_path(relative):
             result.append(relative)
     return result
 
@@ -103,6 +89,90 @@ def launch_apply(
     return popen(command, cwd=str(staged_dir), start_new_session=True, close_fds=True)
 
 
+ERROR_INVALID_PARAMETER = 87  # OpenProcess con un PID inexistente: el proceso ya no existe
+OPEN_RETRY_SECONDS = 0.5  # pausa entre reintentos de OpenProcess cuando falla por otra causa (p. ej. acceso denegado)
+
+
+def _win_open_process(pid: int) -> tuple[int | None, int]:
+    """
+    Abre un proceso de Windows con permiso SYNCHRONIZE (solo Windows).
+    Args:
+        pid: Identificador del proceso
+    Returns:
+        tuple[int | None, int]: (handle o None si falló, código de GetLastError cuando falló; 0 si abrió)
+    """
+    import ctypes
+
+    synchronize = 0x00100000
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p  # HANDLE: 64 bits seguros
+    handle = kernel32.OpenProcess(synchronize, False, int(pid))
+    if not handle:
+        return None, ctypes.get_last_error()
+    return handle, 0
+
+
+def _win_wait_and_close(handle: int, timeout: float) -> bool:
+    """
+    Espera a que el proceso (handle abierto) termine y cierra el handle (solo Windows).
+    Args:
+        handle: Handle devuelto por `_win_open_process`
+        timeout: Segundos máximos de espera
+    Returns:
+        bool: True si el proceso terminó; False si sigue vivo al agotar el tiempo
+    """
+    import ctypes
+
+    wait_object_0 = 0
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    try:
+        return kernel32.WaitForSingleObject(handle, int(max(timeout, 0) * 1000)) == wait_object_0
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _wait_exit_windows(
+    pid: int,
+    timeout: float,
+    open_process: Callable[[int], tuple[int | None, int]] | None = None,
+    wait_and_close: Callable[[int, float], bool] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> bool:
+    """
+    Lógica de espera en Windows con las llamadas al sistema inyectables (para probarla en cualquier sistema).
+    Un handle nulo solo significa "el proceso ya no existe" si el error es ERROR_INVALID_PARAMETER (87); con cualquier
+    otro (p. ej. acceso denegado) el proceso puede seguir vivo, así que se reintenta hasta agotar el tiempo y, si
+    sigue fallando, se devuelve False para que quien llama aborte sin tocar nada.
+    Args:
+        pid: Identificador del proceso
+        timeout: Segundos máximos de espera
+        open_process: Abre el proceso: devuelve (handle | None, error)
+        wait_and_close: Espera el handle y lo cierra
+        sleep: Pausa entre reintentos
+        clock: Reloj monotónico
+    Returns:
+        bool: True si terminó (o ya no existía); False si sigue vivo o no se pudo comprobar al agotar el tiempo
+    """
+    open_process = open_process or _win_open_process
+    wait_and_close = wait_and_close or _win_wait_and_close
+    deadline = clock() + timeout
+    while True:
+        handle, error = open_process(pid)
+        if handle:
+            return wait_and_close(handle, max(deadline - clock(), 0))
+        if error == ERROR_INVALID_PARAMETER:
+            return True
+        if clock() >= deadline:
+            logger.warning("No se pudo comprobar el proceso %s (error %s): se aborta la actualización", pid, error)
+            return False
+        sleep(OPEN_RETRY_SECONDS)
+
+
 def wait_process_exit(pid: int, timeout: float) -> bool:
     """
     Espera a que un proceso termine.
@@ -113,17 +183,7 @@ def wait_process_exit(pid: int, timeout: float) -> bool:
         bool: True si terminó (o ya no existía); False si sigue vivo al agotar el tiempo
     """
     if sys.platform == "win32":
-        import ctypes
-
-        synchronize = 0x00100000
-        wait_object_0 = 0
-        handle = ctypes.windll.kernel32.OpenProcess(synchronize, False, int(pid))
-        if not handle:
-            return True  # no se puede abrir: ya no existe
-        try:
-            return ctypes.windll.kernel32.WaitForSingleObject(handle, int(timeout * 1000)) == wait_object_0
-        finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
+        return _wait_exit_windows(pid, timeout)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -208,7 +268,7 @@ def _restore(backup_dir: Path, install_dir: Path, added: list[Path]) -> None:
         added: Archivos (relativos) que la actualización creó y no existían antes
     """
     for relative in added:
-        if not _is_runtime(relative):
+        if not is_runtime_path(relative):
             (install_dir / relative).unlink(missing_ok=True)
     for relative in _program_files(backup_dir):
         target = install_dir / relative
@@ -268,7 +328,7 @@ def apply_update(
         added: list[Path] = []
         try:
             for relative in _program_files(staged_dir):
-                if _is_runtime(relative):  # defensa extra: la validación del zip ya lo impide
+                if is_runtime_path(relative):  # defensa extra: la validación del zip ya lo impide
                     raise RuntimeError(f"La actualización intenta escribir un archivo del cliente: {relative}")
                 target = install_dir / relative
                 if not target.exists():

@@ -9,7 +9,6 @@ aplicación de la actualización la hace `handy/update_apply.py` desde la copia 
 Flask ni de Tkinter para poder usarse desde la ventana de escritorio y desde los tests.
 """
 
-import hashlib
 import logging
 import re
 import shutil
@@ -20,7 +19,8 @@ from pathlib import Path, PurePosixPath
 
 import requests
 
-from handy.runtime_files import RUNTIME_FILES
+from handy.runtime_files import is_runtime_path
+from handy.tools import sha256_of
 from handy.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,9 @@ EXE_NAME = "ApiPS.exe"
 TIMEOUT = 10  # segundos por solicitud HTTP
 MAX_NOTES = 2000  # caracteres máximos de las notas del release
 MAX_UNCOMPRESSED = 500 * 1024 * 1024  # tamaño máximo descomprimido del zip (500 MB)
-# Carpetas de datos del cliente que nunca deben venir en un release ni ser tocadas por una actualización
-RUNTIME_DIRS = ("data", "logs", "backups", "updates")
+EXTRACT_CHUNK = 1024 * 1024  # bloque de copia al extraer (se cuentan los bytes reales, no los de la cabecera)
+# Carpetas de datos del cliente que nunca deben venir en un release ni ser tocadas por una actualización:
+# ver `handy.runtime_files.RUNTIME_DIRS` / `is_runtime_path`
 NO_RELEASES_MESSAGE = "No hay versiones publicadas"
 UNSUPPORTED_REASON = (
     "Disponible solo en la aplicación compilada para Windows; con el código fuente actualice con git pull"
@@ -150,21 +151,6 @@ def check_latest(current_version: str, session: requests.Session | None = None) 
     return info
 
 
-def _is_runtime_path(relative: str) -> bool:
-    """
-    Indica si una ruta relativa pertenece a los datos del cliente (archivos de runtime o carpetas de datos).
-    Args:
-        relative: Ruta relativa con "/" (sin el prefijo ApiPS/)
-    Returns:
-        bool: True si es una ruta de cliente protegida
-    """
-    normalized = relative.strip("/").lower()
-    if normalized in {path.lower() for path in RUNTIME_FILES}:
-        return True
-    first = normalized.split("/", 1)[0]
-    return first in RUNTIME_DIRS
-
-
 def validate_zip(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     """
     Valida el contenido de un zip ANTES de extraerlo.
@@ -191,7 +177,7 @@ def validate_zip(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
         relative = "/".join(parts[1:])
         if not relative:
             raise UpdateError(f"El paquete contiene una ruta no permitida: {name}")
-        if _is_runtime_path(relative):
+        if is_runtime_path(relative):
             raise UpdateError(f"El paquete contiene archivos del cliente: {relative}")
         total += member.file_size
         if total > MAX_UNCOMPRESSED:
@@ -214,26 +200,18 @@ def _download(url: str, target: Path, session: requests.Session | None) -> None:
     """
     getter = session.get if session is not None else requests.get
     try:
-        response = getter(url, headers={"User-Agent": _headers()["User-Agent"]}, timeout=TIMEOUT, stream=True)
-        if response.status_code != 200:
-            raise UpdateError(f"La descarga falló con el código HTTP {response.status_code}")
-        with open(target, "wb") as file:
-            for block in response.iter_content(chunk_size=1024 * 1024):
-                if block:
-                    file.write(block)
+        # `with` cierra la respuesta (y libera la conexión) también en el camino de error no 200
+        with getter(url, headers={"User-Agent": _headers()["User-Agent"]}, timeout=TIMEOUT, stream=True) as response:
+            if response.status_code != 200:
+                raise UpdateError(f"La descarga falló con el código HTTP {response.status_code}")
+            with open(target, "wb") as file:
+                for block in response.iter_content(chunk_size=1024 * 1024):
+                    if block:
+                        file.write(block)
     except requests.RequestException as e:
         raise UpdateError(f"No se pudo descargar la actualización: {e}") from e
     except OSError as e:
         raise UpdateError(f"No se pudo guardar la descarga: {e}") from e
-
-
-def _sha256_of(path: Path) -> str:
-    """Calcula el SHA256 (hexadecimal) de un archivo leyéndolo por bloques."""
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _read_expected_hash(sha_path: Path, zip_name: str) -> str:
@@ -283,18 +261,25 @@ def download_and_stage(info: UpdateInfo, install_dir: Path, session: requests.Se
         _download(info.zip_url, zip_path, session)
 
         expected = _read_expected_hash(sha_path, zip_name)
-        if _sha256_of(zip_path) != expected:
+        if sha256_of(zip_path) != expected:
             raise UpdateError("La verificación SHA256 falló: el archivo descargado está dañado o fue alterado")
 
         shutil.rmtree(partial, ignore_errors=True)
         try:
             with zipfile.ZipFile(zip_path) as archive:
                 members = validate_zip(archive)
+                # La validación usa los tamaños de la cabecera (declarados por quien armó el zip): aquí se cuentan los
+                # bytes REALES al copiar y se aborta al superar el máximo (protege contra zip bombs con cabecera falsa)
+                written = 0
                 for member in members:
                     target = partial.joinpath(*member.filename.split("/")[1:])
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(member) as source, open(target, "wb") as out:
-                        shutil.copyfileobj(source, out)
+                        while chunk := source.read(EXTRACT_CHUNK):
+                            written += len(chunk)
+                            if written > MAX_UNCOMPRESSED:
+                                raise UpdateError("El paquete descomprimido supera el tamaño máximo permitido")
+                            out.write(chunk)
         except zipfile.BadZipFile as e:
             raise UpdateError(f"El paquete descargado no es un zip válido: {e}") from e
         except OSError as e:

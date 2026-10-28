@@ -20,6 +20,7 @@ from typing import Any
 
 import requests
 
+from handy.runtime_files import read_configured_fiscal_serial
 from handy.version import __version__
 from server.config_loader import ConfigManager, get_monitor_push_config
 
@@ -90,9 +91,7 @@ def _machine_serial(snapshot: dict[str, Any]) -> str:
     last_serial = FiscalMonitor.last_known_serial()
     if last_serial:
         return last_serial
-    from server.server_api import _configured_serial  # importación diferida: evita cargar Flask al importar
-
-    return _configured_serial()
+    return read_configured_fiscal_serial()
 
 
 def build_envelope(
@@ -159,10 +158,15 @@ def _z_push_config(config: dict[str, Any]) -> dict[str, Any] | None:
     envío deshabilitado o incompleto (sin url o token) o modo PROXY (la máquina está en el spooler destino, que
     envía sus propias lecturas). La copia permite usarla en un hilo sin depender del contexto de Flask.
     Args:
-        config: Configuración completa (p. ej. current_app.config)
+        config: Configuración completa (p. ej. current_app.config); se prefiere ConfigManager.get_config()
     Returns:
         dict | None: Copia con printers, server y monitor_push, o None si no hay que leer
     """
+    # Configuración VIVA: el observador de archivos recarga ConfigManager ante ediciones manuales de config.json,
+    # pero nunca actualiza app.config; se usa esta última solo si ConfigManager no devuelve un dict.
+    live = ConfigManager.get_config()
+    if isinstance(live, dict):
+        config = live
     settings = get_monitor_push_config(config)
     if not (settings["enabled"] and settings["url"] and settings["token"]):
         return None
