@@ -151,6 +151,32 @@ def _save_json_file(path: str, data: dict[str, Any]) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+# Hosts con los que Flask escucha en todas las interfaces: desde la propia PC se llega por 127.0.0.1
+_ANY_INTERFACE_HOSTS = {"", "0.0.0.0", "::"}
+
+
+def local_api_url(config: dict[str, Any], path: str) -> str:
+    """
+    URL de la API local para las acciones de la ventana (reportes X/Z, comandos, reloj).
+    Usa la misma dirección donde escucha Flask (`server.server_host`): si es una IP de la red (p. ej. para que Odoo
+    llegue desde otras PCs) el servidor NO escucha en 127.0.0.1 y llamar ahí da "conexión denegada" (WinError 10061).
+    Solo cuando escucha en todas las interfaces (0.0.0.0, :: o vacío) se usa 127.0.0.1.
+    Args:
+        config: Configuración completa
+        path: Ruta de la API (p. ej. "/api/report_x")
+    Returns:
+        str: URL completa
+    """
+    server = (config or {}).get("server", {}) or {}
+    host = str(server.get("server_host", "") or "").strip()
+    port = server.get("server_port", 5051)
+    if host in _ANY_INTERFACE_HOSTS:
+        host = "127.0.0.1"
+    elif ":" in host and not host.startswith("["):
+        host = f"[{host}]"  # IPv6 literal
+    return f"http://{host}:{port}{path}"
+
+
 class MainWindow:
     """Ventana principal de la aplicación de escritorio (Consola, Servidor, Impresoras, Comandos)."""
 
@@ -1492,8 +1518,8 @@ class MainWindow:
             import requests
 
             config = ConfigManager.get_config()
-            port = config.get("server", {}).get("server_port", 5051)
-            resp = requests.post(f"http://127.0.0.1:{port}/api/fiscal/clock", json={"force": True}, timeout=30)
+            # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
+            resp = requests.post(local_api_url(config, "/api/fiscal/clock"), json={"force": True}, timeout=30)
             res_json = resp.json()
             data = res_json.get("data") or {}
             status = data.get("status")
@@ -1521,8 +1547,8 @@ class MainWindow:
 
             import requests
             config = ConfigManager.get_config()
-            port = config.get("server", {}).get("server_port", 5051)
-            resp = requests.post(f"http://127.0.0.1:{port}/api/fiscal/command", json={"commands": commands}, timeout=15)
+            # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
+            resp = requests.post(local_api_url(config, "/api/fiscal/command"), json={"commands": commands}, timeout=15)
             res_json = resp.json()
             if res_json.get("status"):
                 Messagebox.show_info(f"Comandos enviados con éxito:\n{json.dumps(res_json.get('data'), indent=2)}", "Comandos")
@@ -1535,9 +1561,9 @@ class MainWindow:
         try:
             import requests
             config = ConfigManager.get_config()
-            port = config.get("server", {}).get("server_port", 5051)
             endpoint = "report_x" if report_type == "X" else "report_z"
-            resp = requests.post(f"http://127.0.0.1:{port}/api/{endpoint}", timeout=20)
+            # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
+            resp = requests.post(local_api_url(config, f"/api/{endpoint}"), timeout=20)
             res_json = resp.json()
             if res_json.get("status"):
                 Messagebox.show_info(f"Reporte {report_type} ejecutado correctamente.", "Reportes Fiscales")

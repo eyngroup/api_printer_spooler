@@ -1,7 +1,9 @@
 """Tests del ciclo de vida de la ventana principal (sin abrir ventanas reales)."""
 
+import pytest
 import ttkbootstrap as tb
 
+from views import main_window
 from views.main_window import MainWindow
 
 
@@ -33,3 +35,20 @@ def test_close_button_hides_to_tray_without_destroying():
 
     assert hidden == [True]
     assert root.destroyed == 0
+
+
+@pytest.mark.parametrize(
+    ("server", "expected"),
+    [
+        ({"server_host": "192.168.1.151", "server_port": 5051}, "http://192.168.1.151:5051/api/report_x"),
+        ({"server_host": "localhost", "server_port": 5051}, "http://localhost:5051/api/report_x"),
+        ({"server_host": "0.0.0.0", "server_port": 5051}, "http://127.0.0.1:5051/api/report_x"),
+        ({"server_host": "", "server_port": 5052}, "http://127.0.0.1:5052/api/report_x"),
+        ({"server_host": "::", "server_port": 5051}, "http://127.0.0.1:5051/api/report_x"),
+        ({"server_host": "fe80::1", "server_port": 5051}, "http://[fe80::1]:5051/api/report_x"),
+        ({}, "http://127.0.0.1:5051/api/report_x"),
+    ],
+)
+def test_local_api_url_uses_the_host_the_server_listens_on(server: dict, expected: str):
+    """La ventana llama a la misma dirección donde escucha Flask (server_host), no siempre a 127.0.0.1."""
+    assert main_window.local_api_url({"server": server}, "/api/report_x") == expected
