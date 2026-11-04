@@ -1506,8 +1506,8 @@ class MainWindow:
         tb.Label(
             clock_frame,
             text=(
-                "Ajusta la fecha y hora de la máquina con las del servidor. La máquina solo lo permite "
-                "justo después de un cierre Z (también se hace automáticamente al emitir el Z)."
+                "Ajusta la fecha y hora de la máquina con las del servidor. La máquina solo lo acepta si no hay "
+                "ventas desde el último cierre Z (también se intenta automáticamente al emitir el Z)."
             ),
             wraplength=800,
         ).pack(anchor=tbc.W, pady=(0, 5))
@@ -1533,7 +1533,7 @@ class MainWindow:
                 Messagebox.show_info(f"El reloj ya está en hora (diferencia: {data.get('drift_seconds')} s).", title)
             elif status == "rejected":
                 Messagebox.show_error(
-                    f"{data.get('message')}\nRealice el ajuste justo después del cierre Z.", title
+                    f"{data.get('message')}\nSolo es posible si no se han registrado ventas desde el último cierre Z.", title
                 )
             else:
                 Messagebox.show_error(f"No se pudo ajustar el reloj:\n{res_json.get('message')}", title)

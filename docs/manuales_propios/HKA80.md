@@ -297,5 +297,13 @@ Monitor usa el comportamiento verificado.
 
 ## 17. Fecha y hora (`PF` / `PG`)
 
-`PF` + HHMMSS y `PG` + DDMMAA. Solo se aceptan **justo después de un reporte Z** (Tabla 18). El spooler los envía
-automáticamente tras cada Z si el reloj difiere más de 2 minutos del servidor. No verificado aún en hardware.
+`PF` + HHMMSS y `PG` + DDMMAA. El manual (Tabla 18) los asocia al reporte Z. **Verificado en hardware por el dueño
+(2026-11-03):** se aceptan en cualquier momento posterior a un Z (incluso horas después) mientras no se hayan
+registrado ventas desde ese Z. El spooler los envía automáticamente tras cada Z si el reloj difiere más de 2 minutos
+del servidor, y también desde el botón de la ventana. Si la máquina rechaza `PF` o `PG`, el resultado indica
+cuál (`rejected_command`).
+
+### Nombres de formas de pago (`PE`)
+
+`PE<código><nombre>`: código de 2 dígitos (01-24) y nombre de máximo 14 caracteres. No requiere Z; la máquina lo
+acepta en cualquier momento salvo con una factura abierta. Verificado por el dueño (2026-11-03).

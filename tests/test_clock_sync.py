@@ -91,7 +91,16 @@ def test_rejected_when_machine_refuses():
     assert result["status"] == "rejected"
     assert result["drift_seconds"] == 3300
     assert result["message"] == PrinterManager.CLOCK_REJECTED_MESSAGE
+    assert result["rejected_command"] == "PF"
     assert _FakeController.sent == ["PF143005"]  # no se envía PG si PF fue rechazado
+
+
+def test_rejected_pg_reports_which_command():
+    _FakeController.s1_readings = [_s1(datetime(2026, 10, 9, 15, 25, 5))]
+    _FakeController.reject = {"PG"}
+    result = PrinterManager.sync_clock("tfhka", CONFIG)
+    assert result["status"] == "rejected"
+    assert result["rejected_command"] == "PG"
 
 
 def test_unsupported_for_pnp():

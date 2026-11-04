@@ -426,8 +426,10 @@ class PrinterManager:
                 except Exception as e:  # noqa: BLE001 - fallo al cerrar el puerto no debe propagarse
                     logger.warning("Error al cerrar el puerto tras leer el monitor fiscal: %s", e)
 
-    # Mensaje cuando la máquina no acepta el ajuste de reloj (solo se permite justo después de un reporte Z)
-    CLOCK_REJECTED_MESSAGE: ClassVar[str] = "La impresora solo permite ajustar la hora justo después de un reporte Z"
+    # Mensaje cuando la máquina no acepta el ajuste de reloj (solo se permite sin ventas desde el último reporte Z)
+    CLOCK_REJECTED_MESSAGE: ClassVar[str] = (
+        "La impresora solo permite ajustar la hora cuando no hay ventas desde el último cierre Z"
+    )
 
     @staticmethod
     def _now() -> datetime:
@@ -447,7 +449,8 @@ class PrinterManager:
 
         Lee S1 (fecha y hora de la máquina) y calcula el desfase (máquina - servidor). Si el desfase no supera
         el umbral y no se fuerza, no envía nada. En otro caso envía PF (hora, HHMMSS) y PG (fecha, DDMMAA) con
-        la hora local actual. El manual (Tabla 18) exige hacerlo justo después de un reporte Z; si la máquina
+        la hora local actual. El manual (Tabla 18) lo asocia al reporte Z; verificado en hardware: la máquina lo acepta en
+        cualquier momento tras un Z mientras no haya ventas desde ese cierre. Si la máquina
         rechaza alguno de los comandos se informa "rejected". Todo el acceso serial ocurre bajo el lock del
         manager; con instancia viva usa su controlador, sin instancia abre uno temporal y lo cierra siempre.
         Solo HKA. Nunca lanza excepciones.
@@ -459,7 +462,7 @@ class PrinterManager:
         Returns:
             dict: {"status": "unsupported"} | {"status": "in_sync", "drift_seconds"} |
             {"status": "adjusted", "drift_before", "drift_after"} |
-            {"status": "rejected", "drift_seconds", "message"} | {"status": "error", "message"}
+            {"status": "rejected", "drift_seconds", "message", "rejected_command"} | {"status": "error", "message"}
         """
         controller = None
         try:
@@ -497,14 +500,25 @@ class PrinterManager:
                     return {"status": "in_sync", "drift_seconds": drift}
 
                 target = cls._now()
-                accepted = bool(reader.send_cmd(target.strftime("PF%H%M%S"))) and bool(
-                    reader.send_cmd(target.strftime("PG%d%m%y"))
-                )
-                if not accepted:
+                # PF y PG por separado para informar cuál comando rechazó la máquina
+                rejected_command = None
+                if not reader.send_cmd(target.strftime("PF%H%M%S")):
+                    rejected_command = "PF"
+                elif not reader.send_cmd(target.strftime("PG%d%m%y")):
+                    rejected_command = "PG"
+                if rejected_command:
                     logger.warning(
-                        "La impresora rechazó el ajuste de reloj (desfase %s s); solo se permite tras un Z", drift
+                        "La impresora rechazó el comando %s del ajuste de reloj (desfase %s s); solo se permite "
+                        "sin ventas desde el último Z",
+                        rejected_command,
+                        drift,
                     )
-                    return {"status": "rejected", "drift_seconds": drift, "message": cls.CLOCK_REJECTED_MESSAGE}
+                    return {
+                        "status": "rejected",
+                        "drift_seconds": drift,
+                        "message": cls.CLOCK_REJECTED_MESSAGE,
+                        "rejected_command": rejected_command,
+                    }
 
                 after_dt = machine_datetime(reader.get_s1() or {})
                 drift_after = round((after_dt - cls._now()).total_seconds()) if after_dt else None
