@@ -106,3 +106,37 @@ def test_request_clock_sync(posts):
     url, kwargs = posts[0]
     assert url == main_window.local_api_url(CFG, "/api/fiscal/clock")
     assert kwargs == {"json": {"force": True}, "timeout": 30}
+
+
+def test_build_payment_commands_order_and_skips_empty():
+    """Genera PE<código><nombre> en orden de código y omite los vacíos."""
+    labels = {"01": "Efectivo", "02": "", "03": "Zelle", "24": "DivisaCashea"}
+    assert main_window.build_payment_commands(labels) == ["PE01Efectivo", "PE03Zelle", "PE24DivisaCashea"]
+
+
+def test_build_payment_commands_all_codes():
+    """Con los 24 códigos con nombre se obtienen 24 comandos."""
+    from server.config_loader import PAYMENT_CODES
+
+    commands = main_window.build_payment_commands({code: f"N{code}" for code in PAYMENT_CODES})
+    assert len(commands) == 24 and commands[0] == "PE01N01" and commands[-1] == "PE24N24"
+
+
+def test_build_payment_commands_normalizes_accents():
+    """Los acentos no llegan a la máquina."""
+    assert main_window.build_payment_commands({"05": "Débito"}) == ["PE05Debito"]
+
+
+def test_build_payment_commands_too_long_lists_codes():
+    """Nombres de más de 14 caracteres lanzan ValueError con los códigos."""
+    with pytest.raises(ValueError, match="03, 07"):
+        main_window.build_payment_commands({"03": "A" * 15, "05": "ok", "07": "B" * 20})
+
+
+def test_default_payment_labels_fit_machine_limit():
+    """Todas las etiquetas por defecto caben en 14 caracteres."""
+    from server.config_loader import _load_default_payment_labels
+
+    labels = _load_default_payment_labels()
+    assert main_window.payment_labels_too_long(labels) == []
+    assert all(len(v) <= main_window.PAYMENT_LABEL_MAX_CHARS for v in labels.values())

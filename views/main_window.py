@@ -26,7 +26,7 @@ from ttkbootstrap.dialogs import Messagebox
 
 from handy.log_handler import current_log_path
 from handy.serial_scan import get_serial_scanner
-from handy.tools import get_base_path
+from handy.tools import get_base_path, normalize_text
 from handy.update_apply import launch_apply
 from handy.updater import UpdateError, UpdateInfo, check_latest, download_and_stage, is_supported
 from handy.version import __version__
@@ -186,6 +186,50 @@ def local_api_url(config: dict[str, Any], path: str) -> str:
 
 
 # Tiempos máximos (s) de espera de las acciones de la ventana contra la API local
+# Largo máximo (caracteres) del nombre de un medio de pago en el comando PE de la máquina HKA
+PAYMENT_LABEL_MAX_CHARS = 14
+
+
+def payment_labels_too_long(labels: dict[str, str]) -> list[str]:
+    """
+    Códigos de medios de pago cuyo nombre normalizado supera PAYMENT_LABEL_MAX_CHARS.
+    Args:
+        labels: {código: nombre}
+    Returns:
+        list[str]: Códigos con nombre demasiado largo, en el orden de PAYMENT_CODES
+    """
+    return [
+        code
+        for code in PAYMENT_CODES
+        if len(normalize_text(labels.get(code, "") or "")) > PAYMENT_LABEL_MAX_CHARS
+    ]
+
+
+def build_payment_commands(labels: dict[str, str]) -> list[str]:
+    """
+    Arma los comandos ``PE<código><nombre>`` (código de 2 dígitos, nombre de máximo 14 caracteres) para programar
+    los nombres de los medios de pago en la máquina. Omite los códigos sin nombre.
+    Args:
+        labels: {código: nombre} con los valores de la grilla
+    Returns:
+        list[str]: Comandos PE en el orden de PAYMENT_CODES
+    Raises:
+        ValueError: Si algún nombre normalizado supera PAYMENT_LABEL_MAX_CHARS (lista los códigos)
+    """
+    too_long = payment_labels_too_long(labels)
+    if too_long:
+        raise ValueError(
+            f"Los nombres de los medios de pago admiten máximo {PAYMENT_LABEL_MAX_CHARS} caracteres. "
+            f"Revise los códigos: {', '.join(too_long)}."
+        )
+    commands = []
+    for code in PAYMENT_CODES:
+        name = normalize_text(labels.get(code, "") or "")
+        if name:
+            commands.append(f"PE{code}{name}")
+    return commands
+
+
 COMMANDS_TIMEOUT_SECONDS = 15
 CLOCK_TIMEOUT_SECONDS = 30
 
@@ -303,6 +347,7 @@ class MainWindow:
 
         # 6. Comandos
         commands_container = tb.Frame(notebook)
+        self.commands_container = commands_container
         notebook.add(commands_container, text="Comandos")
         self.commands_scroll = tb.ScrolledFrame(commands_container, autohide=True)
 
@@ -1132,6 +1177,35 @@ class MainWindow:
             var = tb.StringVar(value=labels.get(code, ""))
             self.payment_label_vars[code] = var
             tb.Entry(cell, textvariable=var, width=16).pack(side=tbc.LEFT, fill=tbc.X, expand=tbc.YES)
+        tb.Button(
+            box, text="Generar comandos PE", command=self._generate_payment_commands, bootstyle="info"
+        ).pack(anchor=tbc.W, pady=(8, 4))
+        tb.Label(
+            box,
+            text=(
+                "Genera el JSON para programar estos nombres en la impresora (comando PE, máximo 14 caracteres). "
+                "Se acepta en cualquier momento salvo con una factura abierta; revíselo en la pestaña Comandos "
+                "antes de enviarlo."
+            ),
+            bootstyle="secondary",
+            wraplength=800,
+        ).pack(anchor=tbc.W)
+
+    def _generate_payment_commands(self) -> None:
+        """Arma el JSON de comandos PE con los valores actuales de la grilla y lo deja en la pestaña Comandos."""
+        title = "Medios de pago"
+        current = {code: var.get().strip() for code, var in self.payment_label_vars.items()}
+        try:
+            commands = build_payment_commands(current)
+        except ValueError as e:
+            Messagebox.show_error(str(e), title)
+            return
+        self.commands_text.delete("1.0", tbc.END)
+        self.commands_text.insert("1.0", json.dumps({"commands": commands}, indent=4, ensure_ascii=False))
+        self.notebook.select(self.commands_container)
+        Messagebox.show_info(
+            "El JSON con los comandos PE quedó listo en la pestaña Comandos. Revíselo antes de enviarlo.", title
+        )
 
     def _collect_payment_labels(self) -> dict[str, str]:
         """
@@ -1170,6 +1244,14 @@ class MainWindow:
 
     def _save_fiscal_config(self) -> None:
         config = ConfigManager.get_config()
+        too_long = payment_labels_too_long({code: var.get().strip() for code, var in self.payment_label_vars.items()})
+        if too_long:
+            Messagebox.show_error(
+                f"Los nombres de los medios de pago admiten máximo {PAYMENT_LABEL_MAX_CHARS} caracteres. "
+                f"Revise los códigos: {', '.join(too_long)}.",
+                "Impresora Fiscal",
+            )
+            return
         try:
             new_config = json.loads(json.dumps(config))
             new_config["printers"]["fiscal"] = {

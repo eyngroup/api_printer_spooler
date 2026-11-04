@@ -91,6 +91,7 @@ El archivo de configuración está dividido en las siguientes secciones principa
 
 ##### Etiquetas de medios de pago (`payment_labels`, opcional)
 - `payment_labels`: objeto `{"01": "Efectivo", ..., "24": "DivisaCashea"}` con el nombre de cada medio de pago (códigos `01` a `24`). Solo lo usa el monitor fiscal (`GET /api/monitor`) para mostrar "04 — Contado" en lugar de "Código 04"; no afecta a la impresión.
+- Cada nombre admite como máximo **14 caracteres** (límite del comando `PE` de la máquina); la ventana no guarda nombres más largos. El botón "Generar comandos PE" arma el JSON de programación en la pestaña "Comandos".
 - La máquina TFHKA no permite leer los nombres programados (solo el comando `D` los imprime), por eso se mantienen aquí. Deben coincidir con los programados en la impresora.
 - Los valores por defecto (HKA80) están en `config/defaults/config.json`. La clave es **opcional** en `config/config.json`: las instalaciones existentes no la tienen y usan los valores por defecto.
 - Para personalizar una instalación, indique solo los códigos que difieran; sustituyen al valor por defecto de ese código. Una cadena vacía (`""`) significa "sin etiqueta" (se muestra "Código NN"). También se edita en la pestaña "Impresora Fiscal", sección "Medios de pago (etiquetas)", que guarda únicamente las diferencias.
