@@ -24,8 +24,8 @@ from jsonschema import ValidationError, validate
 from ttkbootstrap import constants as tbc
 from ttkbootstrap.dialogs import Messagebox
 
-from handy.serial_scan import get_serial_scanner
 from handy.log_handler import current_log_path
+from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path
 from handy.update_apply import launch_apply
 from handy.updater import UpdateError, UpdateInfo, check_latest, download_and_stage, is_supported
@@ -183,6 +183,61 @@ def local_api_url(config: dict[str, Any], path: str) -> str:
     elif ":" in host and not host.startswith("["):
         host = f"[{host}]"  # IPv6 literal
     return f"http://{host}:{port}{path}"
+
+
+# Tiempos máximos (s) de espera de las acciones de la ventana contra la API local
+COMMANDS_TIMEOUT_SECONDS = 15
+CLOCK_TIMEOUT_SECONDS = 30
+
+
+def request_report(config: dict[str, Any], report_type: str) -> dict[str, Any]:
+    """
+    Pide a la API local imprimir un reporte fiscal X o Z.
+    Args:
+        config: Configuración completa
+        report_type: "X" o "Z"
+    Returns:
+        dict: JSON de respuesta de la API (lanza la excepción de requests ante un fallo de red o de parseo)
+    """
+    import requests
+
+    endpoint = "report_x" if report_type == "X" else "report_z"
+    # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
+    resp = requests.post(local_api_url(config, f"/api/{endpoint}"), timeout=REPORT_TIMEOUT_SECONDS)
+    return resp.json()
+
+
+def request_commands(config: dict[str, Any], commands: list[str]) -> dict[str, Any]:
+    """
+    Envía una lista de comandos fiscales directos a la API local.
+    Args:
+        config: Configuración completa
+        commands: Comandos a enviar
+    Returns:
+        dict: JSON de respuesta de la API (lanza la excepción de requests ante un fallo de red o de parseo)
+    """
+    import requests
+
+    resp = requests.post(
+        local_api_url(config, "/api/fiscal/command"), json={"commands": commands}, timeout=COMMANDS_TIMEOUT_SECONDS
+    )
+    return resp.json()
+
+
+def request_clock_sync(config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Pide a la API local el ajuste forzado del reloj de la impresora.
+    Args:
+        config: Configuración completa
+    Returns:
+        dict: JSON de respuesta de la API (lanza la excepción de requests ante un fallo de red o de parseo)
+    """
+    import requests
+
+    resp = requests.post(
+        local_api_url(config, "/api/fiscal/clock"), json={"force": True}, timeout=CLOCK_TIMEOUT_SECONDS
+    )
+    return resp.json()
 
 
 class MainWindow:
@@ -1476,9 +1531,12 @@ class MainWindow:
 
         cmd_btn_frame = tb.Frame(cmd_frame)
         cmd_btn_frame.pack(fill=tbc.X, pady=(0, 5))
-        tb.Button(cmd_btn_frame, text="Enviar Comandos", command=self._send_commands, bootstyle="warning").pack(
-            side=tbc.LEFT
+        self.commands_send_button = tb.Button(
+            cmd_btn_frame, text="Enviar Comandos", command=self._send_commands, bootstyle="warning"
         )
+        self.commands_send_button.pack(side=tbc.LEFT)
+        self.commands_status_label = tb.Label(cmd_btn_frame, text="", bootstyle="secondary")
+        self.commands_status_label.pack(side=tbc.LEFT, padx=10)
 
         # --- Reportes Fiscales ---
         reports_frame = tb.LabelFrame(parent, text="Reportes Fiscales", bootstyle="secondary", padding=10)
@@ -1492,12 +1550,16 @@ class MainWindow:
 
         reports_btn_row = tb.Frame(reports_frame)
         reports_btn_row.pack(fill=tbc.X, pady=5)
-        tb.Button(
+        self.report_x_button = tb.Button(
             reports_btn_row, text="Imprimir Reporte X", command=lambda: self._print_report("X"), bootstyle="primary"
-        ).pack(side=tbc.LEFT, padx=(0, 10))
-        tb.Button(
+        )
+        self.report_x_button.pack(side=tbc.LEFT, padx=(0, 10))
+        self.report_z_button = tb.Button(
             reports_btn_row, text="Imprimir Reporte Z", command=lambda: self._print_report("Z"), bootstyle="danger"
-        ).pack(side=tbc.LEFT)
+        )
+        self.report_z_button.pack(side=tbc.LEFT)
+        self.reports_status_label = tb.Label(reports_btn_row, text="", bootstyle="secondary")
+        self.reports_status_label.pack(side=tbc.LEFT, padx=10)
 
         # --- Reloj de la impresora ---
         clock_frame = tb.LabelFrame(parent, text="Reloj de la Impresora", bootstyle="secondary", padding=10)
@@ -1511,20 +1573,50 @@ class MainWindow:
             ),
             wraplength=800,
         ).pack(anchor=tbc.W, pady=(0, 5))
-        tb.Button(
-            clock_frame, text="Ajustar reloj de la impresora", command=self._sync_printer_clock, bootstyle="info"
-        ).pack(anchor=tbc.W, pady=5)
+        clock_btn_row = tb.Frame(clock_frame)
+        clock_btn_row.pack(fill=tbc.X, pady=5)
+        self.clock_sync_button = tb.Button(
+            clock_btn_row, text="Ajustar reloj de la impresora", command=self._sync_printer_clock, bootstyle="info"
+        )
+        self.clock_sync_button.pack(side=tbc.LEFT)
+        self.clock_status_label = tb.Label(clock_btn_row, text="", bootstyle="secondary")
+        self.clock_status_label.pack(side=tbc.LEFT, padx=10)
+
+    def _run_in_worker(self, name: str, func, on_done) -> None:
+        """
+        Ejecuta func() en un hilo daemon sin bloquear Tk y llama on_done(result) en el hilo de la ventana.
+        Nunca lanza desde el hilo: la respuesta o la excepción se guardan en result["data"] / result["error"].
+        Args:
+            name: Nombre del hilo
+            func: Función sin argumentos que hace la llamada HTTP
+            on_done: Función que recibe el dict con "data" o "error"
+        """
+        result: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                result["data"] = func()
+            except Exception as e:  # noqa: BLE001 - se informa en el hilo de la ventana
+                result["error"] = e
+
+        worker = threading.Thread(target=run, name=name, daemon=True)
+        worker.start()
+        self._wait_thread(worker, lambda: on_done(result))
 
     def _sync_printer_clock(self) -> None:
-        """Solicita al servidor el ajuste forzado del reloj de la impresora y muestra el resultado."""
+        """Solicita al servidor el ajuste forzado del reloj de la impresora (en un hilo) y muestra el resultado."""
         title = "Reloj de la Impresora"
-        try:
-            import requests
+        config = ConfigManager.get_config()
+        self.clock_sync_button.configure(state=tbc.DISABLED)
+        self.clock_status_label.configure(text="Ajustando el reloj... espere")
 
-            config = ConfigManager.get_config()
-            # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
-            resp = requests.post(local_api_url(config, "/api/fiscal/clock"), json={"force": True}, timeout=30)
-            res_json = resp.json()
+        def on_done(result: dict[str, Any]) -> None:
+            self.clock_sync_button.configure(state=tbc.NORMAL)
+            self.clock_status_label.configure(text="")
+            if "error" in result:
+                Messagebox.show_error(f"Error al ajustar el reloj: {result['error']}", title)
+                return
+            res_json = result["data"]
             data = res_json.get("data") or {}
             status = data.get("status")
             if status == "adjusted":
@@ -1533,14 +1625,16 @@ class MainWindow:
                 Messagebox.show_info(f"El reloj ya está en hora (diferencia: {data.get('drift_seconds')} s).", title)
             elif status == "rejected":
                 Messagebox.show_error(
-                    f"{data.get('message')}\nSolo es posible si no se han registrado ventas desde el último cierre Z.", title
+                    f"{data.get('message')}\nSolo es posible si no se han registrado ventas desde el último cierre Z.",
+                    title,
                 )
             else:
                 Messagebox.show_error(f"No se pudo ajustar el reloj:\n{res_json.get('message')}", title)
-        except Exception as e:  # noqa: BLE001 - cualquier fallo se muestra al usuario en un diálogo
-            Messagebox.show_error(f"Error al ajustar el reloj: {e}", title)
+
+        self._run_in_worker("clock-sync", lambda: request_clock_sync(config), on_done)
 
     def _send_commands(self) -> None:
+        """Valida el JSON de comandos y lo envía a la API local en un hilo, mostrando el resultado al terminar."""
         try:
             raw = self.commands_text.get("1.0", tbc.END).strip()
             data = json.loads(raw)
@@ -1548,33 +1642,55 @@ class MainWindow:
             if not isinstance(commands, list) or not commands:
                 Messagebox.show_error("El JSON debe contener una lista no vacía en 'commands'.", "Comandos")
                 return
-
-            import requests
             config = ConfigManager.get_config()
-            # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
-            resp = requests.post(local_api_url(config, "/api/fiscal/command"), json={"commands": commands}, timeout=15)
-            res_json = resp.json()
-            if res_json.get("status"):
-                Messagebox.show_info(f"Comandos enviados con éxito:\n{json.dumps(res_json.get('data'), indent=2)}", "Comandos")
-            else:
-                Messagebox.show_error(f"Falla al ejecutar comandos:\n{res_json.get('message')}", "Comandos")
         except Exception as e:
             Messagebox.show_error(f"Error al enviar comandos: {e}", "Comandos")
+            return
+
+        self.commands_send_button.configure(state=tbc.DISABLED)
+        self.commands_status_label.configure(text="Enviando comandos... espere")
+
+        def on_done(result: dict[str, Any]) -> None:
+            self.commands_send_button.configure(state=tbc.NORMAL)
+            self.commands_status_label.configure(text="")
+            if "error" in result:
+                Messagebox.show_error(f"Error al enviar comandos: {result['error']}", "Comandos")
+                return
+            res_json = result["data"]
+            if res_json.get("status"):
+                Messagebox.show_info(
+                    f"Comandos enviados con éxito:\n{json.dumps(res_json.get('data'), indent=2)}", "Comandos"
+                )
+            else:
+                Messagebox.show_error(f"Falla al ejecutar comandos:\n{res_json.get('message')}", "Comandos")
+
+        self._run_in_worker("send-commands", lambda: request_commands(config, commands), on_done)
 
     def _print_report(self, report_type: str) -> None:
-        try:
-            import requests
-            config = ConfigManager.get_config()
-            endpoint = "report_x" if report_type == "X" else "report_z"
-            # Misma dirección donde escucha el servidor (no siempre 127.0.0.1)
-            resp = requests.post(local_api_url(config, f"/api/{endpoint}"), timeout=REPORT_TIMEOUT_SECONDS)
-            res_json = resp.json()
+        """Pide el reporte X o Z en un hilo; mientras dura bloquea ambos botones para que no se solapen."""
+        config = ConfigManager.get_config()
+        self.report_x_button.configure(state=tbc.DISABLED)
+        self.report_z_button.configure(state=tbc.DISABLED)
+        self.reports_status_label.configure(text=f"Imprimiendo reporte {report_type}... espere")
+
+        def on_done(result: dict[str, Any]) -> None:
+            self.report_x_button.configure(state=tbc.NORMAL)
+            self.report_z_button.configure(state=tbc.NORMAL)
+            self.reports_status_label.configure(text="")
+            if "error" in result:
+                Messagebox.show_error(
+                    f"Error al solicitar reporte {report_type}: {result['error']}", "Reportes Fiscales"
+                )
+                return
+            res_json = result["data"]
             if res_json.get("status"):
                 Messagebox.show_info(f"Reporte {report_type} ejecutado correctamente.", "Reportes Fiscales")
             else:
-                Messagebox.show_error(f"Error al imprimir reporte {report_type}:\n{res_json.get('message')}", "Reportes Fiscales")
-        except Exception as e:
-            Messagebox.show_error(f"Error al solicitar reporte {report_type}: {e}", "Reportes Fiscales")
+                Messagebox.show_error(
+                    f"Error al imprimir reporte {report_type}:\n{res_json.get('message')}", "Reportes Fiscales"
+                )
+
+        self._run_in_worker(f"report-{report_type.lower()}", lambda: request_report(config, report_type), on_done)
 
     # ------------------------------------------------------------------
     # Helpers para construcción de widgets
