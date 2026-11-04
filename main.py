@@ -10,13 +10,14 @@ Creado en memoria de mi amado hijo Ian
 import glob
 import logging
 import os
+import re
 import sys
 import threading
 import webbrowser
 from datetime import datetime, timedelta
 from logging.config import dictConfig
-from logging.handlers import TimedRotatingFileHandler
 
+from handy.log_handler import DailyFileHandler
 from handy.runtime_files import ensure_runtime_files
 from handy.serial_scan import find_fiscal_port
 from handy.tools import get_base_path
@@ -205,8 +206,11 @@ def cleanup_old_logs(log_dir: str, max_days: int) -> None:
         log_pattern = os.path.join(log_dir, "*.log*")
         for log_file in glob.glob(log_pattern):
             try:
-                file_date_str = os.path.basename(log_file).split("_")[2][:8]  # Obtiene YYYYMMDD
-                file_date = datetime.strptime(file_date_str, "%Y%m%d")
+                # Obtiene YYYYMMDD de "<base>-YYYYMMDD.log" (y de los antiguos "<base>-YYYYMMDD.log.YYYY-MM-DD")
+                match = re.search(r"-(\d{8})\.log", os.path.basename(log_file))
+                if not match:
+                    continue
+                file_date = datetime.strptime(match.group(1), "%Y%m%d")
 
                 if file_date < cutoff_date:  # Si el archivo es más antiguo que cutoff_date, eliminarlo
                     os.remove(log_file)
@@ -214,31 +218,8 @@ def cleanup_old_logs(log_dir: str, max_days: int) -> None:
             except (ValueError, IndexError):
                 continue
     except Exception as e:
-        print(f"Error al limpiar logs antiguos: {e}")
-
-
-class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
-    """Handler personalizado para rotación de logs con limpieza automática."""
-
-    def __init__(
-        self,
-        filename,
-        when="D",
-        interval=1,
-        backupCount=0,
-        encoding=None,
-        delay=False,
-        utc=False,
-        atTime=None,
-    ):
-        super().__init__(filename, when, interval, backupCount, encoding, delay, utc, atTime)
-        self.max_days = backupCount
-        self.log_dir = os.path.dirname(filename)
-
-    def doRollover(self):
-        """Sobrescribe el método de rotación para incluir limpieza de logs antiguos."""
-        super().doRollover()
-        cleanup_old_logs(self.log_dir, self.max_days)
+        if sys.stdout is not None:  # En el build GUI (sin consola) stdout es None
+            print(f"Error al limpiar logs antiguos: {e}")
 
 
 def configure_logging(log_config: dict) -> None:
@@ -255,9 +236,6 @@ def configure_logging(log_config: dict) -> None:
     log_file = log_config.get("log_file", "printer_service")
     log_format = log_config.get("log_format", "%(asctime)s | %(levelname)s | %(message)s")
     log_level = getattr(logging, log_config.get("log_level", "INFO").upper(), logging.INFO)
-
-    current_date = datetime.now().strftime("%Y%m%d")
-    log_filename = f"{log_file}-{current_date}.log"
 
     cleanup_old_logs(log_dir, log_days)
 
@@ -300,13 +278,13 @@ def configure_logging(log_config: dict) -> None:
             },
             "handlers": {
                 "file": {
-                    "()": CustomTimedRotatingFileHandler,
-                    "filename": os.path.join(log_dir, log_filename),
-                    "when": "midnight",
-                    "interval": 1,
-                    "backupCount": log_days,
+                    # Handler diario sin renombrados: el archivo del día nunca se rota ni se borra
+                    "()": DailyFileHandler,
+                    "log_dir": log_dir,
+                    "base_name": log_file,
                     "formatter": "detailed",
                     "encoding": "utf-8",
+                    "on_rollover": lambda: cleanup_old_logs(log_dir, log_days),
                 },
                 "console": {
                     "class": "logging.StreamHandler",

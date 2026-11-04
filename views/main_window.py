@@ -25,6 +25,7 @@ from ttkbootstrap import constants as tbc
 from ttkbootstrap.dialogs import Messagebox
 
 from handy.serial_scan import get_serial_scanner
+from handy.log_handler import current_log_path
 from handy.tools import get_base_path
 from handy.update_apply import launch_apply
 from handy.updater import UpdateError, UpdateInfo, check_latest, download_and_stage, is_supported
@@ -441,8 +442,7 @@ class MainWindow:
         config = ConfigManager.get_config()
         log_cfg = config.get("logging", {})
         log_file_base = log_cfg.get("log_file", "printer_service")
-        today = datetime.now().strftime("%Y%m%d")
-        log_path = os.path.join(get_base_path(), "logs", f"{log_file_base}-{today}.log")
+        log_path = current_log_path(os.path.join(get_base_path(), "logs"), log_file_base)
 
         if not os.path.exists(log_path):
             return
