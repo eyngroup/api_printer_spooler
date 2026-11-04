@@ -14,7 +14,6 @@ import queue
 import sys
 import threading
 import webbrowser
-from datetime import datetime
 from typing import Any
 
 from tkinter import filedialog

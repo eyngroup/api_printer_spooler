@@ -9,6 +9,7 @@ Pruebas del handler de log diario y de la limpieza de logs antiguos.
 
 import logging
 import os
+import pathlib
 import shutil
 from datetime import datetime, timedelta
 
@@ -41,16 +42,16 @@ def make_logger(tmp_path):
 
 def test_writes_to_todays_file(make_logger, tmp_path):
     """Un registro queda escrito en el archivo del día."""
-    logger, handler = make_logger()
+    logger, _handler = make_logger()
     logger.info("hola")
     path = current_log_path(str(tmp_path / "logs"), "printer_spooler")
-    assert open(path, encoding="utf-8").read() == "hola\n"
+    assert pathlib.Path(path).read_text(encoding="utf-8") == "hola\n"
 
 
 def test_switches_file_on_date_change(make_logger, tmp_path, monkeypatch):
     """Al cambiar la fecha se escribe en el archivo nuevo, el anterior queda intacto y se llama on_rollover."""
     calls = []
-    logger, handler = make_logger(on_rollover=lambda: calls.append(1))
+    logger, _handler = make_logger(on_rollover=lambda: calls.append(1))
     days = iter(["20260101", "20260102"])
     monkeypatch.setattr(DailyFileHandler, "_today", staticmethod(lambda: next(days)))
     logger.info("uno")
@@ -63,17 +64,17 @@ def test_switches_file_on_date_change(make_logger, tmp_path, monkeypatch):
 
 def test_recreates_removed_directory(make_logger, tmp_path):
     """Si se borra el directorio entre registros, se recrea y se sigue escribiendo sin excepciones."""
-    logger, handler = make_logger()
+    logger, _handler = make_logger()
     logger.info("antes")
     shutil.rmtree(tmp_path / "logs")
     logger.info("despues")
     path = current_log_path(str(tmp_path / "logs"), "printer_spooler")
-    assert "despues" in open(path, encoding="utf-8").read()
+    assert "despues" in pathlib.Path(path).read_text(encoding="utf-8")
 
 
 def test_handle_error_appends_to_error_file(make_logger, tmp_path):
     """handleError anota el fallo en logging_error.txt."""
-    logger, handler = make_logger()
+    _logger, handler = make_logger()
     try:
         raise OSError("disco lleno")
     except OSError:
@@ -84,7 +85,7 @@ def test_handle_error_appends_to_error_file(make_logger, tmp_path):
 
 def test_cleanup_old_logs(tmp_path):
     """Elimina el log de hace más de max_days y conserva el de hoy."""
-    today = datetime.now()
+    today = datetime.now()  # noqa: DTZ005 - fecha local, como el handler
     old = tmp_path / "printer_spooler-20260917.log"
     rotated = tmp_path / "printer_spooler-20260918.log.2026-09-18"
     recent = tmp_path / f"printer_spooler-{(today - timedelta(days=1)).strftime('%Y%m%d')}.log"
