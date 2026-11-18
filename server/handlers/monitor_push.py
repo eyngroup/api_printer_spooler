@@ -142,6 +142,7 @@ def enqueue_reading(
     try:
         if snapshot is None:
             snapshot = FiscalMonitor.get_snapshot((config or {}).get("printers", {}))
+            _note_read_result(trigger, snapshot, now)  # con snapshot inyectado la lectura ya se reportó
         moment = now or _now()
         envelope = build_envelope(snapshot, trigger, config, moment)
         job_store.outbox_enqueue(envelope["reading_id"], trigger, envelope, moment.isoformat(timespec="seconds"))
@@ -149,9 +150,8 @@ def enqueue_reading(
         return envelope["reading_id"]
     except Exception as e:  # noqa: BLE001 - el monitor nunca debe interferir con la impresión
         logger.error("Monitor push: no se pudo encolar la lectura '%s': %s", trigger, e)
-        # Se refleja en la línea de estado de la ventana: sin esto quedaba "Sin envíos todavía" como si nunca se
-        # hubiera intentado, y no se veía que la causa era la lectura de la máquina (puerto, impresora apagada...)
-        _set_state(last_result=f"No se pudo leer la máquina para la lectura '{trigger}': {e}")
+        # Aquí fallan el armado del envelope o la cola SQLite (la lectura de la máquina no lanza: ver _note_read_result)
+        _set_state(last_result=f"No se pudo encolar la lectura '{trigger}': {e}")
         return None
 
 
@@ -196,6 +196,7 @@ def _read_and_enqueue(trigger: str, config: dict[str, Any]) -> str | None:
     """
     try:
         snapshot = FiscalMonitor.read_fresh(config.get("printers", {}))
+        _note_read_result(trigger, snapshot)  # visible en la ventana aunque la lectura se omita
         if not snapshot.get("available"):
             logger.warning("Monitor push: lectura '%s' omitida: %s", trigger, snapshot.get("reason", "sin datos"))
             return None
@@ -257,6 +258,30 @@ def _set_state(**changes: Any) -> None:
     """
     with _state_lock:
         _state.update(changes)
+
+
+READ_FAILURE_PREFIX = "No se pudo leer la máquina"
+
+
+def _note_read_result(trigger: str, snapshot: dict[str, Any] | None, now: datetime | None = None) -> None:
+    """
+    Refleja en el estado de la ventana el resultado de leer la máquina. get_snapshot/read_fresh nunca lanzan: devuelven
+    {"available": False, "reason": ...}; sin esto la línea de estado seguía en "Sin envíos todavía" y no se veía que la
+    causa era la máquina (puerto, impresora apagada, impresión en curso). Una lectura buena limpia el aviso anterior.
+    Args:
+        trigger: scheduled, manual, after_z o before_z
+        snapshot: Snapshot devuelto por el monitor (None si no hubo lectura)
+        now: Hora local de referencia (para pruebas)
+    """
+    moment = (now or _now()).isoformat(timespec="seconds")
+    if snapshot is None or not snapshot.get("available"):
+        reason = (snapshot or {}).get("reason") or "sin datos"
+        _set_state(last_attempt_at=moment, last_result=f"{READ_FAILURE_PREFIX} para la lectura '{trigger}': {reason}")
+        return
+    with _state_lock:
+        stale = str(_state["last_result"]).startswith(READ_FAILURE_PREFIX)
+    if stale:
+        _set_state(last_attempt_at=moment, last_result=f"Máquina leída ('{trigger}'); lectura en cola")
 
 
 def reset_state() -> None:

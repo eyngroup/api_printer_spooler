@@ -325,8 +325,30 @@ def test_enqueue_reading_never_raises_when_monitor_fails(monkeypatch):
     monkeypatch.setattr(FiscalMonitor, "get_snapshot", boom)
     assert monitor_push.enqueue_reading("before_z", make_config()) is None
     assert job_store.outbox_count() == 0
-    # La causa queda visible en la línea de estado de la ventana
-    assert monitor_push.get_status()["last_result"] == "No se pudo leer la máquina para la lectura 'before_z': serial roto"
+    assert monitor_push.get_status()["last_result"] == "No se pudo encolar la lectura 'before_z': serial roto"
+
+
+def test_unavailable_snapshot_is_visible_in_window_status(monkeypatch):
+    """get_snapshot nunca lanza: con available=False la causa se ve en la línea de estado y se limpia al leer bien."""
+    unavailable = {"available": False, "reason": "puerto COM3 cerrado"}
+    monkeypatch.setattr(FiscalMonitor, "get_snapshot", lambda printers: unavailable)
+    monitor_push.enqueue_reading("scheduled", make_config())
+    status = monitor_push.get_status()
+    assert status["last_result"] == "No se pudo leer la máquina para la lectura 'scheduled': puerto COM3 cerrado"
+    assert status["last_attempt_at"] is not None
+
+    monkeypatch.setattr(FiscalMonitor, "get_snapshot", lambda printers: SNAPSHOT_OK)
+    monitor_push.enqueue_reading("scheduled", make_config())
+    assert monitor_push.get_status()["last_result"] == "Máquina leída ('scheduled'); lectura en cola"
+
+
+def test_z_read_failure_is_visible_in_window_status(monkeypatch):
+    """La lectura ligada al Z (read_fresh) también deja su causa en la línea de estado."""
+    busy = {"available": False, "reason": "impresión en curso"}
+    monkeypatch.setattr(FiscalMonitor, "read_fresh", lambda printers: busy)
+    assert monitor_push._read_and_enqueue("before_z", make_config()) is None
+    expected = "No se pudo leer la máquina para la lectura 'before_z': impresión en curso"
+    assert monitor_push.get_status()["last_result"] == expected
 
 
 def test_enqueue_reading_uses_monitor_snapshot_when_not_injected(monkeypatch):
