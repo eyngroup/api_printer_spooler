@@ -149,6 +149,9 @@ def enqueue_reading(
         return envelope["reading_id"]
     except Exception as e:  # noqa: BLE001 - el monitor nunca debe interferir con la impresión
         logger.error("Monitor push: no se pudo encolar la lectura '%s': %s", trigger, e)
+        # Se refleja en la línea de estado de la ventana: sin esto quedaba "Sin envíos todavía" como si nunca se
+        # hubiera intentado, y no se veía que la causa era la lectura de la máquina (puerto, impresora apagada...)
+        _set_state(last_result=f"No se pudo leer la máquina para la lectura '{trigger}': {e}")
         return None
 
 

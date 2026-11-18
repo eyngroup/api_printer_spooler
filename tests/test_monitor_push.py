@@ -325,6 +325,8 @@ def test_enqueue_reading_never_raises_when_monitor_fails(monkeypatch):
     monkeypatch.setattr(FiscalMonitor, "get_snapshot", boom)
     assert monitor_push.enqueue_reading("before_z", make_config()) is None
     assert job_store.outbox_count() == 0
+    # La causa queda visible en la línea de estado de la ventana
+    assert monitor_push.get_status()["last_result"] == "No se pudo leer la máquina para la lectura 'before_z': serial roto"
 
 
 def test_enqueue_reading_uses_monitor_snapshot_when_not_injected(monkeypatch):
