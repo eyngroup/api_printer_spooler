@@ -69,6 +69,15 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         self.barcode_type = config.get("fiscal_barcode_type", "CODE128")
         self._printer: FiscalPrinterHka = FiscalPrinterHka(self.port, self.baudrate, self.timeout)  # type: ignore[assignment]
         self._model = None  # Modelo de la impresora
+
+    def _model_key(self) -> str:
+        """
+        Clave del modelo en las tablas de config/ (hka_max_char.json, hka_barcode_rules.json). La máquina reporta
+        "HKA-80" (SV) y las tablas usan "HKA_80": se normaliza a mayúsculas con guion bajo para que sean el mismo modelo.
+        Returns:
+            str: Modelo normalizado (p. ej. "HKA_80"), o cadena vacía si aún no se conoce
+        """
+        return str(self._model or "").strip().upper().replace("-", "_")
         self._serial = None  # Serial de la impresora
         self._flag_21 = None  # Valor del flag 21 para formateo
         self._flag_30 = None  # código de barra con el número asociado bajo él código
@@ -134,7 +143,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         normalized = ""
         try:
             default_config = self.max_char_config.get("SRP_350") or {}
-            char_config = self.max_char_config.get(self._model) or default_config
+            char_config = self.max_char_config.get(self._model_key()) or default_config
             max_length = char_config.get(field_type, 37)  # type: ignore[union-attr]
             normalized = normalize_text(text)
             if truncate:
@@ -154,7 +163,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         """
         try:
             default_rules = self.barcode_rules.get("SRP_350") or {}
-            model_rules = self.barcode_rules.get(self._model) or default_rules
+            model_rules = self.barcode_rules.get(self._model_key()) or default_rules
             if not model_rules:
                 return None
 
@@ -196,7 +205,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         """
         try:
             default_rules = self.barcode_rules.get("SRP_350") or {}
-            model_rules = self.barcode_rules.get(self._model) or default_rules
+            model_rules = self.barcode_rules.get(self._model_key()) or default_rules
             if not model_rules:
                 return None
 
@@ -482,7 +491,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
 
             # Obtener config de caracteres por línea
             default_config = self.max_char_config.get("SRP_350") or {}
-            model_config = self.max_char_config.get(self._model) or default_config
+            model_config = self.max_char_config.get(self._model_key()) or default_config
             max_chars = model_config.get("comment", 40)
 
             # Construir lista de campos activos con su contenido y prefijo

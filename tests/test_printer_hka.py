@@ -228,3 +228,9 @@ def test_footer_without_barcode_sends_no_barcode_command(barcode_printer: TfhkaP
     """Sin código en el payload, o en notas no fiscales, no se envía el comando y."""
     barcode_printer._process_footer({"delivery": {"delivery_barcode": barcode}}, operation_type)
     assert not any(cmd.startswith("y") for cmd in barcode_printer._printer.sent)
+
+
+def test_model_reported_with_dash_uses_the_hka_80_tables(printer: TfhkaPrinter):
+    """La máquina reporta "HKA-80" y las tablas usan "HKA_80": deben ser el mismo modelo (no el genérico SRP_350)."""
+    assert printer._model_key() == "HKA_80"
+    assert printer.max_char_config.get(printer._model_key()) is printer.max_char_config["HKA_80"]
