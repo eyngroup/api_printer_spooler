@@ -21,6 +21,8 @@ import pystray
 from PIL import Image
 from flask import request
 
+from handy.log_handler import clean_log_line
+
 # Módulos locales
 from server.config_loader import ConfigManager
 from handy.tools import get_base_path
@@ -216,7 +218,7 @@ class LogViewer:
             if os.path.exists(log_file):
                 try:
                     with open(log_file, "r", encoding="utf-8") as f:
-                        logs = f.read()
+                        logs = "".join(clean_log_line(line) for line in f)  # mismo tratamiento que la consola
                         if logs.strip():
                             self.text_area.insert(tk.END, logs)
                             self.text_area.see(tk.END)

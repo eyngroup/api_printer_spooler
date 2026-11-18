@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import queue
-import re
 import sys
 import threading
 import webbrowser
@@ -24,7 +23,7 @@ from jsonschema import ValidationError, validate
 from ttkbootstrap import constants as tbc
 from ttkbootstrap.dialogs import Messagebox
 
-from handy.log_handler import current_log_path
+from handy.log_handler import clean_log_line, current_log_path
 from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path, normalize_text
 from handy.update_apply import launch_apply
@@ -164,25 +163,32 @@ WINDOW_SIZE = (980, 720)  # Tamaño inicial de la ventana
 TASKBAR_MARGIN = 90  # Alto reservado para la barra de tareas y el borde de la ventana (px)
 
 
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-# Colores de la consola por tema: fondo, texto normal y texto de nivel (los de bootstrap no se aplican al Text de Tk)
+# Colores de la consola por tema: fondo, texto normal y texto por nivel (los de bootstrap no se aplican al Text de Tk)
 CONSOLE_COLORS = {
-    "dark": {"bg": "#222222", "fg": "#f8f9fa", "DEBUG": "#6c757d", "INFO": "#20c997", "WARNING": "#ffc107"},
-    "light": {"bg": "#ffffff", "fg": "#212529", "DEBUG": "#6c757d", "INFO": "#198754", "WARNING": "#b8860b"},
+    "dark": {
+        "bg": "#222222", "fg": "#f8f9fa", "DEBUG": "#6c757d", "INFO": "#20c997", "WARNING": "#ffc107",
+        "ERROR": "#dc3545", "CRITICAL": "#ff6b81",
+    },
+    "light": {
+        "bg": "#ffffff", "fg": "#212529", "DEBUG": "#6c757d", "INFO": "#198754", "WARNING": "#b8860b",
+        "ERROR": "#dc3545", "CRITICAL": "#b02a37",
+    },
 }
+LOG_LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")  # de mayor a menor severidad
 
 
-def clean_log_line(line: str) -> str:
+def log_line_level(line: str) -> str:
     """
-    Línea del log lista para la consola: sin códigos de color ANSI (logs antiguos los traían), sin las comillas del
-    formato y con un único salto de línea final.
+    Nivel de una línea de log ya limpia ("| INFO |" o " INFO "), o "DEFAULT" si no trae nivel (continuaciones).
     Args:
-        line: Línea leída del archivo de log
+        line: Línea limpia (ver clean_log_line)
     Returns:
-        str: Línea limpia terminada en salto de línea
+        str: CRITICAL, ERROR, WARNING, INFO, DEBUG o DEFAULT
     """
-    return ANSI_ESCAPE_RE.sub("", line).replace('"', "").rstrip("\r\n") + "\n"
+    for level in LOG_LEVELS:
+        if f"| {level} |" in line or f" {level} " in line:
+            return level
+    return "DEFAULT"
 
 
 def window_geometry(screen_width: int, screen_height: int, width: int, height: int) -> str:
@@ -569,7 +575,7 @@ class MainWindow:
         level_combo = tb.Combobox(
             controls,
             textvariable=self.log_level_filter,
-            values=["TODOS", "DEBUG", "INFO", "WARNING", "ERROR"],
+            values=["TODOS", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             state="readonly",
             width=10,
         )
@@ -591,14 +597,13 @@ class MainWindow:
         self.console_text = tb.Text(self.console_tab, wrap="none", font=("Consolas", 9))
         self.console_text.pack(fill=tbc.BOTH, expand=tbc.YES, padx=5, pady=(0, 5))
 
-        self.console_text.tag_config("ERROR", foreground="#dc3545")
         self._apply_console_theme()
 
     def _apply_console_theme(self) -> None:
         """Colores de la consola según el tema: en claro el texto quedaba casi invisible (gris claro sobre blanco)."""
         colors = CONSOLE_COLORS["dark" if self._is_dark_theme else "light"]
         self.console_text.configure(background=colors["bg"], foreground=colors["fg"], insertbackground=colors["fg"])
-        for level in ("DEBUG", "INFO", "WARNING"):
+        for level in LOG_LEVELS:
             self.console_text.tag_config(level, foreground=colors[level])
         self.console_text.tag_config("DEFAULT", foreground=colors["fg"])
 
@@ -621,10 +626,14 @@ class MainWindow:
             self.console_text.delete("1.0", tbc.END)
 
         try:
-            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(log_path, "rb") as f:
                 f.seek(self._log_file_pos)
-                new_chunk = f.read()
-                self._log_file_pos = f.tell()
+                raw = f.read()
+            # Solo líneas completas: un fragmento a medio escribir se deja para el próximo tic (evita partir una línea
+            # o un código ANSI en dos y mostrar la segunda mitad sin nivel ni filtro)
+            cut = raw.rfind(b"\n") + 1
+            self._log_file_pos += cut
+            new_chunk = raw[:cut].decode("utf-8", errors="replace")
 
             if new_chunk:
                 for line in new_chunk.splitlines(keepends=True):
@@ -636,16 +645,13 @@ class MainWindow:
 
     def _append_log_line(self, line: str) -> None:
         filter_level = self.log_level_filter.get()
-        tag = "DEFAULT"
-        for level in ("ERROR", "WARNING", "INFO", "DEBUG"):
-            if f"| {level} |" in line or f" {level} " in line:
-                tag = level
-                break
+        clean_line = clean_log_line(line)  # el nivel se detecta sobre la línea limpia (sin códigos ANSI)
+        tag = log_line_level(clean_line)
 
         if filter_level != "TODOS" and tag != filter_level and tag != "DEFAULT":
             return
 
-        self.console_text.insert(tbc.END, clean_log_line(line), tag)
+        self.console_text.insert(tbc.END, clean_line, tag)
 
     def _filter_logs(self) -> None:
         self.console_text.delete("1.0", tbc.END)

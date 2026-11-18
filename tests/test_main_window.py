@@ -159,3 +159,9 @@ def test_clean_log_line_strips_ansi_colors_and_quotes():
     """Los logs antiguos traían códigos ANSI del formateador de consola; la ventana los quita."""
     raw = '"2026-11-18 18:40:41 | \x1b[32mINFO\x1b[0m | Modo SPOOLER configurado"\r\n'
     assert main_window.clean_log_line(raw) == "2026-11-18 18:40:41 | INFO | Modo SPOOLER configurado\n"
+    # Las comillas dentro del mensaje se conservan; solo se quitan las que envolvían toda la línea
+    inner = '2026-11-18 18:40:41 | ERROR | Campo "document_id" inválido\n'
+    assert main_window.clean_log_line(inner) == inner
+    assert main_window.log_line_level(main_window.clean_log_line(raw)) == "INFO"
+    assert main_window.log_line_level("2026-11-18 18:40:41 | CRITICAL | sin puerto\n") == "CRITICAL"
+    assert main_window.log_line_level("  continuación de un traceback\n") == "DEFAULT"

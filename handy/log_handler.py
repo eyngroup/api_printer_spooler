@@ -12,11 +12,29 @@ del nuevo día (sin rotación por renombrado, que en Windows puede fallar y deja
 
 import logging
 import os
+import re
 import sys
 from collections.abc import Callable
 from datetime import datetime
 
 ERROR_FILE_NAME = "logging_error.txt"
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def clean_log_line(line: str) -> str:
+    """
+    Línea del log lista para mostrar: sin códigos de color ANSI (los logs antiguos los traían), sin las comillas que
+    envolvían toda la línea en el formato antiguo (las comillas dentro del mensaje se conservan) y con un único salto
+    de línea final.
+    Args:
+        line: Línea leída del archivo de log
+    Returns:
+        str: Línea limpia terminada en salto de línea
+    """
+    text = ANSI_ESCAPE_RE.sub("", line).rstrip("\r\n")
+    if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+        text = text[1:-1]
+    return text + "\n"
 
 
 def current_log_path(log_dir: str, base_name: str, now: datetime | None = None) -> str:

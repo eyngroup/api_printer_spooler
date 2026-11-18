@@ -84,7 +84,7 @@
     "logging": {
         "log_days": 5,
         "log_file": "printer_spooler",
-        "log_format": "\"%(asctime)s | %(levelname)s | %(message)s\"",
+        "log_format": "%(asctime)s | %(levelname)s | %(message)s",
         "log_level": "DEBUG",
         "log_output": true
     },

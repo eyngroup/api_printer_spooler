@@ -7,6 +7,7 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Creado en memoria de mi amado hijo Ian
 """
 
+import copy
 import glob
 import logging
 import os
@@ -252,6 +253,9 @@ def configure_logging(log_config: dict) -> None:
         RESET = "\033[0m"
 
         def format(self, record):
+            # Copia del registro: el mismo LogRecord lo formatea después el handler de archivo (formato "plain") y no
+            # debe llevar los códigos de color, sea cual sea el orden de los handlers
+            record = copy.copy(record)
             if record.levelname in self.COLORS:
                 record.levelname = f"{self.COLORS[record.levelname]}{record.levelname}{self.RESET}"
 
