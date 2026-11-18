@@ -232,5 +232,7 @@ def test_footer_without_barcode_sends_no_barcode_command(barcode_printer: TfhkaP
 
 def test_model_reported_with_dash_uses_the_hka_80_tables(printer: TfhkaPrinter):
     """La máquina reporta "HKA-80" y las tablas usan "HKA_80": deben ser el mismo modelo (no el genérico SRP_350)."""
-    assert printer._model_key() == "HKA_80"
-    assert printer.max_char_config.get(printer._model_key()) is printer.max_char_config["HKA_80"]
+    assert printer._model_key(printer.max_char_config) == "HKA_80"
+    assert printer.max_char_config.get(printer._model_key(printer.max_char_config)) is printer.max_char_config["HKA_80"]
+    printer._model = "PP9-PLUS"  # clave con guion en las tablas: debe seguir encontrándose
+    assert printer._model_key(printer.max_char_config) == "PP9-PLUS"
