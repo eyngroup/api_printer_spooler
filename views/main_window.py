@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import queue
+import re
 import sys
 import threading
 import webbrowser
@@ -161,6 +162,27 @@ REPORT_TIMEOUT_SECONDS = 90
 
 WINDOW_SIZE = (980, 720)  # Tamaño inicial de la ventana
 TASKBAR_MARGIN = 90  # Alto reservado para la barra de tareas y el borde de la ventana (px)
+
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+# Colores de la consola por tema: fondo, texto normal y texto de nivel (los de bootstrap no se aplican al Text de Tk)
+CONSOLE_COLORS = {
+    "dark": {"bg": "#222222", "fg": "#f8f9fa", "DEBUG": "#6c757d", "INFO": "#20c997", "WARNING": "#ffc107"},
+    "light": {"bg": "#ffffff", "fg": "#212529", "DEBUG": "#6c757d", "INFO": "#198754", "WARNING": "#b8860b"},
+}
+
+
+def clean_log_line(line: str) -> str:
+    """
+    Línea del log lista para la consola: sin códigos de color ANSI (logs antiguos los traían), sin las comillas del
+    formato y con un único salto de línea final.
+    Args:
+        line: Línea leída del archivo de log
+    Returns:
+        str: Línea limpia terminada en salto de línea
+    """
+    return ANSI_ESCAPE_RE.sub("", line).replace('"', "").rstrip("\r\n") + "\n"
 
 
 def window_geometry(screen_width: int, screen_height: int, width: int, height: int) -> str:
@@ -420,6 +442,7 @@ class MainWindow:
             self.root.style.theme_use("darkly")
             self.theme_btn.config(text="☀️ Tema Claro", bootstyle="secondary-outline")
             self._is_dark_theme = True
+        self._apply_console_theme()
 
     def _build_lock_overlay(self, parent, title: str, content) -> None:
         lock_frame = tb.Frame(parent)
@@ -568,11 +591,16 @@ class MainWindow:
         self.console_text = tb.Text(self.console_tab, wrap="none", font=("Consolas", 9))
         self.console_text.pack(fill=tbc.BOTH, expand=tbc.YES, padx=5, pady=(0, 5))
 
-        self.console_text.tag_config("DEBUG", foreground="#6c757d")
-        self.console_text.tag_config("INFO", foreground="#20c997")
-        self.console_text.tag_config("WARNING", foreground="#ffc107")
         self.console_text.tag_config("ERROR", foreground="#dc3545")
-        self.console_text.tag_config("DEFAULT", foreground="#f8f9fa")
+        self._apply_console_theme()
+
+    def _apply_console_theme(self) -> None:
+        """Colores de la consola según el tema: en claro el texto quedaba casi invisible (gris claro sobre blanco)."""
+        colors = CONSOLE_COLORS["dark" if self._is_dark_theme else "light"]
+        self.console_text.configure(background=colors["bg"], foreground=colors["fg"], insertbackground=colors["fg"])
+        for level in ("DEBUG", "INFO", "WARNING"):
+            self.console_text.tag_config(level, foreground=colors[level])
+        self.console_text.tag_config("DEFAULT", foreground=colors["fg"])
 
     def _schedule_log_tail(self) -> None:
         self._tail_current_log()
@@ -617,8 +645,7 @@ class MainWindow:
         if filter_level != "TODOS" and tag != filter_level and tag != "DEFAULT":
             return
 
-        clean_line = line.replace('"', "").rstrip("\r\n") + "\n"
-        self.console_text.insert(tbc.END, clean_line, tag)
+        self.console_text.insert(tbc.END, clean_log_line(line), tag)
 
     def _filter_logs(self) -> None:
         self.console_text.delete("1.0", tbc.END)

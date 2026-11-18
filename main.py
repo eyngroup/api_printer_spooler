@@ -274,7 +274,9 @@ def configure_logging(log_config: dict) -> None:
                     "()": ColorFormatter,
                     "format": log_format,
                     "datefmt": "%Y-%m-%d %H:%M:%S",
-                }
+                },
+                # Sin códigos ANSI: el archivo lo lee la consola de la ventana (y el soporte), no una terminal
+                "plain": {"format": log_format, "datefmt": "%Y-%m-%d %H:%M:%S"},
             },
             "handlers": {
                 "file": {
@@ -282,7 +284,7 @@ def configure_logging(log_config: dict) -> None:
                     "()": DailyFileHandler,
                     "log_dir": log_dir,
                     "base_name": log_file,
-                    "formatter": "detailed",
+                    "formatter": "plain",
                     "encoding": "utf-8",
                     "on_rollover": lambda: cleanup_old_logs(log_dir, log_days),
                 },

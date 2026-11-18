@@ -153,3 +153,9 @@ def test_default_payment_labels_fit_machine_limit():
 def test_window_geometry_fits_the_screen(screen, wanted, expected):
     """La ventana se centra y nunca sobrepasa el área útil (pantalla menos barra de tareas)."""
     assert main_window.window_geometry(*screen, *wanted) == expected
+
+
+def test_clean_log_line_strips_ansi_colors_and_quotes():
+    """Los logs antiguos traían códigos ANSI del formateador de consola; la ventana los quita."""
+    raw = '"2026-11-18 18:40:41 | \x1b[32mINFO\x1b[0m | Modo SPOOLER configurado"\r\n'
+    assert main_window.clean_log_line(raw) == "2026-11-18 18:40:41 | INFO | Modo SPOOLER configurado\n"
