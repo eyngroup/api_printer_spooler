@@ -70,14 +70,6 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         self._printer: FiscalPrinterHka = FiscalPrinterHka(self.port, self.baudrate, self.timeout)  # type: ignore[assignment]
         self._model = None  # Modelo de la impresora
 
-    def _model_key(self) -> str:
-        """
-        Clave del modelo en las tablas de config/ (hka_max_char.json, hka_barcode_rules.json). La máquina reporta
-        "HKA-80" (SV) y las tablas usan "HKA_80": se normaliza a mayúsculas con guion bajo para que sean el mismo modelo.
-        Returns:
-            str: Modelo normalizado (p. ej. "HKA_80"), o cadena vacía si aún no se conoce
-        """
-        return str(self._model or "").strip().upper().replace("-", "_")
         self._serial = None  # Serial de la impresora
         self._flag_21 = None  # Valor del flag 21 para formateo
         self._flag_30 = None  # código de barra con el número asociado bajo él código
@@ -91,7 +83,21 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
 
     def _initialize_printer(self) -> None:
         """Crea la instancia del controlador de la impresora TFHKA"""
+        try:
+            self._printer = FiscalPrinterHka(self.port, self.baudrate, self.timeout)
+            logger.info("Impresora TFHKA inicializada")
+        except Exception as e:
+            logger.error("Error al inicializar la impresora TFHKA: %s", str(e))
+            raise
 
+    def _model_key(self) -> str:
+        """
+        Clave del modelo en las tablas de config/ (hka_max_char.json, hka_barcode_rules.json). La máquina reporta
+        "HKA-80" (SV) y las tablas usan "HKA_80": se normaliza a mayúsculas con guion bajo para que sean el mismo modelo.
+        Returns:
+            str: Modelo normalizado (p. ej. "HKA_80"), o cadena vacía si aún no se conoce
+        """
+        return str(self._model or "").strip().upper().replace("-", "_")
     def format_status_message(self, status: dict[str, Any]) -> tuple[str, str]:
         """
         Formatea el mensaje de status para logging/respuesta.
@@ -102,12 +108,6 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
             Tupla (status_message, error_message).
         """
         return (status.get("status", "unknown"), status.get("error", "none"))
-        try:
-            self._printer = FiscalPrinterHka(self.port, self.baudrate, self.timeout)
-            logger.info("Impresora TFHKA inicializada")
-        except Exception as e:
-            logger.error("Error al inicializar la impresora TFHKA: %s", str(e))
-            raise
 
     def _format_number(self, value: float, field_type: str) -> str:
         """

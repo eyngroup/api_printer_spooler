@@ -51,6 +51,12 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
 
     def _initialize_printer(self) -> None:
         """Crea la instancia del controlador de la impresora PNP"""
+        try:
+            self._printer = FiscalPrinterPnp(self.port, self.baudrate, self.timeout)
+            logger.info("Impresora PNP inicializada")
+        except Exception as e:
+            logger.error("Error al inicializar la impresora PNP: %s", str(e))
+            raise
 
     def format_status_message(self, status: dict[str, Any]) -> tuple[str, str]:
         """
@@ -62,12 +68,6 @@ class PnpPrinter(FiscalPrinterMixin, BasePrinter):
             Tupla (status_message, error_message).
         """
         return (status.get("status", "unknown"), status.get("error", "none"))
-        try:
-            self._printer = FiscalPrinterPnp(self.port, self.baudrate, self.timeout)
-            logger.info("Impresora PNP inicializada")
-        except Exception as e:
-            logger.error("Error al inicializar la impresora PNP: %s", str(e))
-            raise
 
     def _format_number(self, value: float | int | str, field_type: str) -> str:
         """
