@@ -293,7 +293,11 @@ def configure_logging(log_config: dict) -> None:
                 },
             },
             "root": {"level": log_level, "handlers": handlers},
-            "loggers": {"werkzeug": {"level": "WARNING", "handlers": handlers, "propagate": False}},
+            "loggers": {
+                "werkzeug": {"level": "WARNING", "handlers": handlers, "propagate": False},
+                # Pillow (icono de la bandeja) escribe muchísimo DEBUG al cargar imágenes: no aporta al soporte
+                "PIL": {"level": "WARNING"},
+            },
         }
     )
 
