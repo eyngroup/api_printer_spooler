@@ -159,6 +159,29 @@ _ANY_INTERFACE_HOSTS = {"", "0.0.0.0"}
 REPORT_TIMEOUT_SECONDS = 90
 
 
+WINDOW_SIZE = (980, 720)  # Tamaño inicial de la ventana
+TASKBAR_MARGIN = 90  # Alto reservado para la barra de tareas y el borde de la ventana (px)
+
+
+def window_geometry(screen_width: int, screen_height: int, width: int, height: int) -> str:
+    """
+    Geometría Tk ("AnchoxAlto+X+Y") para centrar la ventana sin que sobrepase el área útil de la pantalla.
+    Args:
+        screen_width: Ancho de la pantalla en px
+        screen_height: Alto de la pantalla en px
+        width: Ancho deseado de la ventana
+        height: Alto deseado de la ventana
+    Returns:
+        str: Geometría con el alto limitado a la pantalla menos TASKBAR_MARGIN y la ventana centrada
+    """
+    usable_height = max(screen_height - TASKBAR_MARGIN, 300)
+    width = max(min(width, screen_width - 20), 300)
+    height = min(height, usable_height)
+    x = max((screen_width - width) // 2, 0)
+    y = max((usable_height - height) // 2, 0)
+    return f"{width}x{height}+{x}+{y}"
+
+
 def local_api_url(config: dict[str, Any], path: str) -> str:
     """
     URL de la API local para las acciones de la ventana (reportes X/Z, comandos, reloj).
@@ -291,11 +314,12 @@ class MainWindow:
         self._current_log_path = None
         self._ui_queue: queue.Queue[str] = queue.Queue()
         self._relock_callbacks: list[Any] = []
+        self._placed = False  # La ventana se centra la primera vez que se muestra
 
         self.root = tb.Window(
             title="API Printer Spooler",
             themename="darkly",
-            size=(980, 720),
+            size=WINDOW_SIZE,
             on_close=self._on_close,
         )
         self._set_window_icon()
@@ -444,8 +468,25 @@ class MainWindow:
 
     def show(self) -> None:
         self.root.deiconify()
+        if not self._placed:  # Windows la dejaba pegada (o por debajo de) la barra de tareas
+            self._place_window()
+            self._placed = True
         self.root.lift()
         self.root.focus_force()
+
+    def _place_window(self) -> None:
+        """Centra la ventana en la pantalla limitando su alto al área útil (pantalla menos barra de tareas)."""
+        try:
+            self.root.update_idletasks()
+            geometry = window_geometry(
+                self.root.winfo_screenwidth(),
+                self.root.winfo_screenheight(),
+                self.root.winfo_width() or WINDOW_SIZE[0],
+                self.root.winfo_height() or WINDOW_SIZE[1],
+            )
+            self.root.geometry(geometry)
+        except Exception as e:  # noqa: BLE001 - colocar la ventana nunca debe impedir mostrarla
+            logger.debug("No se pudo centrar la ventana: %s", e)
 
     def hide(self) -> None:
         self.root.withdraw()

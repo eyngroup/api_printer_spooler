@@ -140,3 +140,16 @@ def test_default_payment_labels_fit_machine_limit():
     labels = _load_default_payment_labels()
     assert main_window.payment_labels_too_long(labels) == []
     assert all(len(v) <= main_window.PAYMENT_LABEL_MAX_CHARS for v in labels.values())
+
+
+@pytest.mark.parametrize(
+    ("screen", "wanted", "expected"),
+    [
+        ((1920, 1080), (980, 720), "980x720+470+135"),  # cabe entera: centrada en el área útil
+        ((1366, 768), (980, 720), "980x678+193+0"),  # pantalla baja: el alto se limita a 768 - 90
+        ((800, 600), (980, 720), "780x510+10+0"),  # pantalla pequeña: ancho y alto limitados
+    ],
+)
+def test_window_geometry_fits_the_screen(screen, wanted, expected):
+    """La ventana se centra y nunca sobrepasa el área útil (pantalla menos barra de tareas)."""
+    assert main_window.window_geometry(*screen, *wanted) == expected
