@@ -218,3 +218,103 @@ def test_spanish_characters_printed_in_cp850(env):
     for text in ("JOSÉ MUÑOZ ÁLVAREZ", "Café Añejo ÍÓÚ", "Av. Bolívar, Caño", "María Pérez"):
         assert text.encode("cp850") in raw, text  # sin quitar acentos ni puntos
     assert "JOSÉ".encode("utf-8") not in raw  # ya no se envía UTF-8
+
+
+def with_currency(doc: dict, code: str, **rates) -> dict:
+    """Agrega operation_metadata con la moneda y las tasas indicadas."""
+    doc["operation_metadata"] = {"terminal_id": 1, "operator_id": 1, "currency_code": code, **rates}
+    return doc
+
+
+def test_usd_ticket_is_converted_from_bs(env):
+    """Ticket real: montos en Bs con tasa 1100 se imprimen en USD y el total coincide con el de Odoo."""
+    config, _, output = env
+    prices = [(8, 6600), (4, 880), (2, 4400), (2, 16500), (3, 770), (3, 770), (1, 5500)]
+    prices += [(1, 2046), (2, 2200), (1, 8800), (1, 15400), (1, 335500)]
+    data = make_document([make_item(price, tax=0, quantity=qty) for qty, price in prices])
+    with_currency(data, "USD", exchange_rate=1100.0, inverse_rate=1 / 1100)
+    data["payments"] = [{"payment_method": "01", "payment_name": "Efectivo", "payment_amount": 474386.00}]
+
+    TicketPrinter(config).print_document(data)
+
+    text = printed(output)
+    assert "8xUSD 6.00" in text
+    assert any(row.strip().endswith("USD 48.00") for row in text.splitlines())
+    assert line_with(text, "EXENTO") == "EXENTO  USD 431.26"
+    assert line_with(text, "TOTAL:") == "TOTAL:  USD 431.26"
+    assert line_with(text, "Efectivo") == "Efectivo  USD 431.26"
+
+
+def test_usd_ticket_with_decimal_rate_tax_and_discount(env):
+    """Tasa con decimales, IVA 16 % y descuento 10 %: los importes salen de los precios ya convertidos."""
+    config, _, output = env
+    rate = 36.5432
+    price = round(1000 / rate, 2)
+    subtotal = round(price * 2 * 0.9, 2)
+    tax = round(subtotal * 0.16, 2)
+    data = make_document([make_item(1000.0, 10, "discount_percentage", tax=16, quantity=2)])
+    with_currency(data, "USD", exchange_rate=rate)
+
+    TicketPrinter(config).print_document(data)
+
+    text = printed(output)
+    assert line_with(text, "Producto (G)").endswith(f"USD {subtotal:.2f}")
+    assert line_with(text, "IVA G").endswith(f"USD {tax:.2f}")
+    assert line_with(text, "TOTAL:") == f"TOTAL:  USD {round(subtotal + tax, 2):.2f}"
+
+
+@pytest.mark.parametrize("metadata", [None, "VES"])
+def test_bolivar_ticket_is_unchanged(env, metadata):
+    """Documento en VES (o sin operation_metadata) imprime Bs con los montos tal cual."""
+    config, _, output = env
+    data = make_document([make_item(1000.0, tax=0, quantity=1)])
+    if metadata:
+        with_currency(data, metadata, exchange_rate=1100.0)
+
+    TicketPrinter(config).print_document(data)
+
+    text = printed(output)
+    assert line_with(text, "TOTAL:") == "TOTAL:  Bs 1000.00"
+    assert "USD" not in text
+
+
+@pytest.mark.parametrize("code", ["", "VES", "vef", " bs "])
+def test_document_currency_fiscal_codes(code):
+    """Los códigos fiscales (sin importar mayúsculas) imprimen en Bs sin divisor."""
+    assert ticket.document_currency({"operation_metadata": {"currency_code": code, "exchange_rate": 5}}) == ("Bs", None)
+    assert ticket.document_currency({}) == ("Bs", None)
+
+
+def test_document_currency_foreign_rates(caplog):
+    """Divisor desde exchange_rate, desde inverse_rate o Bs con advertencia si no hay tasa."""
+    assert ticket.document_currency({"operation_metadata": {"currency_code": "USD", "exchange_rate": 1100}}) == (
+        "USD",
+        1100.0,
+    )
+    symbol, divisor = ticket.document_currency({"operation_metadata": {"currency_code": "USD", "inverse_rate": 0.001}})
+    assert symbol == "USD" and divisor == pytest.approx(1000)
+    with caplog.at_level("WARNING"):
+        assert ticket.document_currency({"operation_metadata": {"currency_code": "EUR"}}) == ("Bs", None)
+    assert "sin tasa de cambio" in caplog.text
+
+
+def test_convert_document_amounts():
+    """Convierte precios, descuentos por monto y pagos; los porcentajes quedan y el original no se muta."""
+    data = {
+        "items": [
+            {"item_price": 1100.0, "item_discount": 550.0, "item_discount_type": "discount_amount"},
+            {"item_price": 2200.0, "item_discount": 10, "item_discount_type": "discount_percentage"},
+        ],
+        "payments": [{"payment_amount": 3300.0}],
+    }
+    original = copy.deepcopy(data)
+
+    result = ticket.convert_document_amounts(data, 1100.0)
+
+    assert data == original
+    assert result["items"][0]["item_price"] == 1.0
+    assert result["items"][0]["item_discount"] == 0.5
+    assert result["items"][1]["item_price"] == 2.0
+    assert result["items"][1]["item_discount"] == 10
+    assert result["payments"][0]["payment_amount"] == 3.0
+    assert ticket.convert_document_amounts(data, None) is data

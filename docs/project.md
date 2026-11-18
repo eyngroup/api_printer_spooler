@@ -192,7 +192,9 @@ respuesta a Odoo. Por eso se requiere CORS y un Odoo con `https` no puede llamar
 - `document.document_number`: id del registro de Odoo con ceros a la izquierda (10 dígitos). Es la **clave de
   idempotencia** y **nunca se imprime** como número del documento; el número fiscal lo asigna la máquina.
   `document.document_name` se imprime como referencia (`REF:`).
-- **Todos los montos van en Bs**, aun si el documento está en otra moneda. `item_price` es unitario, **sin
+- **Todos los montos van en Bs**, aun si el documento está en otra moneda. El ticket no fiscal convierte a la
+  moneda del documento con `operation_metadata.exchange_rate` (Bs por unidad; `inverse_rate` como respaldo) y la
+  etiqueta con `currency_code`; la máquina fiscal y la matricial siguen imprimiendo en Bs. `item_price` es unitario, **sin
   impuesto**; `item_quantity` admite 3 decimales; `item_discount` es siempre un porcentaje, con
   `item_discount_type` = `discount_percentage` o `surcharge_percentage` (descuento negativo).
 - `item_tax` es el porcentaje (`0`, `8`, `16`, `31`); cualquier otra tasa se rechaza con HTTP 400.
@@ -202,8 +204,8 @@ respuesta a Odoo. Por eso se requiere CORS y un Odoo con `https` no puede llamar
   empresa (3 %). El flag 50 de la HKA debe estar activo.
 - Notas de crédito y débito llevan `affected_document` (`affected_number` = número fiscal del documento origen,
   `affected_date`, `affected_serial`). Los importes de las notas son positivos.
-- Claves adicionales que Odoo envía: `doc_reference`, `operation_metadata.currency_code`, `exchange_rate`,
-  `inverse_rate`.
+- Claves adicionales que Odoo envía: `doc_reference` y, dentro de `operation_metadata`, `currency_code`,
+  `exchange_rate` e `inverse_rate`.
 
 Reintento: Odoo no reintenta solo; el usuario repite la operación con el **mismo `document_number`** y el spooler
 responde desde su almacén de trabajos sin imprimir de nuevo (ver [Idempotencia y recuperación](#idempotencia-y-recuperación)).

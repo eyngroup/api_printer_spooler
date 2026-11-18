@@ -7,6 +7,7 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Clase para una impresora de tickets.
 """
 
+import copy
 import json
 import logging
 import os
@@ -32,6 +33,57 @@ logger = logging.getLogger(__name__)
 # Codificación del texto del ticket: CP850 (ñ, acentos en minúscula y mayúscula, ¡ ¿), seleccionada en la
 # impresora con ESCPOScmd.CMD_CHARSET_PC850 (ESC t 2). Verificado en una tiquera POS80.
 TEXT_ENCODING = "cp850"
+
+# Códigos de moneda que equivalen a bolívares (moneda fiscal). Odoo siempre envía los montos en Bs.
+FISCAL_CURRENCY_CODES = {"", "VES", "VEF", "BS"}
+
+
+def _positive_number(value: Any) -> float | None:
+    """Devuelve el valor como float si es un número mayor que cero; de lo contrario None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if value > 0 else None
+
+
+def document_currency(data: dict[str, Any]) -> tuple[str, float | None]:
+    """
+    Determina la moneda en la que se imprime el ticket y el divisor para convertir los montos desde Bs.
+
+    Returns:
+        tuple[str, float | None]: (símbolo, divisor). Para bolívares o sin tasa utilizable: ("Bs", None).
+    """
+    metadata = data.get("operation_metadata") or {}
+    code = str(metadata.get("currency_code") or "").strip().upper()
+    if code in FISCAL_CURRENCY_CODES:
+        return "Bs", None
+    divisor = _positive_number(metadata.get("exchange_rate"))
+    if divisor is None:
+        inverse = _positive_number(metadata.get("inverse_rate"))
+        divisor = 1 / inverse if inverse else None
+    if divisor is None:
+        logger.warning("Moneda %s sin tasa de cambio utilizable: el ticket se imprime en Bs.", code)
+        return "Bs", None
+    return code, divisor
+
+
+def convert_document_amounts(data: dict[str, Any], divisor: float | None) -> dict[str, Any]:
+    """
+    Copia el documento y convierte de Bs a la moneda del documento los montos que Odoo envía en Bs:
+    precio unitario, descuento/recargo de tipo monto y pagos. Los porcentajes no se tocan.
+    """
+    if divisor is None:
+        return data
+    converted = copy.deepcopy(data)
+    for item in converted.get("items", []):
+        if "item_price" in item:
+            item["item_price"] = round(item["item_price"] / divisor, 2)
+        if item.get("item_discount_type") in ("discount_amount", "surcharge_amount") and "item_discount" in item:
+            item["item_discount"] = round(item["item_discount"] / divisor, 2)
+    for payment in converted.get("payments") or []:
+        if "payment_amount" in payment:
+            payment["payment_amount"] = round(payment["payment_amount"] / divisor, 2)
+    return converted
+
 
 
 def _clean_text(text: str) -> str:
@@ -524,20 +576,18 @@ class TicketPrinter(BasePrinter):
 
         return customer
 
-    def _format_items(self, data: Dict[str, Any]) -> List[str]:
+    def _format_items(self, data: Dict[str, Any], symbol: str = "Bs") -> List[str]:
         """
         Formatea los items del ticket
         Args:
-            data: Datos del documento
+            data: Datos del documento (ya convertido a la moneda del documento)
+            symbol: Etiqueta de moneda
         Returns:
             List[str]: Líneas de items
         """
         items = []
         width = self.template["format"]["width"]
         subtotal = 0.0
-
-        currency_code = data.get("operation_metadata", {}).get("currency_code", "VEF")
-        symbol = "USD" if currency_code == "USD" else "Bs"
 
         for item in data["items"]:  # Procesar cada item
             quantity = item.get("item_quantity", 1)
@@ -621,19 +671,17 @@ class TicketPrinter(BasePrinter):
         tax_indicators = {0: "(E)", 8: "(R)", 16: "(G)", 31: "(A)"}
         return tax_indicators.get(tax_rate, "")
 
-    def _format_totals(self, data: Dict[str, Any]) -> List[str]:
+    def _format_totals(self, data: Dict[str, Any], symbol: str = "Bs") -> List[str]:
         """
         Formatea los totales del ticket
         Args:
-            data: Datos del documento
+            data: Datos del documento (ya convertido a la moneda del documento)
+            symbol: Etiqueta de moneda
         Returns:
             List[str]: Líneas de totales
         """
         totals = []
         width = self.template["format"]["width"]
-
-        currency_code = data.get("operation_metadata", {}).get("currency_code", "VEF")
-        symbol = "USD" if currency_code == "USD" else "Bs"
 
         # Inicializar diccionarios para agrupar bases e impuestos
         tax_bases = {0: 0, 16: 0, 8: 0, 31: 0}
@@ -809,8 +857,11 @@ class TicketPrinter(BasePrinter):
         content.extend(self._format_header())  # Encabezado
         content.extend(self._format_customer_info(data))  # Datos del cliente
         content.extend(self._format_sub_header(data, fiscal_data))  # Sub-encabezado
-        content.extend(self._format_items(data))  # Items
-        content.extend(self._format_totals(data))  # Totales
+        # Odoo envía todo en Bs: se convierte una sola vez a la moneda del documento (tasa en operation_metadata)
+        symbol, divisor = document_currency(data)
+        converted = convert_document_amounts(data, divisor)
+        content.extend(self._format_items(converted, symbol))  # Items
+        content.extend(self._format_totals(converted, symbol))  # Totales
         content.extend(self._format_footer(data))  # Pie de página
 
         content.extend(
