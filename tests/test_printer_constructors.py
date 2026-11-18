@@ -24,7 +24,8 @@ class FakeController:
         return None
 
 
-CONFIG = {"fiscal_enabled": True, "fiscal_name": "x", "fiscal_port": "COM9", "fiscal_baudrate": 9600, "fiscal_timeout": 2}
+CONFIG = {"fiscal_enabled": True, "fiscal_name": "x", "fiscal_port": "COM9", "fiscal_baudrate": 9600}
+CONFIG["fiscal_timeout"] = 2
 
 
 @pytest.mark.parametrize(

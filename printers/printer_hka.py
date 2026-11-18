@@ -67,7 +67,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
         self.port = config.get("fiscal_port")
         self.timeout = config.get("fiscal_timeout", 2)
         self.barcode_type = config.get("fiscal_barcode_type", "CODE128")
-        self._printer: FiscalPrinterHka = FiscalPrinterHka(self.port, self.baudrate, self.timeout)  # type: ignore[assignment]
+        self._printer: FiscalPrinterHka = None  # type: ignore[assignment]  # lo crea _initialize_printer
         self._model = None  # Modelo de la impresora
 
         self._serial = None  # Serial de la impresora
@@ -93,7 +93,7 @@ class TfhkaPrinter(FiscalPrinterMixin, BasePrinter):
     def _model_key(self) -> str:
         """
         Clave del modelo en las tablas de config/ (hka_max_char.json, hka_barcode_rules.json). La máquina reporta
-        "HKA-80" (SV) y las tablas usan "HKA_80": se normaliza a mayúsculas con guion bajo para que sean el mismo modelo.
+        "HKA-80" (SV) y las tablas usan "HKA_80": se normaliza a mayúsculas con guion bajo (mismo modelo).
         Returns:
             str: Modelo normalizado (p. ej. "HKA_80"), o cadena vacía si aún no se conoce
         """
