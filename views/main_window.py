@@ -465,7 +465,16 @@ class MainWindow:
         entry.pack(pady=(0, 10))
 
         def unlock(event=None) -> None:
-            if code_var.get() == get_security_code():
+            expected_code = get_security_code()
+            if not expected_code:
+                # Sin código configurado no hay con qué comparar: nunca se desbloquea (ni con el campo vacío)
+                Messagebox.show_error(
+                    "No hay código de seguridad configurado. Defina security.security_code en config/config.json "
+                    "(o la variable PRINTER_SECURITY_CODE) y reinicie.",
+                    title,
+                )
+                code_var.set("")
+            elif code_var.get() == expected_code:
                 lock_frame.pack_forget()
                 content.pack(fill=tbc.BOTH, expand=tbc.YES)
                 code_var.set("")

@@ -251,11 +251,14 @@ def get_monitor_push_config(config: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def get_security_code() -> str:
-    """Obtiene el security code: env var > config.json > fallback."""
+    """
+    Obtiene el security code: variable de entorno > config.json.
+    Ya no existe un código por defecto: si no hay ninguno configurado devuelve "" y la ventana no desbloquea.
+    """
     if code := os.environ.get("PRINTER_SECURITY_CODE"):
         return code
     config_code = ConfigManager.get_config().get("security", {}).get("security_code", "")
-    return config_code if config_code else "0205"
+    return config_code or ""
 
 
 class ConfigReloader(FileSystemEventHandler):  # pylint: disable=R0903

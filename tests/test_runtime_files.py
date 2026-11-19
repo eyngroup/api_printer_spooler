@@ -80,3 +80,9 @@ def test_build_excludes_runtime_files_but_keeps_defaults():
         assert os.path.normpath(relative) not in dests
         assert os.path.normpath(default_path_for(relative)) in dests
     assert os.path.normpath("config/hka_max_char.json") in dests
+
+
+def test_default_config_has_debug_off():
+    """El config por defecto no activa el modo debug de Flask."""
+    data = json.loads((REPO / "config" / "defaults" / "config.json").read_text(encoding="utf-8"))
+    assert data["server"]["server_debug"] is False

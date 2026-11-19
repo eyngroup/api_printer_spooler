@@ -44,7 +44,7 @@ El archivo de configuración está dividido en las siguientes secciones principa
 - `server_mode`: Modo de operación del servidor. Puede ser "SPOOLER" o "PROXY".
 - `server_host`: Dirección IP del servidor.
 - `server_port`: Puerto del servidor.
-- `server_debug`: Habilita el modo debug para desarrollo.
+- `server_debug`: Habilita el modo debug para desarrollo. Por defecto `false`.
 - `auto_browser`: Abrir navegador automáticamente al iniciar.
 - `allowed_origins`: Lista de patrones Regex para dominios permitidos (CORS). Si se omite, se usan valores seguros por defecto.
 
@@ -210,7 +210,9 @@ El archivo de configuración está dividido en las siguientes secciones principa
 }
 ```
 #### Configuración de Seguridad
-- `security_code`: Código de seguridad para operaciones protegidas.
+- `security_code`: Código de seguridad para operaciones protegidas. No existe un código por defecto: si está vacío
+  (y la variable de entorno `PRINTER_SECURITY_CODE` tampoco lo define) las secciones protegidas de la ventana
+  no se desbloquean y se muestra un aviso. Defínalo y reinicie la aplicación.
 
 ## Modos de Operación
 

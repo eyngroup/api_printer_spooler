@@ -11,7 +11,7 @@
         ],
         "auto_browser": false,
         "scan_serial_port": true,
-        "server_debug": true,
+        "server_debug": false,
         "server_host": "localhost",
         "server_mode": "SPOOLER",
         "server_port": 5051
