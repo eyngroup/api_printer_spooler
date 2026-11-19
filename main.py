@@ -12,6 +12,7 @@ import glob
 import logging
 import os
 import re
+import socket
 import sys
 import threading
 import webbrowser
@@ -80,6 +81,50 @@ def autodetect_serial_port(config: dict) -> None:
         logger.info(f"El puerto actual ({current_port}) ya es el correcto.")
 
 
+def port_is_free(host: str, port: int) -> bool:
+    """
+    Indica si se puede escuchar en host:port (nadie más lo está usando).
+
+    Intenta un bind rápido y cierra el socket enseguida. En Linux se activa SO_REUSEADDR (igual que Flask) para
+    no confundir un puerto en TIME_WAIT con una instancia viva; en Windows no se activa porque allí permitiría
+    robar un puerto en uso.
+    Args:
+        host: Dirección de escucha (p. ej. "0.0.0.0" o "127.0.0.1").
+        port: Puerto TCP.
+    Returns:
+        bool: True si el puerto está libre.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if sys.platform != "win32":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, int(port)))
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def show_fatal_dialog(title: str, message: str) -> None:
+    """
+    Muestra un error con un diálogo Tk simple cuando la ventana principal aún no existe. Nunca lanza excepciones.
+    Args:
+        title: Título del diálogo.
+        message: Mensaje para el usuario.
+    """
+    try:
+        import tkinter
+        from tkinter import messagebox
+
+        root = tkinter.Tk()
+        root.withdraw()
+        messagebox.showerror(title, message, parent=root)
+        root.destroy()
+    except Exception as e:  # noqa: BLE001 - sin entorno gráfico solo queda el log
+        logging.getLogger(__name__).warning("No se pudo mostrar el diálogo de error: %s", e)
+
+
 def run_apply_update() -> int:
     """
     Modo `--apply-update`: aplica una actualización descargada y termina, sin iniciar nada de la aplicación
@@ -104,9 +149,7 @@ def run_apply_update() -> int:
 CLEANUP_UPDATES_DELAY_SECONDS = 60  # espera antes de limpiar updates/ tras el arranque
 
 
-def schedule_cleanup_updates(
-    install_dir: str, delay: float = CLEANUP_UPDATES_DELAY_SECONDS
-) -> threading.Timer:
+def schedule_cleanup_updates(install_dir: str, delay: float = CLEANUP_UPDATES_DELAY_SECONDS) -> threading.Timer:
     """
     Programa `cleanup_updates` en un hilo daemon tras `delay` segundos, sin bloquear el arranque. Cualquier fallo
     se registra y nunca se propaga.
@@ -152,6 +195,19 @@ def main():
     logger.info("=" * 60)
     logger.info("Versión actual: %s-Ian", __version__)
 
+    # Instancia única: si el puerto del API ya está ocupado (otra instancia de la aplicación) se avisa y se sale
+    # ANTES de tocar el puerto serial, el observador, el programador del monitor, la ventana y la bandeja.
+    server_host = config.get("server", {}).get("server_host", "0.0.0.0")
+    server_port = config.get("server", {}).get("server_port", 5000)
+    if not port_is_free(server_host, server_port):
+        message = (
+            f"Ya hay una instancia de API Printer Spooler usando el puerto {server_port}. "
+            "Cierre la otra instancia (icono en la bandeja) antes de abrir esta."
+        )
+        logger.critical(message)
+        show_fatal_dialog("API Printer Spooler", message)
+        sys.exit(1)
+
     # Auto-detección de puerto (Pre-Flight Check)
     autodetect_serial_port(config)
 
@@ -171,8 +227,6 @@ def main():
     tray = TrayManager(app, base_path, main_window=window)
     tray.run()
 
-    server_host = config.get("server", {}).get("server_host", "0.0.0.0")
-    server_port = config.get("server", {}).get("server_port", 5000)
     server_debug = config.get("server", {}).get("server_debug", False)
 
     logger.info("Iniciando Servidor API REST en http://%s:%s", server_host, server_port)
@@ -182,9 +236,13 @@ def main():
         webbrowser.open(f"http://{server_host}:{server_port}")
 
     def run_flask() -> None:
-        app.run(
-            host=server_host, port=server_port, debug=server_debug, passthrough_errors=True, use_reloader=False
-        )
+        # Si el servidor no puede iniciar (puerto ocupado, host inválido) el hilo moría en silencio y la aplicación
+        # quedaba abierta sin API: se registra y se informa en la ventana.
+        try:
+            app.run(host=server_host, port=server_port, debug=server_debug, passthrough_errors=True, use_reloader=False)
+        except Exception as e:  # noqa: BLE001 - cualquier fallo del servidor debe verse
+            logger.critical("El servidor API no pudo iniciar en %s:%s: %s", server_host, server_port, e)
+            window.report_fatal(f"El servidor API no pudo iniciar en {server_host}:{server_port}: {e}")
 
     # Flask pasa a un hilo daemon: el hilo principal queda libre para el mainloop de la GUI.
     flask_thread = threading.Thread(target=run_flask, daemon=True)

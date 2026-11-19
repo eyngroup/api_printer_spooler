@@ -341,7 +341,7 @@ class MainWindow:
     def __init__(self, flask_app=None):
         self.flask_app = flask_app
         self._current_log_path = None
-        self._ui_queue: queue.Queue[str] = queue.Queue()
+        self._ui_queue: queue.Queue[str | tuple[str, str]] = queue.Queue()
         self._relock_callbacks: list[Any] = []
         self._placed = False  # La ventana se centra la primera vez que se muestra
 
@@ -496,6 +496,15 @@ class MainWindow:
     def request_quit(self) -> None:
         self._ui_queue.put("quit")
 
+    def report_fatal(self, message: str) -> None:
+        """
+        Informa un error grave desde cualquier hilo (p. ej. el hilo de Flask que no pudo iniciar).
+        Es thread-safe: solo encola; el hilo de Tk muestra la ventana y el mensaje de error.
+        Args:
+            message: Texto del error para el usuario.
+        """
+        self._ui_queue.put(("error", message))
+
     def show(self) -> None:
         self.root.deiconify()
         if not self._placed:  # Windows la dejaba pegada (o por debajo de) la barra de tareas
@@ -533,7 +542,10 @@ class MainWindow:
         try:
             while True:
                 msg = self._ui_queue.get_nowait()
-                if msg == "show":
+                if isinstance(msg, tuple) and msg[0] == "error":
+                    self.show()
+                    Messagebox.show_error(msg[1], "Servidor API")
+                elif msg == "show":
                     self.show()
                 elif msg == "hide":
                     self.hide()
