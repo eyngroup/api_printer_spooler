@@ -1845,6 +1845,16 @@ class MainWindow:
 
     def _print_report(self, report_type: str) -> None:
         """Pide el reporte X o Z en un hilo; mientras dura bloquea ambos botones para que no se solapen."""
+        if report_type == "Z":
+            # El Z cierra el día fiscal y no se puede deshacer: se confirma antes de enviarlo (mismo estilo de
+            # botones personalizados que la actualización y la restauración de la base de datos)
+            answer = Messagebox.yesno(
+                "El reporte Z cierra el día fiscal y no se puede deshacer. ¿Imprimir el reporte Z ahora?",
+                "Reportes Fiscales",
+                buttons=["No:secondary", "Sí:danger"],
+            )
+            if str(answer).lower() not in ("sí", "si", "yes"):
+                return
         config = ConfigManager.get_config()
         self.report_x_button.configure(state=tbc.DISABLED)
         self.report_z_button.configure(state=tbc.DISABLED)
