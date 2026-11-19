@@ -8,7 +8,7 @@ from handy.tools import normalize_text
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("Pérez & Hijos, C.A.", "Perez & Hijos, CA"),  # el & se imprime; el punto se sigue quitando (acorta el nombre)
+        ("Pérez & Hijos, C.A.", "Perez & Hijos, C.A."),  # el & y los puntos se imprimen
         ("A&B", "A&B"),
         ("Inversiones  &  Servicios", "Inversiones & Servicios"),
     ],
@@ -22,8 +22,10 @@ def test_normalize_text_keeps_ampersand(text: str, expected: str):
     ("text", "expected"),
     [
         ("Ñandú Café", "Nandu Cafe"),  # acentos y eñe se reducen a ASCII
-        ("Av. Bolívar c/ calle 5", "Av Bolivar c calle 5"),  # punto y barra se siguen quitando
+        ("Av. Bolívar c/ calle 5", "Av. Bolivar c calle 5"),  # el punto se conserva; la barra se quita
         ("Precio <10> \\ ok", "Precio 10 ok"),
+        ("Tornillo 1|2", "Tornillo 12"),  # "|" es el separador de campos 0x1C del PNP: se quita
+        ("ventas@empresa.com.ve", "ventas@empresa.com.ve"),  # los correos conservan sus puntos
         ("  varios   espacios  ", "varios espacios"),
     ],
 )
