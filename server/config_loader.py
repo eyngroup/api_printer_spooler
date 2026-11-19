@@ -17,6 +17,7 @@ from jsonschema import validate
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from handy.atomic_write import write_json_atomic
 from handy.runtime_files import default_path_for, ensure_runtime_files
 from handy.tools import get_base_path
 
@@ -269,6 +270,12 @@ class ConfigReloader(FileSystemEventHandler):  # pylint: disable=R0903
             logger.info("Detectado cambio en config.json. Recargando...")
             self.callback()
 
+    def on_moved(self, event):
+        """Maneja el reemplazo atómico (os.replace de un temporal) del archivo de configuración"""
+        if str(getattr(event, "dest_path", "")).endswith("config.json"):
+            logger.info("Detectado reemplazo de config.json. Recargando...")
+            self.callback()
+
 
 class ConfigManager:
     """Gestor centralizado de configuración con validación de esquema"""
@@ -326,5 +333,5 @@ class ConfigManager:
     @staticmethod
     def save_config(new_config):
         """Guarda la nueva configuración en el archivo"""
-        with open(ConfigManager._config_path, "w", encoding="utf-8") as f:
-            json.dump(new_config, f, indent=4, ensure_ascii=False)
+        # Escritura atómica: un corte de energía a mitad de la escritura no debe truncar config.json
+        write_json_atomic(str(ConfigManager._config_path), new_config, indent=4)

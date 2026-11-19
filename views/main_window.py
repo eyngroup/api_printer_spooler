@@ -23,6 +23,7 @@ from jsonschema import ValidationError, validate
 from ttkbootstrap import constants as tbc
 from ttkbootstrap.dialogs import Messagebox
 
+from handy.atomic_write import write_json_atomic
 from handy.log_handler import clean_log_line, current_log_path
 from handy.serial_scan import get_serial_scanner
 from handy.tools import get_base_path, normalize_text
@@ -148,8 +149,8 @@ def _load_json_file(path: str) -> dict[str, Any]:
 
 
 def _save_json_file(path: str, data: dict[str, Any]) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    # Escritura atómica: un corte de energía a mitad de la escritura no debe truncar el template
+    write_json_atomic(path, data, indent=2)
 
 
 # Hosts con los que Flask escucha en todas las interfaces: desde la propia PC se llega por 127.0.0.1
