@@ -30,9 +30,10 @@ from server.handlers.job_store import (
     restart_job,
     set_counter_before,
 )
-from server.handlers.printer_manager import PrinterManager
+from server.handlers.printer_manager import PrinterBusyError, PrinterManager
 
 HTTP_BAD_REQUEST = 400
+HTTP_CONFLICT = 409
 HTTP_INTERNAL_ERROR = 500
 PRINTER_TYPE_FISCAL = "fiscal"
 PRINTER_TYPE_MATRIX = "matrix"
@@ -567,79 +568,88 @@ def handle_documents(proxy_handler: Any | None = None) -> tuple[Response, int]:
         # acquire_result is 'new' or 'retry' (o 'unknown' ya conciliado como no emitido) — proceed
         # Desde aquí el trabajo está en 'processing': toda salida debe dejarlo en un estado final,
         # o Odoo recibiría 409 indefinidamente para este documento.
-        printer = None
-        counter_before = None  # Contador de la máquina antes de imprimir (solo HKA)
+        # Solo la impresora fiscal comparte el puerto serial: ticket y matriz no toman el lock del manager
+        guard = (
+            PrinterManager.operation() if find_value(printers_config, "fiscal_enabled") else contextlib.nullcontext()
+        )
         try:
-            printer, error_data = printer_instance(printers_config)
-            if not printer:
-                if error_data:
-                    if "state" in error_data and "error" in error_data:
-                        message = (
-                            f"Impresora no disponible - Estado: {error_data['state']}, Error: {error_data['error']}"
+            with guard:
+                printer = None
+                counter_before = None  # Contador de la máquina antes de imprimir (solo HKA)
+                try:
+                    printer, error_data = printer_instance(printers_config)
+                    if not printer:
+                        if error_data:
+                            if "state" in error_data and "error" in error_data:
+                                message = f"Impresora no disponible - Estado: {error_data['state']}, Error: {error_data['error']}"
+                            else:
+                                message = error_data.get("message", "Error desconocido al obtener la impresora")
+                            fail_job(invoice.document_number, invoice.operation_type, message)
+                            return error_response(message, data=error_data, state="Impresora no disponible")
+                        fail_job(invoice.document_number, invoice.operation_type, "No hay impresoras habilitadas")
+                        return error_response(
+                            "No hay impresoras habilitadas para procesar el documento", state="Impresora no disponible"
                         )
-                    else:
-                        message = error_data.get("message", "Error desconocido al obtener la impresora")
-                    fail_job(invoice.document_number, invoice.operation_type, message)
-                    return error_response(message, data=error_data, state="Impresora no disponible")
-                fail_job(invoice.document_number, invoice.operation_type, "No hay impresoras habilitadas")
+
+                    counter_before = _read_counter_before(printer, invoice)
+                    result = printer.print_document(data)  # Procesar el documento
+                    logger.debug("Documento result= %s", result)
+                except Exception as e:  # Cualquier falla debe liberar el trabajo
+                    # Falla antes o durante la impresión: misma semántica que un error devuelto por el driver,
+                    # que cancela el documento abierto en la máquina. Se libera el trabajo para permitir el reintento.
+                    error_msg = f"Error interno durante la impresión: {e!s}"
+                    logger.exception("Documento %s: %s", invoice.document_number, error_msg)
+                    if counter_before is not None:
+                        # La máquina pudo emitir el documento antes de la falla: se verifica con su contador
+                        reconciled = _reconcile_failed_print(printer_type, fiscal_config, invoice)
+                        if reconciled is not None:
+                            return reconciled
+                    _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
+                    # Si la impresora existe, se intenta informar su estado real (una sola lectura, sin fallar).
+                    return error_response(error_msg, HTTP_INTERNAL_ERROR, data=_fill_status_from_printer(printer, None))
+
+                if result.get("status", False):
+                    response_payload = {
+                        "status": True,
+                        "message": result.get("message", "Documento procesado correctamente"),
+                        "data": result.get("data", {}),
+                    }
+                    # El documento ya fue emitido: aunque no se pueda registrar, se responde con éxito para que
+                    # Odoo guarde el número fiscal. Nunca se marca como fallido (evita una doble impresión).
+                    _complete_job_safely(invoice.document_number, invoice.operation_type, response_payload)
+                    logger.info("Documento Origen: %s, impreso correctamente", invoice.document_number)
+                    return jsonify(response_payload)
+
+                error_msg = result.get("message", "Error desconocido al imprimir")
+                if result.get("printed"):
+                    # El documento salió impreso pero sin número fiscal (p. ej. PNP con respuesta de cierre corta):
+                    # se guarda la respuesta como completada para que un reintento de Odoo nunca lo reimprima.
+                    failure_payload = {
+                        "status": False,
+                        "message": error_msg,
+                        "data": _normalize_failure_data(result.get("data"), error_msg, "Documento impreso"),
+                    }
+                    _complete_job_safely(invoice.document_number, invoice.operation_type, failure_payload)
+                    logger.error("Documento %s impreso sin número fiscal: %s", invoice.document_number, error_msg)
+                    return jsonify(failure_payload), HTTP_BAD_REQUEST
+
+                if counter_before is not None:
+                    # El driver reportó falla (p. ej. USB cortado tras el cierre): se verifica en la máquina
+                    reconciled = _reconcile_failed_print(printer_type, fiscal_config, invoice)
+                    if reconciled is not None:
+                        return reconciled
+
+                _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
                 return error_response(
-                    "No hay impresoras habilitadas para procesar el documento", state="Impresora no disponible"
+                    error_msg,
+                    data=_fill_status_from_printer(printer, result.get("data")),
+                    state="Error de impresión",
                 )
 
-            counter_before = _read_counter_before(printer, invoice)
-            result = printer.print_document(data)  # Procesar el documento
-            logger.debug("Documento result= %s", result)
-        except Exception as e:  # Cualquier falla debe liberar el trabajo
-            # Falla antes o durante la impresión: misma semántica que un error devuelto por el driver,
-            # que cancela el documento abierto en la máquina. Se libera el trabajo para permitir el reintento.
-            error_msg = f"Error interno durante la impresión: {e!s}"
-            logger.exception("Documento %s: %s", invoice.document_number, error_msg)
-            if counter_before is not None:
-                # La máquina pudo emitir el documento antes de la falla: se verifica con su contador
-                reconciled = _reconcile_failed_print(printer_type, fiscal_config, invoice)
-                if reconciled is not None:
-                    return reconciled
-            _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
-            # Si la impresora existe, se intenta informar su estado real (una sola lectura, sin fallar).
-            return error_response(error_msg, HTTP_INTERNAL_ERROR, data=_fill_status_from_printer(printer, None))
-
-        if result.get("status", False):
-            response_payload = {
-                "status": True,
-                "message": result.get("message", "Documento procesado correctamente"),
-                "data": result.get("data", {}),
-            }
-            # El documento ya fue emitido: aunque no se pueda registrar, se responde con éxito para que
-            # Odoo guarde el número fiscal. Nunca se marca como fallido (evita una doble impresión).
-            _complete_job_safely(invoice.document_number, invoice.operation_type, response_payload)
-            logger.info("Documento Origen: %s, impreso correctamente", invoice.document_number)
-            return jsonify(response_payload)
-
-        error_msg = result.get("message", "Error desconocido al imprimir")
-        if result.get("printed"):
-            # El documento salió impreso pero sin número fiscal (p. ej. PNP con respuesta de cierre corta):
-            # se guarda la respuesta como completada para que un reintento de Odoo nunca lo reimprima.
-            failure_payload = {
-                "status": False,
-                "message": error_msg,
-                "data": _normalize_failure_data(result.get("data"), error_msg, "Documento impreso"),
-            }
-            _complete_job_safely(invoice.document_number, invoice.operation_type, failure_payload)
-            logger.error("Documento %s impreso sin número fiscal: %s", invoice.document_number, error_msg)
-            return jsonify(failure_payload), HTTP_BAD_REQUEST
-
-        if counter_before is not None:
-            # El driver reportó falla (p. ej. USB cortado tras el cierre): se verifica en la máquina
-            reconciled = _reconcile_failed_print(printer_type, fiscal_config, invoice)
-            if reconciled is not None:
-                return reconciled
-
-        _fail_job_safely(invoice.document_number, invoice.operation_type, error_msg)
-        return error_response(
-            error_msg,
-            data=_fill_status_from_printer(printer, result.get("data")),
-            state="Error de impresión",
-        )
+        except PrinterBusyError as e:
+            # La impresora atiende otra operación: se libera el trabajo para que Odoo reintente
+            _fail_job_safely(invoice.document_number, invoice.operation_type, str(e))
+            return error_response(str(e), HTTP_CONFLICT, state="Impresora ocupada")
 
     except Exception as e:
         return error_response(f"Error interno del servidor: {str(e)}", HTTP_INTERNAL_ERROR)
@@ -721,37 +731,40 @@ def handle_reports(report_type: str) -> tuple[Response, int]:
         if not fiscal_config or not fiscal_config.get("fiscal_enabled", False):
             return error_response("Impresora fiscal no está habilitada", state="Impresora no disponible")
 
-        printer, error_data = printer_instance(printers_config)
+        with PrinterManager.operation():  # serializa todo el diálogo serial con la impresora
+            printer, error_data = printer_instance(printers_config)
 
-        if not printer:
-            if error_data:
-                return error_response(error_data["message"], data=error_data, state="Impresora no disponible")
-            return error_response("No se pudo obtener la impresora fiscal", state="Impresora no disponible")
+            if not printer:
+                if error_data:
+                    return error_response(error_data["message"], data=error_data, state="Impresora no disponible")
+                return error_response("No se pudo obtener la impresora fiscal", state="Impresora no disponible")
 
-        if not printer.check_status():  # Verificar que la impresora está lista
-            return error_response("La impresora fiscal no está lista", state="Impresora no disponible")
+            if not printer.check_status():  # Verificar que la impresora está lista
+                return error_response("La impresora fiscal no está lista", state="Impresora no disponible")
 
-        method = f"report_{report_type.lower()}"  # Imprimir reporte
-        if not hasattr(printer, method):
-            return error_response(f"Esta impresora no soporta reportes {report_type}")
+            method = f"report_{report_type.lower()}"  # Imprimir reporte
+            if not hasattr(printer, method):
+                return error_response(f"Esta impresora no soporta reportes {report_type}")
 
-        logger.info("Imprimiendo reporte %s", report_type)
-        if report_type.upper() == "Z":
-            # Lectura nueva del monitor justo antes del cierre (total oficial del día); solo encola y nunca bloquea el Z
-            monitor_push.enqueue_before_z(current_app.config)
-        result = getattr(printer, method)()
-
-        if result:
-            response: dict[str, Any] = {"status": True, "message": f"Reporte {report_type} impreso correctamente"}
+            logger.info("Imprimiendo reporte %s", report_type)
             if report_type.upper() == "Z":
-                clock_sync = _sync_clock_after_z(printers_config)  # el driver ya esperó 3 s tras el Z
-                if clock_sync is not None:
-                    response["data"] = {"clock_sync": clock_sync}
-                # Después del ajuste de reloj (lo primero que debe hablar con la máquina tras el Z): lectura posterior
-                monitor_push.start_after_z(current_app.config)
-            return jsonify(response), 200
-        return error_response(f"Error al imprimir reporte {report_type}")
+                # Lectura nueva del monitor justo antes del cierre (total oficial del día); solo encola y nunca bloquea el Z
+                monitor_push.enqueue_before_z(current_app.config)
+            result = getattr(printer, method)()
 
+            if result:
+                response: dict[str, Any] = {"status": True, "message": f"Reporte {report_type} impreso correctamente"}
+                if report_type.upper() == "Z":
+                    clock_sync = _sync_clock_after_z(printers_config)  # el driver ya esperó 3 s tras el Z
+                    if clock_sync is not None:
+                        response["data"] = {"clock_sync": clock_sync}
+                    # Después del ajuste de reloj (lo primero que debe hablar con la máquina tras el Z): lectura posterior
+                    monitor_push.start_after_z(current_app.config)
+                return jsonify(response), 200
+            return error_response(f"Error al imprimir reporte {report_type}")
+
+    except PrinterBusyError as e:
+        return error_response(str(e), HTTP_CONFLICT, state="Impresora ocupada")
     except Exception as e:
         return error_response(f"Error al imprimir reporte {report_type}: {str(e)}", HTTP_INTERNAL_ERROR)
 
@@ -787,43 +800,44 @@ def handle_fiscal_commands() -> tuple[Response, int]:
         if not fiscal_config or not fiscal_config.get("fiscal_enabled", False):
             return error_response("Impresora fiscal no está habilitada", state="Impresora no disponible")
 
-        printer, error_data = printer_instance(printers_config)
-        if not printer:
-            message = (
-                error_data.get("message", "Error fiscal desconocido")
-                if error_data
-                else "No se pudo obtener la impresora fiscal"
-            )
-            return error_response(message, data=error_data, state="Impresora no disponible")
-
-        if not printer.check_status():
-            fiscal_name = printers_config.get("fiscal", {}).get("fiscal_name", "").strip().lower()
-            PrinterManager.remove_printer(fiscal_name)
+        with PrinterManager.operation():  # serializa todo el diálogo serial con la impresora
             printer, error_data = printer_instance(printers_config)
             if not printer:
                 message = (
-                    error_data.get("message", "Error al reconectar con la impresora")
+                    error_data.get("message", "Error fiscal desconocido")
                     if error_data
-                    else "No se pudo reconectar con la impresora fiscal"
+                    else "No se pudo obtener la impresora fiscal"
                 )
                 return error_response(message, data=error_data, state="Impresora no disponible")
+
             if not printer.check_status():
-                return error_response("La impresora fiscal no está lista", state="Impresora no disponible")
+                fiscal_name = printers_config.get("fiscal", {}).get("fiscal_name", "").strip().lower()
+                PrinterManager.remove_printer(fiscal_name)
+                printer, error_data = printer_instance(printers_config)
+                if not printer:
+                    message = (
+                        error_data.get("message", "Error al reconectar con la impresora")
+                        if error_data
+                        else "No se pudo reconectar con la impresora fiscal"
+                    )
+                    return error_response(message, data=error_data, state="Impresora no disponible")
+                if not printer.check_status():
+                    return error_response("La impresora fiscal no está lista", state="Impresora no disponible")
 
-        # Un Z enviado como comando directo: lectura nueva del monitor antes de enviar (una sola vez por solicitud)
-        if any(Z_COMMAND_PATTERN.match(str(cmd).strip()) for cmd in commands):
-            monitor_push.enqueue_before_z(current_app.config)
+            # Un Z enviado como comando directo: lectura nueva del monitor antes de enviar (una sola vez por solicitud)
+            if any(Z_COMMAND_PATTERN.match(str(cmd).strip()) for cmd in commands):
+                monitor_push.enqueue_before_z(current_app.config)
 
-        results = []
-        for cmd in commands:
-            success = printer.send_command(cmd)
-            results.append({"command": cmd, "success": success})
+            results = []
+            for cmd in commands:
+                success = printer.send_command(cmd)
+                results.append({"command": cmd, "success": success})
 
-        # Un Z enviado como comando directo también deja la máquina lista para ajustar su reloj
-        clock_sync = None
-        if any(r["success"] and Z_COMMAND_PATTERN.match(str(r["command"]).strip()) for r in results):
-            clock_sync = _sync_clock_after_z(printers_config, CLOCK_SYNC_DELAY_SECONDS)
-            monitor_push.start_after_z(current_app.config)  # tras el ajuste de reloj, sin demorar la respuesta
+            # Un Z enviado como comando directo también deja la máquina lista para ajustar su reloj
+            clock_sync = None
+            if any(r["success"] and Z_COMMAND_PATTERN.match(str(r["command"]).strip()) for r in results):
+                clock_sync = _sync_clock_after_z(printers_config, CLOCK_SYNC_DELAY_SECONDS)
+                monitor_push.start_after_z(current_app.config)  # tras el ajuste de reloj, sin demorar la respuesta
 
         # El estado global refleja el resultado real: Odoo envía un comando por llamada y no debe
         # recibir un éxito si la impresora lo rechazó (el detalle por comando se mantiene en data).
@@ -841,5 +855,7 @@ def handle_fiscal_commands() -> tuple[Response, int]:
             response["clock_sync"] = clock_sync
         return jsonify(response), 200
 
+    except PrinterBusyError as e:
+        return error_response(str(e), HTTP_CONFLICT, state="Impresora ocupada")
     except Exception as e:
         return error_response(f"Error procesando comandos: {str(e)}", HTTP_INTERNAL_ERROR)

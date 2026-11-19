@@ -246,3 +246,30 @@ def test_clock_endpoint_rejected_reports_estado_and_error(app_client, monkeypatc
     assert body["message"] == PrinterManager.CLOCK_REJECTED_MESSAGE
     assert body["data"]["Estado"] and body["data"]["Error"]
     assert body["data"]["drift_seconds"] == 3300
+
+
+def test_report_x_returns_409_when_printer_is_busy(app_client, monkeypatch):
+    import threading
+
+    taken, release = threading.Event(), threading.Event()
+
+    def _holder():
+        with PrinterManager._lock:
+            taken.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=_holder, daemon=True)
+    thread.start()
+    assert taken.wait(2)
+    original = PrinterManager.operation.__func__
+    monkeypatch.setattr(PrinterManager, "operation", classmethod(lambda cls, timeout=60.0: original(cls, timeout=0.1)))
+    monkeypatch.setattr(document_handler, "printer_instance", lambda cfg: (_printer(), None))
+    try:
+        response = app_client.get("/api/report_x")
+    finally:
+        release.set()
+        thread.join(2)
+    assert response.status_code == 409
+    body = response.get_json()
+    assert body["status"] is False
+    assert "ocupada" in body["message"]

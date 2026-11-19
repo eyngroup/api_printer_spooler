@@ -327,3 +327,42 @@ def test_read_fiscal_summary_none_for_pnp_or_failure(monkeypatch):
     monkeypatch.setattr(controllers.pfhka, "FiscalPrinterHka", _NoS1)
     assert PrinterManager.read_fiscal_summary("pnp", HKA_CONFIG) is None
     assert PrinterManager.read_fiscal_summary("tfhka", HKA_CONFIG) is None
+
+
+# --- PrinterManager.operation: serialización del acceso serial ---
+
+
+def _hold_lock_in_thread():
+    """Toma el lock del manager en otro hilo; devuelve (liberar, hilo)."""
+    import threading
+
+    taken, release = threading.Event(), threading.Event()
+
+    def _holder():
+        with PrinterManager._lock:
+            taken.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=_holder, daemon=True)
+    thread.start()
+    assert taken.wait(2)
+    return release, thread
+
+
+def test_operation_raises_busy_when_lock_held_by_another_thread():
+    from server.handlers.printer_manager import PrinterBusyError
+
+    release, thread = _hold_lock_in_thread()
+    try:
+        with pytest.raises(PrinterBusyError, match="ocupada"), PrinterManager.operation(timeout=0.1):
+            pass
+    finally:
+        release.set()
+        thread.join(2)
+
+
+def test_operation_is_reentrant_in_the_same_thread():
+    with PrinterManager.operation(timeout=0.1), PrinterManager.operation(timeout=0.1):
+        PrinterManager.remove_printer("tfhka")  # llamada anidada del manager: no se bloquea
+    with PrinterManager.operation(timeout=0.1):  # el lock quedó liberado
+        pass

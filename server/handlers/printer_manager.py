@@ -6,6 +6,7 @@ Licensed under the GNU Affero General Public License, version 3 or later.
 Clase Singleton para manejar las instancias de impresoras.
 """
 
+import contextlib
 import logging
 import threading
 from collections.abc import Callable
@@ -13,6 +14,14 @@ from datetime import datetime
 from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
+
+
+class PrinterBusyError(RuntimeError):
+    """La impresora fiscal está ocupada con otra operación y no se obtuvo el lock a tiempo."""
+
+    def __init__(self, message: str = "La impresora fiscal está ocupada con otra operación") -> None:
+        """Crea el error con el mensaje por defecto que se muestra a Odoo."""
+        super().__init__(message)
 
 
 class PrinterManager:
@@ -26,6 +35,29 @@ class PrinterManager:
     # Serializa la creación/eliminación de instancias y el acceso al puerto serial durante la creación
     # (Flask atiende cada solicitud en un hilo distinto). Reentrante: get_printer llama a remove_printer.
     _lock = threading.RLock()
+
+    @classmethod
+    @contextlib.contextmanager
+    def operation(cls, timeout: float = 60.0):
+        """
+        Reserva el acceso exclusivo al puerto serial fiscal mientras dura el bloque.
+
+        Toda conversación serial (imprimir, reportes X/Z, comandos directos, lecturas del monitor, ajuste
+        de reloj) debe ocurrir dentro de este bloque para que dos tramas nunca se entrelacen. Usa el mismo
+        RLock del manager, por lo que es reentrante: dentro del bloque se pueden llamar get_printer,
+        remove_printer, sync_clock, etc. desde el mismo hilo sin bloquearse.
+        Args:
+            timeout: Segundos máximos de espera por el lock.
+        Raises:
+            PrinterBusyError: Si no se obtuvo el lock dentro del tiempo indicado.
+        """
+        acquired = cls._lock.acquire(timeout=timeout)
+        if not acquired:
+            raise PrinterBusyError
+        try:
+            yield
+        finally:
+            cls._lock.release()
 
     @classmethod
     def get_printer(cls, printer_type: str, printer_config: dict[str, Any]) -> Any | None:
